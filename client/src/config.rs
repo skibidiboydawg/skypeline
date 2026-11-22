@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-pub const DEFAULT_SERVER_URL: &str = "https://rezixyzz-co.hf.space";
+pub const DEFAULT_SERVER_URL: &str = "https://skypeline-co.onrender.com";
 pub const LOCAL_SERVER_URL: &str = "http://127.0.0.1:7860";
 const CONFIG_PATH: &str = "config.json";
 

@@ -2,6 +2,7 @@
 .env
 .env.*
 /target
+/target-render
 /build
 config.json
 

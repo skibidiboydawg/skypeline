@@ -32,4 +32,6 @@ pub enum UiEvent {
     Status(String),
     Error(String),
     Disconnected,
+    /// A WebSocket connection was re-established after a drop.
+    Reconnected,
 }

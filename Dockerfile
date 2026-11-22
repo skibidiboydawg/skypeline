@@ -1,4 +1,5 @@
-# Multi-stage build for Hugging Face Docker Spaces (PORT=7860)
+# Multi-stage build for the Skypeline relay server.
+# PORT defaults to 7860 (Hugging Face/local); Render overrides it to 10000.
 FROM rust:1.100-slim-bookworm AS builder
 
 WORKDIR /app

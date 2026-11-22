@@ -116,6 +116,9 @@ pub enum WsClientMsg {
         height: u32,
         jpeg_b64: String,
     },
+    /// No-op keepalive so short-lived hosts (e.g. Render free) see inbound
+    /// WebSocket traffic and do not spin the service down while you're online.
+    Ping,
 }
 
 /// Server -> Client WebSocket messages (no user IPs are ever included).

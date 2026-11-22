@@ -425,9 +425,34 @@ impl SkyApp {
                     self.notice = error;
                 }
                 UiEvent::Disconnected => {
-                    self.notice = "Disconnected from relay — check server URL".into();
-                    self.in_voice = false;
-                    self.sharing = false;
+                    self.notice = "Relay connection lost — reconnecting...".into();
+                    // Keep the local voice/screen capture running. The background
+                    // task retries automatically; state is re-registered below.
+                    self.participants.clear();
+                    self.screen_texture = None;
+                    self.screen_owner = None;
+                }
+                UiEvent::Reconnected => {
+                    self.notice = "Reconnected to relay".into();
+                    if let Some(ws) = &self.ws_tx {
+                        let _ = ws.send(WsClientMsg::SetPresence { status: self.presence });
+                        if self.in_voice {
+                            let _ = ws.send(WsClientMsg::JoinVoice {
+                                room: VOICE_ROOM.to_string(),
+                            });
+                            let _ = ws.send(WsClientMsg::SetVoiceState {
+                                muted: self.muted,
+                                deafened: self.deafened,
+                                speaking: false,
+                            });
+                            if self.sharing {
+                                let _ = ws.send(WsClientMsg::SetScreenShare {
+                                    room: VOICE_ROOM.to_string(),
+                                    active: true,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -30,14 +30,21 @@ Ultra-lightweight, Skype-inspired desktop chat, voice calling, and screen-sharin
    ```
 4. In the client **Settings**, set **Server URL** to the local endpoint `http://127.0.0.1:7860`.
 
-The client ships with the default Server URL `https://rezixyzz-co.hf.space` and can be switched at any time in **Settings** to `http://127.0.0.1:7860` for local testing.
+The client ships with the default Server URL `https://skypeline-co.onrender.com` and can be switched at any time in **Settings** to `http://127.0.0.1:7860` for local testing.
 
-## Deploying to Hugging Face Spaces
-1. Create a new **Docker** Space on Hugging Face.
-2. Add `DATABASE_URL` (your Aiven PostgreSQL `?sslmode=require` URI) and `JWT_SECRET` in **Space Settings → Variables and secrets**.
-3. `git push` this repo to your Space remote. The server binds `0.0.0.0:$PORT` (default `7860`) and serves `GET /`.
-4. In the desktop client **Settings**, set **Server URL** to `https://rezixyzz-co.hf.space` (the default).
+## Deploying to Render + Neon
+The relay hub is intentionally in-memory, so the server must run as a **single instance**. Do not enable autoscaling.
+
+1. Create a free PostgreSQL database at [Neon](https://neon.tech). Copy the connection string with `?sslmode=require`.
+2. In Render, create a new **Blueprint** from this repository (or a public Git URL pointing at it). `render.yaml` provisions one free Docker web service named `skypeline-co`.
+3. When prompted, set:
+   - `DATABASE_URL` — the Neon connection string from step 1.
+   - `JWT_SECRET` — a long random value, e.g. `openssl rand -hex 32`.
+4. Render exposes the service at `https://skypeline-co.onrender.com`. The app binds `0.0.0.0:$PORT` (Render sets `10000`) and serves `GET /` and `GET /health`.
+5. In the desktop client **Settings**, set **Server URL** to `https://skypeline-co.onrender.com` (the default). If that Render subdomain is already taken, use the URL Render assigns and update it in Settings.
+
+The free Render service sleeps after ~15 minutes of inactivity; the first connection can take about a minute to wake it. The client now retries with exponential backoff and sends a no-op keepalive every 45 seconds, so staying signed in keeps the relay awake. Voice and screen captures also survive a reconnect and are re-registered automatically.
 
 ## Git remotes
-- Hugging Face Space: `https://huggingface.co/spaces/Rezixyzz/Co`
-- Push with `git push hf main` after adding the `hf` remote.
+- Hugging Face Space (legacy, currently paused on the free CPU quota): `https://huggingface.co/spaces/Rezixyzz/Co`
+- Render deploys from the same repository via `render.yaml`.

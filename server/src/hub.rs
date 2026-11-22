@@ -340,5 +340,7 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                 },
             );
         }
+        // Keepalive only: intentional no-op so idle hosts stay awake.
+        WsClientMsg::Ping => {}
     }
 }
