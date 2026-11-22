@@ -1,24 +1,17 @@
 //! Local, non-secret desktop preferences. Stored in `config.json`, which is
-//! git-ignored. Never store tokens or passwords here.
+//! git-ignored. Never store tokens, passwords, or server overrides here.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 pub const DEFAULT_SERVER_URL: &str = "https://skypeline-co.onrender.com";
-pub const LOCAL_SERVER_URL: &str = "http://127.0.0.1:7860";
 const CONFIG_PATH: &str = "config.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default = "default_server_url")]
-    pub server_url: String,
     #[serde(default = "default_dark_mode")]
     pub dark_mode: bool,
-}
-
-fn default_server_url() -> String {
-    DEFAULT_SERVER_URL.to_string()
 }
 
 fn default_dark_mode() -> bool {
@@ -28,7 +21,6 @@ fn default_dark_mode() -> bool {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            server_url: default_server_url(),
             dark_mode: default_dark_mode(),
         }
     }
@@ -39,18 +31,13 @@ impl Config {
         if !Path::new(CONFIG_PATH).exists() {
             return Self::default();
         }
-        match fs::read_to_string(CONFIG_PATH)
+
+        // Older config.json files may contain a server_url field; serde ignores
+        // it because this release is hosted-only.
+        fs::read_to_string(CONFIG_PATH)
             .ok()
             .and_then(|s| serde_json::from_str::<Config>(&s).ok())
-        {
-            Some(mut cfg) => {
-                if cfg.server_url.trim().is_empty() {
-                    cfg.server_url = default_server_url();
-                }
-                cfg
-            }
-            None => Self::default(),
-        }
+            .unwrap_or_default()
     }
 
     pub fn save(&self) {
@@ -59,8 +46,8 @@ impl Config {
         }
     }
 
-    /// Trim trailing slashes so URL joining is predictable.
+    /// The hosted relay is fixed. No local/Hugging Face server switching.
     pub fn base_url(&self) -> String {
-        self.server_url.trim().trim_end_matches('/').to_string()
+        DEFAULT_SERVER_URL.trim_end_matches('/').to_string()
     }
 }

@@ -11,7 +11,7 @@ services:
     autoDeployTrigger: commit
     envVars:
       # Render routes public traffic to $PORT. The Dockerfile default (7860)
-      # remains for Hugging Face/local use; this overrides it on Render.
+      # is only a container default; this overrides it on Render.
       - key: PORT
         value: 10000
       # Neon PostgreSQL connection string, e.g.
@@ -21,3 +21,9 @@ services:
       # Long random value (32+ bytes). Generate with: openssl rand -hex 32
       - key: JWT_SECRET
         sync: false
+      # Managed Better Auth base URL for the Neon production branch.
+      - key: NEON_AUTH_BASE_URL
+        value: https://ep-lively-haze-baehoxza.neonauth.c-8.eu-central-1.aws.neon.tech/neondb/auth
+      # Trusted origin Neon Auth uses when sending verification emails.
+      - key: NEON_AUTH_ORIGIN
+        value: https://skypeline-co.onrender.com

@@ -1,7 +1,10 @@
 //! Small REST client for the server's authenticated JSON API.
 
 use serde::Serialize;
-use skypeline_shared::{AuthResponse, ChannelInfo, LoginRequest, MessageDto, RegisterRequest};
+use skypeline_shared::{
+    AuthResponse, ChannelInfo, LoginRequest, MessageDto, RegisterRequest, RegisterResponse,
+    ResendCodeRequest, StatusResponse, VerifyCodeRequest,
+};
 
 #[derive(Clone)]
 pub struct ApiClient {
@@ -63,8 +66,16 @@ impl ApiClient {
         self.post("/api/login", req, None).await
     }
 
-    pub async fn register(&self, req: &RegisterRequest) -> Result<AuthResponse, String> {
+    pub async fn register(&self, req: &RegisterRequest) -> Result<RegisterResponse, String> {
         self.post("/api/register", req, None).await
+    }
+
+    pub async fn verify_code(&self, req: &VerifyCodeRequest) -> Result<AuthResponse, String> {
+        self.post("/api/verify-code", req, None).await
+    }
+
+    pub async fn resend_code(&self, req: &ResendCodeRequest) -> Result<StatusResponse, String> {
+        self.post("/api/resend-code", req, None).await
     }
 
     pub async fn channels(&self, token: &str) -> Result<Vec<ChannelInfo>, String> {

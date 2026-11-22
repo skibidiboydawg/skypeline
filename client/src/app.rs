@@ -3,7 +3,7 @@
 
 use crate::api::ApiClient;
 use crate::audio::AudioEngine;
-use crate::config::{Config, LOCAL_SERVER_URL};
+use crate::config::Config;
 use crate::events::UiEvent;
 use crate::net;
 use crate::screen::ScreenShare;
@@ -12,7 +12,7 @@ use eframe::egui;
 use egui::{Color32, Context, RichText, TextureOptions, Ui};
 use skypeline_shared::{
     AuthResponse, ChannelInfo, LoginRequest, MessageDto, OnlineUser, PresenceStatus,
-    RegisterRequest, VoiceParticipant, WsClientMsg,
+    RegisterRequest, ResendCodeRequest, VerifyCodeRequest, VoiceParticipant, WsClientMsg,
 };
 use std::sync::mpsc;
 use tokio::sync::mpsc as tmpsc;
@@ -32,6 +32,12 @@ enum AuthTab {
     Register,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthStep {
+    Credentials,
+    VerifyCode,
+}
+
 pub struct SkyApp {
     rt: tokio::runtime::Runtime,
     config: Config,
@@ -40,11 +46,14 @@ pub struct SkyApp {
 
     page: Page,
     auth_tab: AuthTab,
+    auth_step: AuthStep,
     login_email: String,
     login_password: String,
     register_email: String,
     register_username: String,
     register_password: String,
+    verify_email: String,
+    verify_code: String,
     busy: bool,
     notice: String,
 
@@ -57,7 +66,6 @@ pub struct SkyApp {
     draft: String,
     presence: PresenceStatus,
     settings_open: bool,
-    settings_url: String,
 
     participants: Vec<VoiceParticipant>,
     in_voice: bool,
@@ -80,7 +88,6 @@ impl SkyApp {
         let config = Config::load();
         theme::apply(&_cc.egui_ctx, config.dark_mode);
         let (events_tx, events_rx) = mpsc::channel();
-        let settings_url = config.base_url();
 
         Self {
             rt: tokio::runtime::Runtime::new().expect("create tokio runtime"),
@@ -89,13 +96,16 @@ impl SkyApp {
             events_rx,
             page: Page::Login,
             auth_tab: AuthTab::Login,
+            auth_step: AuthStep::Credentials,
             login_email: String::new(),
             login_password: String::new(),
             register_email: String::new(),
             register_username: String::new(),
             register_password: String::new(),
+            verify_email: String::new(),
+            verify_code: String::new(),
             busy: false,
-            notice: format!("Server: {}", settings_url),
+            notice: format!("Hosted service: {}", Config::default().base_url()),
             token: None,
             me: None,
             channels: Vec::new(),
@@ -105,7 +115,6 @@ impl SkyApp {
             draft: String::new(),
             presence: PresenceStatus::Online,
             settings_open: false,
-            settings_url,
             participants: Vec::new(),
             in_voice: false,
             muted: false,
@@ -307,6 +316,9 @@ impl SkyApp {
         self.token = None;
         self.me = None;
         self.page = Page::Login;
+        self.auth_step = AuthStep::Credentials;
+        self.verify_email.clear();
+        self.verify_code.clear();
         self.channels.clear();
         self.messages.clear();
         self.online.clear();
@@ -328,6 +340,13 @@ impl SkyApp {
                     self.notice = format!("Signed in as {}", response.username);
                     self.connect_ws(&response.token);
                     self.load_channels();
+                }
+                UiEvent::RegisterPending(response) => {
+                    self.busy = false;
+                    self.verify_email = response.email;
+                    self.verify_code.clear();
+                    self.auth_step = AuthStep::VerifyCode;
+                    self.notice = response.message;
                 }
                 UiEvent::Channels(channels) => {
                     for channel in channels {
@@ -468,62 +487,113 @@ impl SkyApp {
                 ui.label("Chat, voice and screen sharing — relayed, never peer-to-peer.");
                 ui.add_space(18.0);
 
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.auth_tab, AuthTab::Login, "Sign in");
-                    ui.selectable_value(&mut self.auth_tab, AuthTab::Register, "Create account");
-                });
-                ui.add_space(12.0);
+                match self.auth_step {
+                    AuthStep::Credentials => {
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut self.auth_tab, AuthTab::Login, "Sign in");
+                            ui.selectable_value(
+                                &mut self.auth_tab,
+                                AuthTab::Register,
+                                "Create account",
+                            );
+                        });
+                        ui.add_space(12.0);
 
-                match self.auth_tab {
-                    AuthTab::Login => {
-                        ui.label("Email");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.login_email)
-                                .desired_width(280.0)
-                                .hint_text("you@example.com"),
-                        );
-                        ui.label("Password");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.login_password)
-                                .password(true)
-                                .desired_width(280.0)
-                                .hint_text("Password"),
-                        );
-                        ui.add_space(8.0);
-                        if ui.add(egui::Button::new("Sign in").min_size([180.0, 34.0].into())).clicked()
-                            && !self.busy
-                        {
-                            self.submit_login();
+                        match self.auth_tab {
+                            AuthTab::Login => {
+                                ui.label("Email");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.login_email)
+                                        .desired_width(280.0)
+                                        .hint_text("you@example.com"),
+                                );
+                                ui.label("Password");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.login_password)
+                                        .password(true)
+                                        .desired_width(280.0)
+                                        .hint_text("Password"),
+                                );
+                                ui.add_space(8.0);
+                                if ui
+                                    .add(
+                                        egui::Button::new("Sign in")
+                                            .min_size([180.0, 34.0].into()),
+                                    )
+                                    .clicked()
+                                    && !self.busy
+                                {
+                                    self.submit_login();
+                                }
+                            }
+                            AuthTab::Register => {
+                                ui.label("Email");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.register_email)
+                                        .desired_width(280.0)
+                                        .hint_text("you@example.com"),
+                                );
+                                ui.label("Username");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.register_username)
+                                        .desired_width(280.0)
+                                        .hint_text("Display name"),
+                                );
+                                ui.label("Password (8+ characters)");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.register_password)
+                                        .password(true)
+                                        .desired_width(280.0)
+                                        .hint_text("Password"),
+                                );
+                                ui.add_space(8.0);
+                                if ui
+                                    .add(
+                                        egui::Button::new("Create account")
+                                            .min_size([180.0, 34.0].into()),
+                                    )
+                                    .clicked()
+                                    && !self.busy
+                                {
+                                    self.submit_register();
+                                }
+                            }
                         }
                     }
-                    AuthTab::Register => {
-                        ui.label("Email");
+                    AuthStep::VerifyCode => {
+                        ui.heading(RichText::new("Confirm your email").size(22.0).strong());
+                        ui.label(format!(
+                            "Enter the confirmation code sent to {}",
+                            self.verify_email
+                        ));
+                        ui.add_space(10.0);
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.register_email)
-                                .desired_width(280.0)
-                                .hint_text("you@example.com"),
-                        );
-                        ui.label("Username");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.register_username)
-                                .desired_width(280.0)
-                                .hint_text("Display name"),
-                        );
-                        ui.label("Password (6+ characters)");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.register_password)
-                                .password(true)
-                                .desired_width(280.0)
-                                .hint_text("Password"),
+                            egui::TextEdit::singleline(&mut self.verify_code)
+                                .desired_width(200.0)
+                                .hint_text("Confirmation code"),
                         );
                         ui.add_space(8.0);
                         if ui
-                            .add(egui::Button::new("Create account").min_size([180.0, 34.0].into()))
+                            .add(
+                                egui::Button::new("Verify & sign in")
+                                    .min_size([180.0, 34.0].into()),
+                            )
                             .clicked()
                             && !self.busy
                         {
-                            self.submit_register();
+                            self.submit_verify();
                         }
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Resend code").clicked() && !self.busy {
+                                self.resend_code();
+                            }
+                            if ui.small_button("Back to sign in").clicked() && !self.busy {
+                                self.auth_step = AuthStep::Credentials;
+                                self.auth_tab = AuthTab::Login;
+                                self.verify_code.clear();
+                                self.notice = "Sign in with your confirmed account.".into();
+                            }
+                        });
                     }
                 }
 
@@ -531,16 +601,11 @@ impl SkyApp {
                 self.ui_notice(ui);
                 ui.add_space(20.0);
                 ui.separator();
-                ui.label("Server URL (editable in Settings)");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings_url).desired_width(360.0),
+                ui.label(RichText::new("Hosted service").small().strong());
+                ui.hyperlink_to(
+                    Config::default().base_url(),
+                    Config::default().base_url(),
                 );
-                ui.hyperlink_to("Hugging Face Space", "https://huggingface.co/spaces/Rezixyzz/Co");
-                ui.label(format!("Local testing: {LOCAL_SERVER_URL}"));
-                if ui.small_button("Use local server").clicked() {
-                    self.settings_url = LOCAL_SERVER_URL.to_string();
-                    self.apply_server_url();
-                }
             });
         });
     }
@@ -585,7 +650,51 @@ impl SkyApp {
         self.rt.spawn(async move {
             match api.register(&request).await {
                 Ok(response) => {
+                    let _ = tx.send(UiEvent::RegisterPending(response));
+                }
+                Err(error) => {
+                    let _ = tx.send(UiEvent::Error(error));
+                }
+            }
+        });
+    }
+
+    fn submit_verify(&mut self) {
+        if self.busy {
+            return;
+        }
+        let api = self.api();
+        let tx = self.events_tx.clone();
+        let request = VerifyCodeRequest {
+            email: self.verify_email.clone(),
+            code: self.verify_code.clone(),
+        };
+        self.busy = true;
+        self.notice = "Confirming code...".into();
+        self.rt.spawn(async move {
+            match api.verify_code(&request).await {
+                Ok(response) => {
                     let _ = tx.send(UiEvent::SignedIn(response));
+                }
+                Err(error) => {
+                    let _ = tx.send(UiEvent::Error(error));
+                }
+            }
+        });
+    }
+
+    fn resend_code(&mut self) {
+        let api = self.api();
+        let tx = self.events_tx.clone();
+        let request = ResendCodeRequest {
+            email: self.verify_email.clone(),
+        };
+        self.busy = true;
+        self.notice = "Sending a new code...".into();
+        self.rt.spawn(async move {
+            match api.resend_code(&request).await {
+                Ok(response) => {
+                    let _ = tx.send(UiEvent::Status(response.message));
                 }
                 Err(error) => {
                     let _ = tx.send(UiEvent::Error(error));
@@ -618,7 +727,6 @@ impl SkyApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Settings").clicked() {
                         self.settings_open = true;
-                        self.settings_url = self.config.base_url();
                     }
                     if ui.button("Sign out").clicked() {
                         self.sign_out();
@@ -808,29 +916,18 @@ impl SkyApp {
             return;
         }
         let mut open = self.settings_open;
+        let hosted_url = self.config.base_url();
         egui::Window::new("Settings")
             .open(&mut open)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.label("Server URL");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings_url).desired_width(340.0),
-                );
+                ui.label("Hosted service");
+                ui.hyperlink_to(hosted_url.clone(), hosted_url);
                 ui.label(
-                    RichText::new(format!(
-                        "Default: https://rezixyzz-co.hf.space\nLocal testing: {LOCAL_SERVER_URL}"
-                    ))
-                    .small()
-                    .weak(),
+                    RichText::new("Skypeline always connects to the hosted relay.")
+                        .small()
+                        .weak(),
                 );
-                ui.horizontal(|ui| {
-                    if ui.button("Use Hugging Face Space").clicked() {
-                        self.settings_url = "https://rezixyzz-co.hf.space".into();
-                    }
-                    if ui.button("Use local server").clicked() {
-                        self.settings_url = LOCAL_SERVER_URL.into();
-                    }
-                });
 
                 ui.add_space(8.0);
                 let mut dark = self.config.dark_mode;
@@ -840,32 +937,12 @@ impl SkyApp {
                     theme::apply(ctx, dark);
                 }
 
-                ui.add_space(8.0);
-                if ui.button("Apply & reconnect").clicked() {
-                    self.apply_server_url();
-                }
                 ui.separator();
                 if ui.button("Sign out").clicked() {
                     self.sign_out();
                 }
             });
         self.settings_open = open;
-    }
-
-    fn apply_server_url(&mut self) {
-        let url = self.settings_url.trim();
-        if url.is_empty() {
-            self.notice = "Server URL cannot be empty".into();
-            return;
-        }
-        self.config.server_url = url.to_string();
-        self.config.save();
-        self.settings_url = self.config.base_url();
-        self.notice = format!("Server set to {}", self.settings_url);
-        if let Some(token) = self.token.clone() {
-            self.connect_ws(&token);
-            self.load_channels();
-        }
     }
 }
 

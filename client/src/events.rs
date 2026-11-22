@@ -1,10 +1,14 @@
 //! Messages from background async tasks to the egui event loop.
 
-use skypeline_shared::{AuthResponse, ChannelInfo, MessageDto, OnlineUser, VoiceParticipant};
+use skypeline_shared::{
+    AuthResponse, ChannelInfo, MessageDto, OnlineUser, RegisterResponse, VoiceParticipant,
+};
 
 #[derive(Debug)]
 pub enum UiEvent {
     SignedIn(AuthResponse),
+    /// Sign-up succeeded but the emailed code still needs to be confirmed.
+    RegisterPending(RegisterResponse),
     Channels(Vec<ChannelInfo>),
     Messages {
         channel_id: i64,

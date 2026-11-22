@@ -41,6 +41,32 @@ pub struct AuthResponse {
     pub email: String,
 }
 
+/// Sign-up intentionally does not sign the user in. Neon Auth sends an email
+/// verification code that must be submitted through `/api/verify-code` first.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegisterResponse {
+    pub email: String,
+    pub verification_required: bool,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VerifyCodeRequest {
+    pub email: String,
+    pub code: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResendCodeRequest {
+    pub email: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StatusResponse {
+    pub ok: bool,
+    pub message: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChannelInfo {
     pub id: i64,

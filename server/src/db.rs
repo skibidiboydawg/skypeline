@@ -76,6 +76,20 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Neon Auth owns the user identity. This links the stable Neon user UUID
+    // to Skypeline's integer primary keys (used by messages and DM channels).
+    sqlx::query(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS neon_auth_user_id TEXT",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_neon_auth_user_id
+         ON users (neon_auth_user_id) WHERE neon_auth_user_id IS NOT NULL",
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages (channel_id, id)",
     )
@@ -100,28 +114,10 @@ pub struct UserRow {
     pub id: i64,
     pub email: String,
     pub username: String,
-    pub password_hash: String,
-}
-
-pub async fn create_user(
-    pool: &PgPool,
-    email: &str,
-    username: &str,
-    password_hash: &str,
-) -> Result<i64, sqlx::Error> {
-    let row = sqlx::query(
-        "INSERT INTO users (email, username, password_hash) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(email)
-    .bind(username)
-    .bind(password_hash)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.get("id"))
 }
 
 pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query("SELECT id, email, username, password_hash FROM users WHERE email = $1")
+    let row = sqlx::query("SELECT id, email, username FROM users WHERE email = $1")
         .bind(email)
         .fetch_optional(pool)
         .await?;
@@ -129,7 +125,79 @@ pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<Use
         id: r.get("id"),
         email: r.get("email"),
         username: r.get("username"),
-        password_hash: r.get("password_hash"),
+    }))
+}
+
+/// Placeholder stored in the legacy column now that passwords live in Neon Auth.
+const NEON_PASSWORD_PLACEHOLDER: &str = "managed-by-neon-auth";
+
+pub async fn find_user_by_neon_id(
+    pool: &PgPool,
+    neon_auth_user_id: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    let row = sqlx::query("SELECT id, email, username FROM users WHERE neon_auth_user_id = $1")
+        .bind(neon_auth_user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| UserRow {
+        id: r.get("id"),
+        email: r.get("email"),
+        username: r.get("username"),
+    }))
+}
+
+/// Creates the local projection of a Neon Auth user. Returns the existing row
+/// when the same Neon identity was already provisioned (e.g. a retried request).
+pub async fn create_neon_user(
+    pool: &PgPool,
+    neon_auth_user_id: &str,
+    email: &str,
+    username: &str,
+) -> Result<UserRow, sqlx::Error> {
+    if let Some(user) = find_user_by_neon_id(pool, neon_auth_user_id).await? {
+        if user.email.eq_ignore_ascii_case(email) {
+            return Ok(user);
+        }
+    }
+
+    let row = sqlx::query(
+        "INSERT INTO users (email, username, password_hash, neon_auth_user_id)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, email, username",
+    )
+    .bind(email)
+    .bind(username)
+    .bind(NEON_PASSWORD_PLACEHOLDER)
+    .bind(neon_auth_user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(UserRow {
+        id: row.get("id"),
+        email: row.get("email"),
+        username: row.get("username"),
+    })
+}
+
+/// Links a verified Neon Auth identity to a legacy row with the same email.
+pub async fn link_neon_user(
+    pool: &PgPool,
+    user_id: i64,
+    neon_auth_user_id: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
+    let row = sqlx::query(
+        "UPDATE users SET neon_auth_user_id = $1
+         WHERE id = $2 AND (neon_auth_user_id IS NULL OR neon_auth_user_id = $1)
+         RETURNING id, email, username",
+    )
+    .bind(neon_auth_user_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| UserRow {
+        id: r.get("id"),
+        email: r.get("email"),
+        username: r.get("username"),
     }))
 }
 

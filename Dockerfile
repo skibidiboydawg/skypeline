@@ -1,5 +1,5 @@
 # Multi-stage build for the Skypeline relay server.
-# PORT defaults to 7860 (Hugging Face/local); Render overrides it to 10000.
+# PORT defaults to 7860 in the container; Render overrides it to 10000.
 FROM rust:1.100-slim-bookworm AS builder
 
 WORKDIR /app
@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /app/target/release/skypeline-server /usr/local/bin/skypeline-server
 
-# Hugging Face Spaces runs as non-root uid 1000 on port 7860
+# Run as non-root uid 1000 on port 7860 inside the container
 RUN useradd -m -u 1000 user
 USER user
 ENV PORT=7860

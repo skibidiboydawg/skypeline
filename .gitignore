@@ -4,6 +4,7 @@
 /target
 /target-render
 /build
+/dist
 config.json
 
 # Build artifacts in nested crates
