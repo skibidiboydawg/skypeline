@@ -8,6 +8,7 @@ pub const SURFACE_SIDEBAR: Color32 = Color32::from_rgb(0x0B, 0x0F, 0x19);
 pub const SURFACE_MAIN: Color32 = Color32::from_rgb(0x11, 0x18, 0x27);
 pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x1F, 0x29, 0x37);
 pub const BORDER: Color32 = Color32::from_rgb(0x1F, 0x29, 0x37);
+pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x37, 0x41, 0x51);
 pub const ACCENT: Color32 = Color32::from_rgb(0x3B, 0x82, 0xF6);
 pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0x1D, 0x3A, 0x63);
 pub const HOVER: Color32 = Color32::from_rgb(0x27, 0x35, 0x47);
@@ -16,6 +17,10 @@ pub const SUCCESS: Color32 = Color32::from_rgb(0x22, 0xC5, 0x5E);
 
 pub fn border() -> Stroke {
     Stroke::new(1.0_f32, BORDER)
+}
+
+pub fn input_border() -> Stroke {
+    Stroke::new(1.0_f32, INPUT_BORDER)
 }
 
 /// Secondary/helper text with the exact muted color from the design spec.

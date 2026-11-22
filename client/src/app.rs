@@ -11,7 +11,7 @@ use crate::screen::ScreenShare;
 use crate::{native, theme};
 use base64::Engine as _;
 use eframe::egui;
-use egui::{Align2, Color32, Context, FontId, RichText, Sense, Stroke, TextureOptions, Ui};
+use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, TextureOptions, Ui};
 use skypeline_shared::{
     AuthResponse, AvatarUpload, ChannelInfo, FriendInfo, FriendRequest, FriendRespondRequest,
     FriendshipStatus, LoginRequest, MessageDto, OnlineUser, PresenceStatus, RegisterRequest,
@@ -52,7 +52,6 @@ enum SidebarTab {
 enum FriendsTab {
     All,
     Requests,
-    Add,
 }
 
 pub struct SkyApp {
@@ -142,7 +141,7 @@ impl SkyApp {
             verify_email: String::new(),
             verify_code: String::new(),
             busy: false,
-            notice: format!("Hosted service: {}", Config::default().base_url()),
+            notice: String::new(),
             token: None,
             me: None,
             channels: Vec::new(),
@@ -803,6 +802,25 @@ impl SkyApp {
             .inner
     }
 
+    fn auth_field(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egui::Response {
+        egui::Frame::new()
+            .fill(theme::SURFACE_SIDEBAR)
+            .stroke(theme::input_border())
+            .corner_radius(10.0)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(
+                    egui::TextEdit::singleline(value)
+                        .frame(false)
+                        .password(password)
+                        .hint_text(hint)
+                        .desired_width(ui.available_width()),
+                )
+            })
+            .inner
+    }
+
     fn auth_link(ui: &mut Ui, label: &str) -> bool {
         ui.add(
             egui::Button::new(RichText::new(label).color(theme::ACCENT).small())
@@ -877,7 +895,7 @@ impl SkyApp {
                                         ui.add_space(16.0);
 
                                         ui.label(theme::muted("Email"));
-                                        Self::form_field(
+                                        Self::auth_field(
                                             ui,
                                             &mut self.login_email,
                                             "you@example.com",
@@ -885,7 +903,7 @@ impl SkyApp {
                                         );
                                         ui.add_space(12.0);
                                         ui.label(theme::muted("Password"));
-                                        Self::form_field(
+                                        Self::auth_field(
                                             ui,
                                             &mut self.login_password,
                                             "Password",
@@ -901,9 +919,11 @@ impl SkyApp {
                                         .fill(theme::ACCENT)
                                         .corner_radius(9.0)
                                         .min_size([content_width, 40.0].into());
-                                        if ui.add_enabled(!self.busy, sign_in).clicked() {
-                                            self.submit_login();
-                                        }
+                                        ui.vertical_centered(|ui| {
+                                            if ui.add_enabled(!self.busy, sign_in).clicked() {
+                                                self.submit_login();
+                                            }
+                                        });
                                         ui.add_space(10.0);
                                         ui.vertical_centered(|ui| {
                                             if Self::auth_link(ui, "New here? Create account →")
@@ -930,7 +950,7 @@ impl SkyApp {
                                         ui.add_space(16.0);
 
                                         ui.label(theme::muted("Email"));
-                                        Self::form_field(
+                                        Self::auth_field(
                                             ui,
                                             &mut self.register_email,
                                             "you@example.com",
@@ -938,7 +958,7 @@ impl SkyApp {
                                         );
                                         ui.add_space(10.0);
                                         ui.label(theme::muted("Username"));
-                                        Self::form_field(
+                                        Self::auth_field(
                                             ui,
                                             &mut self.register_username,
                                             "Display name",
@@ -946,7 +966,7 @@ impl SkyApp {
                                         );
                                         ui.add_space(10.0);
                                         ui.label(theme::muted("Password (8+ characters)"));
-                                        Self::form_field(
+                                        Self::auth_field(
                                             ui,
                                             &mut self.register_password,
                                             "Password",
@@ -962,9 +982,11 @@ impl SkyApp {
                                         .fill(theme::ACCENT)
                                         .corner_radius(9.0)
                                         .min_size([content_width, 40.0].into());
-                                        if ui.add_enabled(!self.busy, create).clicked() {
-                                            self.submit_register();
-                                        }
+                                        ui.vertical_centered(|ui| {
+                                            if ui.add_enabled(!self.busy, create).clicked() {
+                                                self.submit_register();
+                                            }
+                                        });
                                         ui.add_space(10.0);
                                         ui.vertical_centered(|ui| {
                                             if Self::auth_link(
@@ -989,7 +1011,7 @@ impl SkyApp {
                                         self.verify_email
                                     )));
                                     ui.add_space(12.0);
-                                    Self::form_field(
+                                    Self::auth_field(
                                         ui,
                                         &mut self.verify_code,
                                         "6-digit code",
@@ -1004,9 +1026,11 @@ impl SkyApp {
                                     .fill(theme::ACCENT)
                                     .corner_radius(9.0)
                                     .min_size([content_width, 40.0].into());
-                                    if ui.add_enabled(!self.busy, verify).clicked() {
-                                        self.submit_verify();
-                                    }
+                                    ui.vertical_centered(|ui| {
+                                        if ui.add_enabled(!self.busy, verify).clicked() {
+                                            self.submit_verify();
+                                        }
+                                    });
                                     ui.add_space(10.0);
                                     ui.horizontal(|ui| {
                                         if Self::auth_link(ui, "Resend code") && !self.busy {
@@ -1207,15 +1231,19 @@ impl SkyApp {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let toggle = if self.config.dark_mode {
-                            "☀ Light"
+                        let (toggle_icon, toggle_label) = if self.config.dark_mode {
+                            (Icon::Sun, "Light")
                         } else {
-                            "🌙 Dark"
+                            (Icon::Moon, "Dark")
                         };
-                        if ui
-                            .add(egui::Button::new(toggle).corner_radius(8.0))
-                            .clicked()
-                        {
+                        if vector_button(
+                            ui,
+                            toggle_icon,
+                            toggle_label,
+                            false,
+                            egui::vec2(88.0, 32.0),
+                            "Toggle light/dark theme",
+                        ) {
                             self.config.dark_mode = !self.config.dark_mode;
                             self.config.save();
                             theme::apply(ctx, self.config.dark_mode);
@@ -1249,29 +1277,20 @@ impl SkyApp {
             });
     }
 
-    fn nav_button(ui: &mut Ui, icon: &str, label: &str, active: bool, badge: usize) -> bool {
-        let fill = if active {
-            theme::ACCENT_SOFT
-        } else {
-            theme::SURFACE_CARD
-        };
+    fn nav_button(ui: &mut Ui, icon: Icon, label: &str, active: bool, badge: usize) -> bool {
         let text = if badge > 0 {
-            format!("{icon}  {label}   {badge}")
+            format!("{label}   {badge}")
         } else {
-            format!("{icon}  {label}")
+            label.to_string()
         };
-        ui.add_sized(
-            [ui.available_width(), 42.0],
-            egui::Button::new(RichText::new(text).strong().color(if active {
-                theme::PRIMARY_TEXT
-            } else {
-                theme::SECONDARY_TEXT
-            }))
-            .fill(fill)
-            .stroke(theme::border())
-            .corner_radius(10.0),
+        vector_button(
+            ui,
+            icon,
+            &text,
+            active,
+            egui::vec2(ui.available_width(), 42.0),
+            label,
         )
-        .clicked()
     }
 
     fn ui_left_sidebar(&mut self, ctx: &Context) {
@@ -1296,17 +1315,20 @@ impl SkyApp {
                     .count();
                 if Self::nav_button(
                     ui,
-                    "💬",
+                    Icon::Message,
                     "Direct Messages",
                     self.sidebar_tab == SidebarTab::Chats,
                     0,
                 ) {
                     self.sidebar_tab = SidebarTab::Chats;
+                    if let Some(dm) = self.channels.iter().find(|c| c.kind == "dm").cloned() {
+                        self.select_channel(dm.id);
+                    }
                 }
                 ui.add_space(6.0);
                 if Self::nav_button(
                     ui,
-                    "👥",
+                    Icon::Users,
                     "Friends",
                     self.sidebar_tab == SidebarTab::Friends,
                     incoming,
@@ -1330,12 +1352,16 @@ impl SkyApp {
                 continue;
             }
             let selected = self.selected_channel == Some(channel.id);
-            let icon = if channel.kind == "voice" { "🔊" } else { "#" };
             let enabled = channel.kind != "voice";
+            let channel_label = if channel.kind == "voice" {
+                format!("VOICE · {}", channel.name)
+            } else {
+                format!("#  {}", channel.name)
+            };
             if ui
                 .add_sized(
                     [ui.available_width(), 30.0],
-                    egui::SelectableLabel::new(selected, format!("{icon}  {}", channel.name)),
+                    egui::SelectableLabel::new(selected, channel_label),
                 )
                 .clicked()
                 && enabled
@@ -1371,11 +1397,12 @@ impl SkyApp {
                 if unread > 0 {
                     ui_badge(ui, &unread.to_string());
                 }
-                if ui
-                    .add(egui::Button::new("📞").frame(false))
-                    .on_hover_text("Private voice + screen call")
-                    .clicked()
-                {
+                if icon_only_button(
+                    ui,
+                    Icon::Phone,
+                    "Private voice + screen call",
+                    egui::vec2(26.0, 26.0),
+                ) {
                     let room = format!("dm-channel:{}", channel.id);
                     self.join_voice_room(room, format!("Private call · {}", channel.name));
                 }
@@ -1410,11 +1437,12 @@ impl SkyApp {
                     // Selecting a friend only shows their card. DMs are explicit.
                     self.selected_friend = Some(friend.user_id);
                 }
-                if ui
-                    .add(egui::Button::new("💬").frame(false))
-                    .on_hover_text("Message (opens a private DM)")
-                    .clicked()
-                {
+                if icon_only_button(
+                    ui,
+                    Icon::Message,
+                    "Message (opens a private DM)",
+                    egui::vec2(26.0, 26.0),
+                ) {
                     self.open_dm(friend.user_id, false);
                 }
             });
@@ -1449,11 +1477,48 @@ impl SkyApp {
                 ));
                 ui.add_space(14.0);
 
+                // Add Friend is always visible in the Friends view.
+                egui::Frame::new()
+                    .fill(theme::SURFACE_CARD)
+                    .stroke(theme::border())
+                    .corner_radius(14.0)
+                    .inner_margin(egui::Margin::same(20))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new("Add Friend").strong());
+                                ui.add_space(4.0);
+                                ui.label(theme::muted(
+                                    "Enter their exact username or email address.",
+                                ));
+                            });
+                        });
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            let field = Self::form_field(
+                                ui,
+                                &mut self.friend_query,
+                                "friend@example.com",
+                                false,
+                            );
+                            let add = egui::Button::new(RichText::new("Send request").strong())
+                                .fill(theme::ACCENT)
+                                .corner_radius(9.0)
+                                .min_size([120.0, 38.0].into());
+                            if ui.add_enabled(!self.friend_busy, add).clicked()
+                                || (field.lost_focus()
+                                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                            {
+                                self.send_friend_request();
+                            }
+                        });
+                    });
+                ui.add_space(16.0);
+
                 ui.horizontal(|ui| {
                     for (tab, label) in [
-                        (FriendsTab::All, "All"),
+                        (FriendsTab::All, "Online"),
                         (FriendsTab::Requests, "Requests"),
-                        (FriendsTab::Add, "Add Friend"),
                     ] {
                         let active = self.friends_tab == tab;
                         if ui
@@ -1581,46 +1646,6 @@ impl SkyApp {
                             }
                         }
                     }
-                    FriendsTab::Add => {
-                        egui::Frame::new()
-                            .fill(theme::SURFACE_CARD)
-                            .stroke(theme::border())
-                            .corner_radius(14.0)
-                            .inner_margin(egui::Margin::same(24))
-                            .show(ui, |ui| {
-                                ui.set_width(360.0);
-                                ui.heading(RichText::new("Add a friend").strong());
-                                ui.add_space(4.0);
-                                ui.label(theme::muted(
-                                    "Enter their exact username or email address.",
-                                ));
-                                ui.add_space(14.0);
-                                ui.label(theme::muted("Username or email"));
-                                let field = Self::form_field(
-                                    ui,
-                                    &mut self.friend_query,
-                                    "friend@example.com",
-                                    false,
-                                );
-                                ui.add_space(12.0);
-                                let add = egui::Button::new(
-                                    RichText::new("Send friend request").strong(),
-                                )
-                                .fill(theme::ACCENT)
-                                .corner_radius(9.0)
-                                .min_size([180.0, 36.0].into());
-                                if ui.add_enabled(!self.friend_busy, add).clicked()
-                                    || (field.lost_focus()
-                                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                                {
-                                    self.send_friend_request();
-                                }
-                                ui.add_space(8.0);
-                                ui.label(theme::muted(
-                                    "Only accepted friends can message or call you.",
-                                ));
-                            });
-                    }
                 }
             });
     }
@@ -1647,35 +1672,32 @@ impl SkyApp {
                 });
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    let message = egui::Button::new("💬  Message").corner_radius(8.0);
-                    if ui.add(message).clicked() {
+                    if action_button(
+                        ui,
+                        Some(Icon::Message),
+                        "Message",
+                        egui::vec2(118.0, 36.0),
+                        theme::SURFACE_CARD,
+                        theme::PRIMARY_TEXT,
+                    ) {
                         self.open_dm(friend.user_id, false);
                     }
-                    let call = egui::Button::new("📞  Call").corner_radius(8.0);
-                    if ui.add(call).clicked() {
+                    if action_button(
+                        ui,
+                        Some(Icon::Phone),
+                        "Call",
+                        egui::vec2(100.0, 36.0),
+                        theme::SURFACE_CARD,
+                        theme::PRIMARY_TEXT,
+                    ) {
                         self.open_dm(friend.user_id, true);
                     }
                 });
             });
     }
 
-    fn control_button(ui: &mut Ui, icon: &str, label: &str, active: bool) -> bool {
-        ui.add(
-            egui::Button::new(
-                RichText::new(format!("{icon}\n{label}"))
-                    .strong()
-                    .size(13.0),
-            )
-            .fill(if active {
-                theme::ACCENT_SOFT
-            } else {
-                theme::SURFACE_CARD
-            })
-            .stroke(theme::border())
-            .corner_radius(10.0)
-            .min_size([100.0, 56.0].into()),
-        )
-        .clicked()
+    fn control_button(ui: &mut Ui, icon: Icon, label: &str, active: bool) -> bool {
+        icon_tile_button(ui, icon, label, active)
     }
 
     fn ui_voice_sidebar(&mut self, ctx: &Context) {
@@ -1706,7 +1728,12 @@ impl SkyApp {
                             .show(ui, |ui| {
                                 let voice_label =
                                     if self.in_voice { "Leave" } else { "Join Voice" };
-                                if Self::control_button(ui, "🎧", voice_label, self.in_voice) {
+                                if Self::control_button(
+                                    ui,
+                                    Icon::Headphones,
+                                    voice_label,
+                                    self.in_voice,
+                                ) {
                                     if self.in_voice {
                                         self.leave_voice();
                                     } else {
@@ -1715,7 +1742,7 @@ impl SkyApp {
                                 }
                                 if Self::control_button(
                                     ui,
-                                    "🎙️",
+                                    if self.muted { Icon::MicOff } else { Icon::Mic },
                                     if self.muted { "Unmute" } else { "Mute" },
                                     self.muted,
                                 ) {
@@ -1725,7 +1752,7 @@ impl SkyApp {
 
                                 if Self::control_button(
                                     ui,
-                                    "🔇",
+                                    Icon::Volume,
                                     if self.deafened { "Undeafen" } else { "Deafen" },
                                     self.deafened,
                                 ) {
@@ -1733,7 +1760,7 @@ impl SkyApp {
                                 }
                                 if Self::control_button(
                                     ui,
-                                    "🖥️",
+                                    Icon::Monitor,
                                     if self.sharing { "Stop Share" } else { "Share" },
                                     self.sharing,
                                 ) {
@@ -1756,7 +1783,20 @@ impl SkyApp {
                 }
                 for participant in &self.participants {
                     ui.horizontal(|ui| {
-                        ui.label(if participant.speaking { "🔈" } else { "👤" });
+                        icon_inline(
+                            ui,
+                            if participant.speaking {
+                                Icon::Volume
+                            } else {
+                                Icon::User
+                            },
+                            egui::vec2(16.0, 16.0),
+                            if participant.speaking {
+                                theme::SUCCESS
+                            } else {
+                                theme::SECONDARY_TEXT
+                            },
+                        );
                         ui.label(&participant.username);
                         if participant.muted {
                             ui.label(theme::muted("muted").small());
@@ -1775,25 +1815,11 @@ impl SkyApp {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     for (status, icon) in [
-                        (PresenceStatus::Online, "●"),
-                        (PresenceStatus::Away, "◐"),
-                        (PresenceStatus::Dnd, "⛔"),
+                        (PresenceStatus::Online, Icon::Online),
+                        (PresenceStatus::Away, Icon::Away),
+                        (PresenceStatus::Dnd, Icon::Dnd),
                     ] {
-                        let active = self.presence == status;
-                        if ui
-                            .add(
-                                egui::Button::new(format!("{icon} {}", status.label()))
-                                    .fill(if active {
-                                        theme::ACCENT
-                                    } else {
-                                        theme::SURFACE_CARD
-                                    })
-                                    .stroke(theme::border())
-                                    .corner_radius(16.0)
-                                    .min_size([68.0, 30.0].into()),
-                            )
-                            .clicked()
-                        {
+                        if icon_pill_button(ui, icon, status.label(), self.presence == status) {
                             self.set_presence(status);
                         }
                     }
@@ -1853,6 +1879,8 @@ impl SkyApp {
             .find(|c| self.selected_channel == Some(c.id))
             .map(|c| c.name.clone())
             .unwrap_or_else(|| "Select a channel".to_string());
+
+        // Header.
         ui.horizontal(|ui| {
             ui.heading(if compact {
                 RichText::new(format!("Chat · {title}")).size(17.0).strong()
@@ -1870,11 +1898,7 @@ impl SkyApp {
                     {
                         self.chat_on_side = !self.chat_on_side;
                     }
-                    if ui
-                        .add(egui::Button::new("✕").frame(false))
-                        .on_hover_text("Hide chat")
-                        .clicked()
-                    {
+                    if icon_only_button(ui, Icon::Close, "Hide chat", egui::vec2(24.0, 24.0)) {
                         self.chat_collapsed = true;
                     }
                 } else {
@@ -1884,9 +1908,14 @@ impl SkyApp {
         });
         ui.add_space(10.0);
 
+        // Flex column: message list takes the remaining space, input stays pinned.
+        let input_height = 58.0_f32;
+        let scroll_height = (ui.available_height() - input_height - 10.0).max(80.0_f32);
         let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
+            .max_height(scroll_height)
+            .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(if compact { 4 } else { 24 }, 8))
@@ -1899,18 +1928,22 @@ impl SkyApp {
             });
 
         ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            let field = Self::form_field(ui, &mut self.draft, "Write a message...", false);
-            let send = egui::Button::new(RichText::new("Send").strong())
-                .fill(theme::ACCENT)
-                .corner_radius(9.0)
-                .min_size([78.0, 38.0].into());
-            if ui.add(send).clicked()
-                || (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-            {
-                self.send_message();
-            }
-        });
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), input_height),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                let field = Self::form_field(ui, &mut self.draft, "Message #general", false);
+                let send = egui::Button::new(RichText::new("Send").strong())
+                    .fill(theme::ACCENT)
+                    .corner_radius(9.0)
+                    .min_size([78.0, 38.0].into());
+                if ui.add(send).clicked()
+                    || (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                {
+                    self.send_message();
+                }
+            },
+        );
     }
 
     fn ui_voice_stage(&mut self, ui: &mut Ui) {
@@ -1993,59 +2026,60 @@ impl SkyApp {
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
                 let button_width = 112.0;
-                let mute = egui::Button::new(if self.muted {
-                    "🔇  Unmute"
-                } else {
-                    "🎙️  Mute"
-                })
-                .fill(if self.muted {
-                    theme::ACCENT_SOFT
-                } else {
-                    theme::SURFACE_CARD
-                })
-                .stroke(theme::border())
-                .corner_radius(9.0)
-                .min_size([button_width, 36.0].into());
-                if ui.add(mute).clicked() {
-                    self.toggle_mute();
-                }
-                let deafen = egui::Button::new(if self.deafened { "Undeafen" } else { "Deafen" })
-                    .fill(if self.deafened {
+                if action_button(
+                    ui,
+                    Some(if self.muted { Icon::MicOff } else { Icon::Mic }),
+                    if self.muted { "Unmute" } else { "Mute" },
+                    egui::vec2(button_width, 36.0),
+                    if self.muted {
                         theme::ACCENT_SOFT
                     } else {
                         theme::SURFACE_CARD
-                    })
-                    .stroke(theme::border())
-                    .corner_radius(9.0)
-                    .min_size([button_width, 36.0].into());
-                if ui.add(deafen).clicked() {
+                    },
+                    theme::PRIMARY_TEXT,
+                ) {
+                    self.toggle_mute();
+                }
+                if action_button(
+                    ui,
+                    None,
+                    if self.deafened { "Undeafen" } else { "Deafen" },
+                    egui::vec2(button_width, 36.0),
+                    if self.deafened {
+                        theme::ACCENT_SOFT
+                    } else {
+                        theme::SURFACE_CARD
+                    },
+                    theme::PRIMARY_TEXT,
+                ) {
                     self.toggle_deafen();
                 }
-                let share = egui::Button::new(if self.sharing {
-                    "Stop Share"
-                } else {
-                    "🖥️  Share Screen"
-                })
-                .fill(if self.sharing {
-                    theme::ACCENT_SOFT
-                } else {
-                    theme::SURFACE_CARD
-                })
-                .stroke(theme::border())
-                .corner_radius(9.0)
-                .min_size([button_width, 36.0].into());
-                if ui.add(share).clicked() {
+                if action_button(
+                    ui,
+                    Some(Icon::Monitor),
+                    if self.sharing {
+                        "Stop Share"
+                    } else {
+                        "Share Screen"
+                    },
+                    egui::vec2(button_width, 36.0),
+                    if self.sharing {
+                        theme::ACCENT_SOFT
+                    } else {
+                        theme::SURFACE_CARD
+                    },
+                    theme::PRIMARY_TEXT,
+                ) {
                     self.toggle_screen_share();
                 }
-                let disconnect = egui::Button::new(
-                    RichText::new("Disconnect")
-                        .strong()
-                        .color(theme::PRIMARY_TEXT),
-                )
-                .fill(theme::DANGER)
-                .corner_radius(9.0)
-                .min_size([button_width, 36.0].into());
-                if ui.add(disconnect).clicked() {
+                if action_button(
+                    ui,
+                    None,
+                    "Disconnect",
+                    egui::vec2(button_width, 36.0),
+                    theme::DANGER,
+                    theme::PRIMARY_TEXT,
+                ) {
                     self.leave_voice();
                 }
             });
@@ -2255,32 +2289,33 @@ impl SkyApp {
             theme::SURFACE_CARD
         };
 
-        let response = egui::Frame::new()
-            .fill(fill)
-            .stroke(theme::border())
-            .corner_radius(12.0)
-            .inner_margin(egui::Margin::symmetric(12, 9))
-            .outer_margin(egui::Margin {
-                left: if grouped { 42 } else { 0 },
-                right: 0,
-                top: if grouped { 2 } else { 10 },
-                bottom: 0,
-            })
-            .show(ui, |ui| {
+        ui.add_space(if grouped { 2.0 } else { 10.0 });
+        let response = ui
+            .horizontal_top(|ui| {
+                // Empty gutter keeps every bubble left edge aligned. Grouped
+                // messages reuse the same gutter instead of being indented.
                 if grouped {
-                    ui.label(RichText::new(&message.content).line_height(Some(22.0)));
+                    ui.add_space(38.0);
                 } else {
-                    ui.horizontal_top(|ui| {
-                        self.ui_person_avatar(
-                            ui,
-                            &ctx,
-                            message.user_id,
-                            &message.username,
-                            mine,
-                            avatar_hash.as_deref(),
-                        );
-                        ui.add_space(4.0);
-                        ui.vertical(|ui| {
+                    self.ui_person_avatar(
+                        ui,
+                        &ctx,
+                        message.user_id,
+                        &message.username,
+                        mine,
+                        avatar_hash.as_deref(),
+                    );
+                    ui.add_space(8.0);
+                }
+                egui::Frame::new()
+                    .fill(fill)
+                    .stroke(theme::border())
+                    .corner_radius(12.0)
+                    .inner_margin(egui::Margin::symmetric(12, 9))
+                    .show(ui, |ui| {
+                        if grouped {
+                            ui.label(RichText::new(&message.content).line_height(Some(22.0)));
+                        } else {
                             let name_color = if mine {
                                 theme::ACCENT
                             } else {
@@ -2294,11 +2329,11 @@ impl SkyApp {
                                 ui.label(theme::muted(time.as_str()).small());
                             });
                             ui.label(RichText::new(&message.content).line_height(Some(22.0)));
-                        });
-                    });
-                }
+                        }
+                    })
+                    .response
             })
-            .response;
+            .inner;
         response.on_hover_text(format!("{} · {}", message.username, time));
     }
 
@@ -2401,6 +2436,459 @@ fn status_color(status: PresenceStatus) -> Color32 {
         PresenceStatus::Dnd => Color32::from_rgb(0xFF, 0x45, 0x3A),
         PresenceStatus::Offline => Color32::from_gray(0x80),
     }
+}
+
+#[derive(Clone, Copy)]
+enum Icon {
+    Message,
+    Users,
+    Volume,
+    Phone,
+    Mic,
+    MicOff,
+    Monitor,
+    Headphones,
+    User,
+    Online,
+    Away,
+    Dnd,
+    Close,
+    Sun,
+    Moon,
+}
+
+fn stroke_points(ui: &Ui, points: &[egui::Pos2], color: Color32, width: f32) {
+    for pair in points.windows(2) {
+        ui.painter()
+            .line_segment([pair[0], pair[1]], Stroke::new(width, color));
+    }
+}
+
+/// Draw a Lucide-style vector icon directly with egui shapes. No font glyphs.
+fn draw_icon(ui: &Ui, icon: Icon, rect: Rect, color: Color32) {
+    let size = rect.width().min(rect.height());
+    let center = rect.center();
+    let pt = |x: f32, y: f32| egui::pos2(center.x + (x - 0.5) * size, center.y + (y - 0.5) * size);
+    let stroke = Stroke::new((size * 0.09).max(1.2), color);
+    let transparent = Color32::TRANSPARENT;
+
+    match icon {
+        Icon::Message => {
+            ui.painter().rect(
+                Rect::from_min_max(pt(0.16, 0.18), pt(0.84, 0.7)),
+                size * 0.12,
+                transparent,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            stroke_points(
+                ui,
+                &[pt(0.28, 0.7), pt(0.22, 0.88), pt(0.48, 0.7)],
+                color,
+                stroke.width,
+            );
+        }
+        Icon::Users => {
+            ui.painter()
+                .circle_stroke(pt(0.35, 0.32), size * 0.13, stroke);
+            ui.painter()
+                .circle_stroke(pt(0.68, 0.36), size * 0.1, stroke);
+            stroke_points(
+                ui,
+                &[
+                    pt(0.14, 0.78),
+                    pt(0.2, 0.62),
+                    pt(0.35, 0.56),
+                    pt(0.5, 0.62),
+                    pt(0.56, 0.78),
+                ],
+                color,
+                stroke.width,
+            );
+            stroke_points(
+                ui,
+                &[pt(0.58, 0.72), pt(0.66, 0.6), pt(0.8, 0.58), pt(0.88, 0.72)],
+                color,
+                stroke.width,
+            );
+        }
+        Icon::Volume => {
+            stroke_points(
+                ui,
+                &[
+                    pt(0.14, 0.42),
+                    pt(0.3, 0.42),
+                    pt(0.5, 0.24),
+                    pt(0.5, 0.76),
+                    pt(0.3, 0.58),
+                    pt(0.14, 0.58),
+                    pt(0.14, 0.42),
+                ],
+                color,
+                stroke.width,
+            );
+            for (x, spread) in [(0.64, 0.14), (0.76, 0.22)] {
+                stroke_points(
+                    ui,
+                    &[
+                        pt(x, 0.5 - spread * 0.45),
+                        pt(x + 0.04, 0.5),
+                        pt(x, 0.5 + spread * 0.45),
+                    ],
+                    color,
+                    stroke.width,
+                );
+            }
+        }
+        Icon::Phone => {
+            stroke_points(
+                ui,
+                &[
+                    pt(0.2, 0.74),
+                    pt(0.32, 0.58),
+                    pt(0.68, 0.3),
+                    pt(0.8, 0.34),
+                    pt(0.82, 0.48),
+                    pt(0.7, 0.52),
+                    pt(0.58, 0.44),
+                    pt(0.42, 0.64),
+                    pt(0.48, 0.76),
+                    pt(0.36, 0.84),
+                    pt(0.2, 0.74),
+                ],
+                color,
+                stroke.width,
+            );
+        }
+        Icon::Mic | Icon::MicOff => {
+            ui.painter().rect(
+                Rect::from_min_max(pt(0.4, 0.16), pt(0.6, 0.6)),
+                size * 0.1,
+                transparent,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            stroke_points(ui, &[pt(0.5, 0.6), pt(0.5, 0.78)], color, stroke.width);
+            stroke_points(ui, &[pt(0.36, 0.82), pt(0.64, 0.82)], color, stroke.width);
+            if matches!(icon, Icon::MicOff) {
+                stroke_points(ui, &[pt(0.2, 0.18), pt(0.8, 0.82)], color, stroke.width);
+            }
+        }
+        Icon::Monitor => {
+            ui.painter().rect(
+                Rect::from_min_max(pt(0.14, 0.2), pt(0.86, 0.68)),
+                size * 0.08,
+                transparent,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            stroke_points(ui, &[pt(0.5, 0.68), pt(0.5, 0.82)], color, stroke.width);
+            stroke_points(ui, &[pt(0.36, 0.86), pt(0.64, 0.86)], color, stroke.width);
+        }
+        Icon::Headphones => {
+            stroke_points(
+                ui,
+                &[
+                    pt(0.16, 0.66),
+                    pt(0.16, 0.44),
+                    pt(0.28, 0.27),
+                    pt(0.5, 0.2),
+                    pt(0.72, 0.27),
+                    pt(0.84, 0.44),
+                    pt(0.84, 0.66),
+                ],
+                color,
+                stroke.width,
+            );
+            ui.painter().rect(
+                Rect::from_min_max(pt(0.12, 0.56), pt(0.24, 0.78)),
+                size * 0.04,
+                transparent,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().rect(
+                Rect::from_min_max(pt(0.76, 0.56), pt(0.88, 0.78)),
+                size * 0.04,
+                transparent,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        Icon::User => {
+            ui.painter()
+                .circle_stroke(pt(0.5, 0.32), size * 0.14, stroke);
+            stroke_points(
+                ui,
+                &[
+                    pt(0.2, 0.82),
+                    pt(0.28, 0.62),
+                    pt(0.5, 0.55),
+                    pt(0.72, 0.62),
+                    pt(0.8, 0.82),
+                ],
+                color,
+                stroke.width,
+            );
+        }
+        Icon::Online => {
+            ui.painter().circle_filled(pt(0.5, 0.5), size * 0.24, color);
+            ui.painter()
+                .circle_stroke(pt(0.5, 0.5), size * 0.34, stroke);
+        }
+        Icon::Away => {
+            ui.painter()
+                .circle_stroke(pt(0.5, 0.5), size * 0.32, stroke);
+            stroke_points(ui, &[pt(0.5, 0.5), pt(0.5, 0.2)], color, stroke.width);
+        }
+        Icon::Dnd => {
+            ui.painter()
+                .circle_stroke(pt(0.5, 0.5), size * 0.32, stroke);
+            stroke_points(ui, &[pt(0.32, 0.5), pt(0.68, 0.5)], color, stroke.width);
+        }
+        Icon::Close => {
+            stroke_points(ui, &[pt(0.24, 0.24), pt(0.76, 0.76)], color, stroke.width);
+            stroke_points(ui, &[pt(0.76, 0.24), pt(0.24, 0.76)], color, stroke.width);
+        }
+        Icon::Sun => {
+            ui.painter().circle_stroke(pt(0.5, 0.5), size * 0.2, stroke);
+            for i in 0..8 {
+                let angle = i as f32 * std::f32::consts::PI / 4.0;
+                let (sin, cos) = angle.sin_cos();
+                stroke_points(
+                    ui,
+                    &[
+                        pt(0.5 + cos * 0.32, 0.5 + sin * 0.32),
+                        pt(0.5 + cos * 0.44, 0.5 + sin * 0.44),
+                    ],
+                    color,
+                    stroke.width,
+                );
+            }
+        }
+        Icon::Moon => {
+            let mut points = Vec::new();
+            for i in 0..=12 {
+                let angle = std::f32::consts::PI * (0.15 + 0.7 * i as f32 / 12.0);
+                points.push(pt(0.5 + 0.34 * angle.cos(), 0.5 + 0.34 * angle.sin()));
+            }
+            for i in (0..=12).rev() {
+                let angle = std::f32::consts::PI * (0.15 + 0.7 * i as f32 / 12.0);
+                points.push(pt(0.64 + 0.26 * angle.cos(), 0.5 + 0.26 * angle.sin()));
+            }
+            stroke_points(ui, &points, color, stroke.width);
+        }
+    }
+}
+
+fn icon_inline(ui: &mut Ui, icon: Icon, size: egui::Vec2, color: Color32) {
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    draw_icon(ui, icon, rect, color);
+}
+
+fn vector_button(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    active: bool,
+    size: egui::Vec2,
+    tooltip: &str,
+) -> bool {
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let fill = if active {
+            theme::ACCENT_SOFT
+        } else if response.hovered() {
+            theme::HOVER
+        } else {
+            theme::SURFACE_CARD
+        };
+        let text = if active {
+            theme::PRIMARY_TEXT
+        } else {
+            theme::SECONDARY_TEXT
+        };
+        ui.painter()
+            .rect(rect, 10.0, fill, theme::border(), egui::StrokeKind::Inside);
+        draw_icon(
+            ui,
+            icon,
+            Rect::from_center_size(
+                egui::pos2(rect.min.x + 16.0, rect.center().y),
+                egui::vec2(18.0, 18.0),
+            ),
+            text,
+        );
+        ui.painter().text(
+            egui::pos2(rect.min.x + 34.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(14.0),
+            text,
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.on_hover_text(tooltip).clicked()
+}
+
+fn icon_tile_button(ui: &mut Ui, icon: Icon, label: &str, active: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(100.0, 56.0), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let fill = if active {
+            theme::ACCENT_SOFT
+        } else if response.hovered() {
+            theme::HOVER
+        } else {
+            theme::SURFACE_CARD
+        };
+        let text = if active {
+            theme::PRIMARY_TEXT
+        } else {
+            theme::SECONDARY_TEXT
+        };
+        ui.painter()
+            .rect(rect, 10.0, fill, theme::border(), egui::StrokeKind::Inside);
+        draw_icon(
+            ui,
+            icon,
+            Rect::from_center_size(
+                egui::pos2(rect.center().x, rect.center().y - 9.0),
+                egui::vec2(20.0, 20.0),
+            ),
+            text,
+        );
+        ui.painter().text(
+            egui::pos2(rect.center().x, rect.center().y + 14.0),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(13.0),
+            text,
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
+}
+
+fn icon_pill_button(ui: &mut Ui, icon: Icon, label: &str, active: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(72.0, 30.0), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let fill = if active {
+            theme::ACCENT
+        } else if response.hovered() {
+            theme::HOVER
+        } else {
+            theme::SURFACE_CARD
+        };
+        let text = if active {
+            theme::PRIMARY_TEXT
+        } else {
+            theme::SECONDARY_TEXT
+        };
+        ui.painter()
+            .rect(rect, 15.0, fill, theme::border(), egui::StrokeKind::Inside);
+        draw_icon(
+            ui,
+            icon,
+            Rect::from_center_size(
+                egui::pos2(rect.min.x + 15.0, rect.center().y),
+                egui::vec2(14.0, 14.0),
+            ),
+            text,
+        );
+        ui.painter().text(
+            egui::pos2(rect.center().x + 5.0, rect.center().y),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(12.0),
+            text,
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
+}
+
+fn icon_only_button(ui: &mut Ui, icon: Icon, tooltip: &str, size: egui::Vec2) -> bool {
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let fill = if response.hovered() {
+            theme::HOVER
+        } else {
+            theme::SURFACE_CARD
+        };
+        ui.painter()
+            .rect(rect, 8.0, fill, theme::border(), egui::StrokeKind::Inside);
+        draw_icon(
+            ui,
+            icon,
+            rect.shrink(4.0),
+            if response.hovered() {
+                theme::PRIMARY_TEXT
+            } else {
+                theme::SECONDARY_TEXT
+            },
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.on_hover_text(tooltip).clicked()
+}
+
+fn action_button(
+    ui: &mut Ui,
+    icon: Option<Icon>,
+    label: &str,
+    size: egui::Vec2,
+    fill: Color32,
+    text: Color32,
+) -> bool {
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let fill = if response.hovered() && fill != theme::DANGER {
+            theme::HOVER
+        } else {
+            fill
+        };
+        ui.painter()
+            .rect(rect, 9.0, fill, theme::border(), egui::StrokeKind::Inside);
+        let text_start = if icon.is_some() {
+            rect.min.x + 34.0
+        } else {
+            rect.center().x
+        };
+        if let Some(icon) = icon {
+            draw_icon(
+                ui,
+                icon,
+                Rect::from_center_size(
+                    egui::pos2(rect.min.x + 16.0, rect.center().y),
+                    egui::vec2(16.0, 16.0),
+                ),
+                text,
+            );
+        }
+        ui.painter().text(
+            egui::pos2(text_start, rect.center().y),
+            if icon.is_some() {
+                egui::Align2::LEFT_CENTER
+            } else {
+                egui::Align2::CENTER_CENTER
+            },
+            label,
+            egui::FontId::proportional(13.0),
+            text,
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
 }
 
 fn status_dot(ui: &mut Ui, status: PresenceStatus) {
