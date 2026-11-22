@@ -4,15 +4,32 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-/// Connects to Aiven PostgreSQL (honoring `?sslmode=require` via rustls TLS)
-/// and runs idempotent table migrations.
-pub async fn connect_and_migrate(database_url: &str) -> Result<PgPool, sqlx::Error> {
+/// Connects to Neon/Lakebase Postgres (honoring `?sslmode=require` via rustls
+/// TLS) and runs idempotent table migrations.
+///
+/// `database_url` should be the pooled URL used for normal app traffic.
+/// `migration_url` should be Neon's direct (non-pooled) URL; when absent we
+/// fall back to the pooled URL for compatibility with hosts that inject only
+/// `DATABASE_URL`.
+pub async fn connect_and_migrate(
+    database_url: &str,
+    migration_url: Option<&str>,
+) -> Result<PgPool, sqlx::Error> {
     let opts = PgConnectOptions::from_str(database_url)?;
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect_with(opts)
         .await?;
-    run_migrations(&pool).await?;
+
+    let ddl_url = migration_url.filter(|url| !url.is_empty()).unwrap_or(database_url);
+    let ddl_opts = PgConnectOptions::from_str(ddl_url)?;
+    let migration_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(ddl_opts)
+        .await?;
+    run_migrations(&migration_pool).await?;
+    migration_pool.close().await;
+
     Ok(pool)
 }
 

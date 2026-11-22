@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "build": "cargo build --release -p skypeline-server",
+    "start": "cargo run -p skypeline-server"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.6",
+    "@neon/env": "^2.1.9"
+  }
+}

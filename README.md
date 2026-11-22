@@ -14,15 +14,15 @@ Ultra-lightweight, Skype-inspired desktop chat, voice calling, and screen-sharin
 - `client/` — Native `eframe`/`egui` desktop client with `cpal` + Opus voice, 720p30 server-relayed screen sharing, and a C++17 native audio/alert bridge (`client/cpp/`).
 
 ## Local Development
-1. Create a local `.env` file (git-ignored) containing:
-   ```env
-   DATABASE_URL=postgres://user:pass@host:port/defaultdb?sslmode=require
-   JWT_SECRET=<a long random secret, 32+ bytes>
-   PORT=7860
+1. Sign in to Neon and pull the branch env into git-ignored `.env.local`:
+   ```bash
+   neon login
+   neon env pull
    ```
+   This writes `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct, used for migrations), and branch metadata. Add your own `JWT_SECRET` and `PORT` to that file; see `env.example`.
 2. Start the server (binds `0.0.0.0:7860`, auto-runs migrations):
    ```bash
-   cargo run -p skypeline-server
+   npm run start
    ```
 3. Launch the desktop client:
    ```bash
@@ -35,10 +35,10 @@ The client ships with the default Server URL `https://skypeline-co.onrender.com`
 ## Deploying to Render + Neon
 The relay hub is intentionally in-memory, so the server must run as a **single instance**. Do not enable autoscaling.
 
-1. Create a free PostgreSQL database at [Neon](https://neon.tech). Copy the connection string with `?sslmode=require`.
-2. In Render, create a new **Blueprint** from this repository (or a public Git URL pointing at it). `render.yaml` provisions one free Docker web service named `skypeline-co`.
+1. Create a free PostgreSQL database at [Neon](https://neon.tech). In the console, click **Connect**, choose the `production` branch, and copy the **pooled** connection string (`-pooler` in the hostname).
+2. In Render, create a new **Web Service** from `https://github.com/skibidiboydawg/skypeline`. `render.yaml` describes the same single-instance Docker setup; the GitHub mirror exists because Render does not accept Hugging Face Space URLs.
 3. When prompted, set:
-   - `DATABASE_URL` — the Neon connection string from step 1.
+   - `DATABASE_URL` — the pooled Neon connection string from step 1. The server uses `DATABASE_URL_UNPOOLED` for DDL when Neon provides it locally, but Render only needs `DATABASE_URL`.
    - `JWT_SECRET` — a long random value, e.g. `openssl rand -hex 32`.
 4. Render exposes the service at `https://skypeline-co.onrender.com`. The app binds `0.0.0.0:$PORT` (Render sets `10000`) and serves `GET /` and `GET /health`.
 5. In the desktop client **Settings**, set **Server URL** to `https://skypeline-co.onrender.com` (the default). If that Render subdomain is already taken, use the URL Render assigns and update it in Settings.

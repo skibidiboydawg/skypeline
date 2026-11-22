@@ -16,3 +16,5 @@ config.json
 *.sqlite3
 *.tmp
 *.log
+.neon
+node_modules/

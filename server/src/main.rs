@@ -18,8 +18,10 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // Local dev: load .env (ignored by git). Production (HF Spaces): real env vars.
+    // Local dev: load .env, then Neon's .env.local (both git-ignored).
+    // Production (Render/HF): real environment variables take precedence.
     let _ = dotenvy::dotenv();
+    let _ = dotenvy::from_path(".env.local");
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -28,7 +30,10 @@ async fn main() {
         .init();
 
     let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set (see README)");
+        .expect("DATABASE_URL must be set (run `neon env pull` or see README)");
+    // Neon writes the direct/non-pooled URL too. Use it for DDL migrations;
+    // pooled connections are for application traffic only.
+    let migration_url = env::var("DATABASE_URL_UNPOOLED").ok();
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set (see README)");
     if jwt_secret.len() < 16 || jwt_secret == "change_me_to_random_secret" {
         panic!("JWT_SECRET is too weak; set a long random secret");
@@ -36,7 +41,7 @@ async fn main() {
     let port: u16 = env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(7860);
 
     tracing::info!("connecting to PostgreSQL and running migrations...");
-    let pool = db::connect_and_migrate(&database_url)
+    let pool = db::connect_and_migrate(&database_url, migration_url.as_deref())
         .await
         .expect("failed to connect to PostgreSQL");
 
