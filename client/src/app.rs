@@ -813,18 +813,43 @@ impl SkyApp {
     }
 
     fn ui_login(&mut self, ctx: &Context) {
+        // CSS equivalent:
+        //   page    { min-height: 100vh; display: flex; align-items: center;
+        //             justify-content: center; padding: 20px; }
+        //   card    { width: 100%; max-width: 400px; height: auto;
+        //             padding: 36px 32px; display: flex; flex-direction: column; }
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::SURFACE_SIDEBAR))
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::SURFACE_SIDEBAR)
+                    .inner_margin(egui::Margin::same(20)),
+            )
             .show(ctx, |ui| {
-                ui.centered_and_justified(|ui| {
-                    egui::Frame::new()
-                        .fill(theme::SURFACE_CARD)
-                        .stroke(theme::border())
-                        .corner_radius(16.0)
-                        .inner_margin(egui::Margin::same(32))
-                        .show(ui, |ui| {
-                            // 336 content + 32px padding on each side = 400px card.
-                            ui.set_width(336.0);
+                // CSS wrapper: min-height: 100vh; padding: 20px; display: flex;
+                // align-items: center; justify-content: center.
+                let page_rect = ui.available_rect_before_wrap();
+                let card_width = page_rect.width().min(400.0_f32);
+                let content_width = (card_width - 64.0_f32).max(160.0_f32);
+                let estimated_card_height = 480.0_f32;
+                let top_space = (page_rect.height() - estimated_card_height).max(0.0) * 0.5;
+                let card_x = page_rect.center().x - card_width * 0.5;
+                let content_rect = egui::Rect::from_min_size(
+                    egui::pos2(card_x + 32.0, page_rect.min.y + top_space),
+                    egui::vec2(content_width, (page_rect.height() - top_space).max(0.0)),
+                );
+
+                // Paint the card as auto-height: the background is filled after
+                // the form rect is known, so the card shrink-wraps its content.
+                let fill_shape = ui.painter().add(egui::Shape::Noop);
+                let stroke_shape = ui.painter().add(egui::Shape::Noop);
+                let content = ui.allocate_new_ui(
+                    egui::UiBuilder::new()
+                        .max_rect(content_rect)
+                        .layout(egui::Layout::top_down(egui::Align::LEFT)),
+                    |ui| {
+                        ui.add_space(36.0);
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        ui.vertical(|ui| {
                             ui.vertical_centered(|ui| {
                                 ui.label(
                                     RichText::new("SKYPELINE")
@@ -832,22 +857,24 @@ impl SkyApp {
                                         .strong()
                                         .color(theme::ACCENT),
                                 );
-                                ui.add_space(6.0);
                             });
+                            ui.add_space(12.0);
 
                             match self.auth_step {
                                 AuthStep::Credentials => match self.auth_tab {
                                     AuthTab::Login => {
-                                        ui.heading(
-                                            RichText::new("Welcome back").size(26.0).strong(),
-                                        );
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                RichText::new("Welcome back").size(26.0).strong(),
+                                            );
+                                        });
                                         ui.add_space(4.0);
                                         ui.vertical_centered(|ui| {
                                             ui.label(theme::muted(
                                                 "Sign in to continue to your workspace.",
                                             ));
                                         });
-                                        ui.add_space(10.0);
+                                        ui.add_space(16.0);
 
                                         ui.label(theme::muted("Email"));
                                         Self::form_field(
@@ -856,7 +883,7 @@ impl SkyApp {
                                             "you@example.com",
                                             false,
                                         );
-                                        ui.add_space(10.0);
+                                        ui.add_space(12.0);
                                         ui.label(theme::muted("Password"));
                                         Self::form_field(
                                             ui,
@@ -865,6 +892,7 @@ impl SkyApp {
                                             true,
                                         );
                                         ui.add_space(16.0);
+
                                         let sign_in = egui::Button::new(
                                             RichText::new("Sign in")
                                                 .strong()
@@ -872,7 +900,7 @@ impl SkyApp {
                                         )
                                         .fill(theme::ACCENT)
                                         .corner_radius(9.0)
-                                        .min_size([336.0, 40.0].into());
+                                        .min_size([content_width, 40.0].into());
                                         if ui.add_enabled(!self.busy, sign_in).clicked() {
                                             self.submit_login();
                                         }
@@ -886,18 +914,20 @@ impl SkyApp {
                                         });
                                     }
                                     AuthTab::Register => {
-                                        ui.heading(
-                                            RichText::new("Create your account")
-                                                .size(26.0)
-                                                .strong(),
-                                        );
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                RichText::new("Create your account")
+                                                    .size(26.0)
+                                                    .strong(),
+                                            );
+                                        });
                                         ui.add_space(4.0);
                                         ui.vertical_centered(|ui| {
                                             ui.label(theme::muted(
                                                 "We'll email a confirmation code before sign-in.",
                                             ));
                                         });
-                                        ui.add_space(10.0);
+                                        ui.add_space(16.0);
 
                                         ui.label(theme::muted("Email"));
                                         Self::form_field(
@@ -923,6 +953,7 @@ impl SkyApp {
                                             true,
                                         );
                                         ui.add_space(16.0);
+
                                         let create = egui::Button::new(
                                             RichText::new("Create account")
                                                 .strong()
@@ -930,7 +961,7 @@ impl SkyApp {
                                         )
                                         .fill(theme::ACCENT)
                                         .corner_radius(9.0)
-                                        .min_size([336.0, 40.0].into());
+                                        .min_size([content_width, 40.0].into());
                                         if ui.add_enabled(!self.busy, create).clicked() {
                                             self.submit_register();
                                         }
@@ -947,9 +978,11 @@ impl SkyApp {
                                     }
                                 },
                                 AuthStep::VerifyCode => {
-                                    ui.heading(
-                                        RichText::new("Confirm your email").size(24.0).strong(),
-                                    );
+                                    ui.vertical_centered(|ui| {
+                                        ui.label(
+                                            RichText::new("Confirm your email").size(24.0).strong(),
+                                        );
+                                    });
                                     ui.add_space(4.0);
                                     ui.label(theme::muted(format!(
                                         "Enter the confirmation code sent to {}",
@@ -970,7 +1003,7 @@ impl SkyApp {
                                     )
                                     .fill(theme::ACCENT)
                                     .corner_radius(9.0)
-                                    .min_size([336.0, 40.0].into());
+                                    .min_size([content_width, 40.0].into());
                                     if ui.add_enabled(!self.busy, verify).clicked() {
                                         self.submit_verify();
                                     }
@@ -998,23 +1031,32 @@ impl SkyApp {
                                 }
                             }
 
-                            ui.add_space(14.0);
-                            self.ui_notice(ui);
-                            ui.add_space(14.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-                            ui.vertical_centered(|ui| {
-                                ui.label(
-                                    RichText::new("HOSTED SERVICE")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::SECONDARY_TEXT),
-                                );
-                                let hosted = Config::default().base_url();
-                                ui.hyperlink_to(hosted.clone(), hosted);
-                            });
+                            if !self.notice.is_empty() {
+                                ui.add_space(10.0);
+                                self.ui_notice(ui);
+                            }
                         });
-                });
+                        ui.add_space(36.0);
+                    },
+                );
+                let card_rect = content
+                    .response
+                    .rect
+                    .expand2(egui::vec2(32.0, 0.0))
+                    .expand(1.0);
+                ui.painter().set(
+                    fill_shape,
+                    egui::Shape::rect_filled(card_rect, 16.0, theme::SURFACE_CARD),
+                );
+                ui.painter().set(
+                    stroke_shape,
+                    egui::Shape::rect_stroke(
+                        card_rect,
+                        16.0,
+                        theme::border(),
+                        egui::StrokeKind::Outside,
+                    ),
+                );
             });
     }
 
