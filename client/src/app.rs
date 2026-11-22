@@ -42,6 +42,19 @@ enum AuthStep {
     VerifyCode,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SidebarTab {
+    Chats,
+    Friends,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FriendsTab {
+    All,
+    Requests,
+    Add,
+}
+
 pub struct SkyApp {
     rt: tokio::runtime::Runtime,
     config: Config,
@@ -75,6 +88,9 @@ pub struct SkyApp {
     unread: HashMap<i64, usize>,
     presence: PresenceStatus,
     settings_open: bool,
+    sidebar_tab: SidebarTab,
+    friends_tab: FriendsTab,
+    selected_friend: Option<i64>,
 
     voice_hint: String,
     voice_room: Option<String>,
@@ -141,6 +157,9 @@ impl SkyApp {
             unread: HashMap::new(),
             presence: PresenceStatus::Online,
             settings_open: false,
+            sidebar_tab: SidebarTab::Chats,
+            friends_tab: FriendsTab::All,
+            selected_friend: None,
             voice_hint: String::new(),
             voice_room: None,
             voice_label: VOICE_ROOM.to_string(),
@@ -518,6 +537,9 @@ impl SkyApp {
         self.friends.clear();
         self.friend_query.clear();
         self.friend_busy = false;
+        self.sidebar_tab = SidebarTab::Chats;
+        self.friends_tab = FriendsTab::All;
+        self.selected_friend = None;
         self.avatars.clear();
         self.unread.clear();
         self.selected_channel = None;
@@ -573,6 +595,7 @@ impl SkyApp {
                     self.upsert_channel(channel.clone());
                     self.unread.remove(&channel.id);
                     self.selected_channel = Some(channel.id);
+                    self.sidebar_tab = SidebarTab::Chats;
                     self.messages.clear();
                     self.load_messages(channel.id);
                     if start_call {
@@ -761,131 +784,238 @@ impl SkyApp {
 
     // -------------------------------------------------------------------- UI
 
+    fn form_field(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egui::Response {
+        egui::Frame::new()
+            .fill(theme::SURFACE_CARD)
+            .stroke(theme::border())
+            .corner_radius(9.0)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.add(
+                    egui::TextEdit::singleline(value)
+                        .frame(false)
+                        .password(password)
+                        .hint_text(hint)
+                        .desired_width(ui.available_width()),
+                )
+            })
+            .inner
+    }
+
+    fn auth_link(ui: &mut Ui, label: &str) -> bool {
+        ui.add(
+            egui::Button::new(RichText::new(label).color(theme::ACCENT).small())
+                .frame(false)
+                .corner_radius(6.0),
+        )
+        .clicked()
+    }
+
     fn ui_login(&mut self, ctx: &Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(48.0);
-                ui.heading(RichText::new("Skypeline").size(32.0).strong());
-                ui.label("Chat, voice and screen sharing — relayed, never peer-to-peer.");
-                ui.add_space(18.0);
-
-                match self.auth_step {
-                    AuthStep::Credentials => {
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut self.auth_tab, AuthTab::Login, "Sign in");
-                            ui.selectable_value(
-                                &mut self.auth_tab,
-                                AuthTab::Register,
-                                "Create account",
-                            );
-                        });
-                        ui.add_space(12.0);
-
-                        match self.auth_tab {
-                            AuthTab::Login => {
-                                ui.label("Email");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.login_email)
-                                        .desired_width(280.0)
-                                        .hint_text("you@example.com"),
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::SURFACE_SIDEBAR))
+            .show(ctx, |ui| {
+                ui.centered_and_justified(|ui| {
+                    egui::Frame::new()
+                        .fill(theme::SURFACE_CARD)
+                        .stroke(theme::border())
+                        .corner_radius(16.0)
+                        .inner_margin(egui::Margin::same(32))
+                        .show(ui, |ui| {
+                            // 336 content + 32px padding on each side = 400px card.
+                            ui.set_width(336.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new("SKYPELINE")
+                                        .size(13.0)
+                                        .strong()
+                                        .color(theme::ACCENT),
                                 );
-                                ui.label("Password");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.login_password)
-                                        .password(true)
-                                        .desired_width(280.0)
-                                        .hint_text("Password"),
-                                );
-                                ui.add_space(8.0);
-                                if ui
-                                    .add(
-                                        egui::Button::new("Sign in").min_size([180.0, 34.0].into()),
+                                ui.add_space(6.0);
+                            });
+
+                            match self.auth_step {
+                                AuthStep::Credentials => match self.auth_tab {
+                                    AuthTab::Login => {
+                                        ui.heading(
+                                            RichText::new("Welcome back").size(26.0).strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(theme::muted(
+                                                "Sign in to continue to your workspace.",
+                                            ));
+                                        });
+                                        ui.add_space(10.0);
+
+                                        ui.label(theme::muted("Email"));
+                                        Self::form_field(
+                                            ui,
+                                            &mut self.login_email,
+                                            "you@example.com",
+                                            false,
+                                        );
+                                        ui.add_space(10.0);
+                                        ui.label(theme::muted("Password"));
+                                        Self::form_field(
+                                            ui,
+                                            &mut self.login_password,
+                                            "Password",
+                                            true,
+                                        );
+                                        ui.add_space(16.0);
+                                        let sign_in = egui::Button::new(
+                                            RichText::new("Sign in")
+                                                .strong()
+                                                .color(theme::PRIMARY_TEXT),
+                                        )
+                                        .fill(theme::ACCENT)
+                                        .corner_radius(9.0)
+                                        .min_size([336.0, 40.0].into());
+                                        if ui.add_enabled(!self.busy, sign_in).clicked() {
+                                            self.submit_login();
+                                        }
+                                        ui.add_space(10.0);
+                                        ui.vertical_centered(|ui| {
+                                            if Self::auth_link(ui, "New here? Create account →")
+                                                && !self.busy
+                                            {
+                                                self.auth_tab = AuthTab::Register;
+                                            }
+                                        });
+                                    }
+                                    AuthTab::Register => {
+                                        ui.heading(
+                                            RichText::new("Create your account")
+                                                .size(26.0)
+                                                .strong(),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(theme::muted(
+                                                "We'll email a confirmation code before sign-in.",
+                                            ));
+                                        });
+                                        ui.add_space(10.0);
+
+                                        ui.label(theme::muted("Email"));
+                                        Self::form_field(
+                                            ui,
+                                            &mut self.register_email,
+                                            "you@example.com",
+                                            false,
+                                        );
+                                        ui.add_space(10.0);
+                                        ui.label(theme::muted("Username"));
+                                        Self::form_field(
+                                            ui,
+                                            &mut self.register_username,
+                                            "Display name",
+                                            false,
+                                        );
+                                        ui.add_space(10.0);
+                                        ui.label(theme::muted("Password (8+ characters)"));
+                                        Self::form_field(
+                                            ui,
+                                            &mut self.register_password,
+                                            "Password",
+                                            true,
+                                        );
+                                        ui.add_space(16.0);
+                                        let create = egui::Button::new(
+                                            RichText::new("Create account")
+                                                .strong()
+                                                .color(theme::PRIMARY_TEXT),
+                                        )
+                                        .fill(theme::ACCENT)
+                                        .corner_radius(9.0)
+                                        .min_size([336.0, 40.0].into());
+                                        if ui.add_enabled(!self.busy, create).clicked() {
+                                            self.submit_register();
+                                        }
+                                        ui.add_space(10.0);
+                                        ui.vertical_centered(|ui| {
+                                            if Self::auth_link(
+                                                ui,
+                                                "Already have an account? Sign in",
+                                            ) && !self.busy
+                                            {
+                                                self.auth_tab = AuthTab::Login;
+                                            }
+                                        });
+                                    }
+                                },
+                                AuthStep::VerifyCode => {
+                                    ui.heading(
+                                        RichText::new("Confirm your email").size(24.0).strong(),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(theme::muted(format!(
+                                        "Enter the confirmation code sent to {}",
+                                        self.verify_email
+                                    )));
+                                    ui.add_space(12.0);
+                                    Self::form_field(
+                                        ui,
+                                        &mut self.verify_code,
+                                        "6-digit code",
+                                        false,
+                                    );
+                                    ui.add_space(16.0);
+                                    let verify = egui::Button::new(
+                                        RichText::new("Verify & sign in")
+                                            .strong()
+                                            .color(theme::PRIMARY_TEXT),
                                     )
-                                    .clicked()
-                                    && !self.busy
-                                {
-                                    self.submit_login();
+                                    .fill(theme::ACCENT)
+                                    .corner_radius(9.0)
+                                    .min_size([336.0, 40.0].into());
+                                    if ui.add_enabled(!self.busy, verify).clicked() {
+                                        self.submit_verify();
+                                    }
+                                    ui.add_space(10.0);
+                                    ui.horizontal(|ui| {
+                                        if Self::auth_link(ui, "Resend code") && !self.busy {
+                                            self.resend_code();
+                                        }
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if Self::auth_link(ui, "Back to sign in")
+                                                    && !self.busy
+                                                {
+                                                    self.auth_step = AuthStep::Credentials;
+                                                    self.auth_tab = AuthTab::Login;
+                                                    self.verify_code.clear();
+                                                    self.notice =
+                                                        "Sign in with your confirmed account."
+                                                            .into();
+                                                }
+                                            },
+                                        );
+                                    });
                                 }
                             }
-                            AuthTab::Register => {
-                                ui.label("Email");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.register_email)
-                                        .desired_width(280.0)
-                                        .hint_text("you@example.com"),
-                                );
-                                ui.label("Username");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.register_username)
-                                        .desired_width(280.0)
-                                        .hint_text("Display name"),
-                                );
-                                ui.label("Password (8+ characters)");
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.register_password)
-                                        .password(true)
-                                        .desired_width(280.0)
-                                        .hint_text("Password"),
-                                );
-                                ui.add_space(8.0);
-                                if ui
-                                    .add(
-                                        egui::Button::new("Create account")
-                                            .min_size([180.0, 34.0].into()),
-                                    )
-                                    .clicked()
-                                    && !self.busy
-                                {
-                                    self.submit_register();
-                                }
-                            }
-                        }
-                    }
-                    AuthStep::VerifyCode => {
-                        ui.heading(RichText::new("Confirm your email").size(22.0).strong());
-                        ui.label(format!(
-                            "Enter the confirmation code sent to {}",
-                            self.verify_email
-                        ));
-                        ui.add_space(10.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.verify_code)
-                                .desired_width(200.0)
-                                .hint_text("Confirmation code"),
-                        );
-                        ui.add_space(8.0);
-                        if ui
-                            .add(
-                                egui::Button::new("Verify & sign in")
-                                    .min_size([180.0, 34.0].into()),
-                            )
-                            .clicked()
-                            && !self.busy
-                        {
-                            self.submit_verify();
-                        }
-                        ui.horizontal(|ui| {
-                            if ui.small_button("Resend code").clicked() && !self.busy {
-                                self.resend_code();
-                            }
-                            if ui.small_button("Back to sign in").clicked() && !self.busy {
-                                self.auth_step = AuthStep::Credentials;
-                                self.auth_tab = AuthTab::Login;
-                                self.verify_code.clear();
-                                self.notice = "Sign in with your confirmed account.".into();
-                            }
-                        });
-                    }
-                }
 
-                ui.add_space(14.0);
-                self.ui_notice(ui);
-                ui.add_space(20.0);
-                ui.separator();
-                ui.label(RichText::new("Hosted service").small().strong());
-                ui.hyperlink_to(Config::default().base_url(), Config::default().base_url());
+                            ui.add_space(14.0);
+                            self.ui_notice(ui);
+                            ui.add_space(14.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new("HOSTED SERVICE")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(theme::SECONDARY_TEXT),
+                                );
+                                let hosted = Config::default().base_url();
+                                ui.hyperlink_to(hosted.clone(), hosted);
+                            });
+                        });
+                });
             });
-        });
     }
 
     fn submit_login(&mut self) {
@@ -1000,341 +1130,626 @@ impl SkyApp {
         if !self.in_voice {
             self.ui_voice_sidebar(ctx);
         }
-        self.ui_chat(ctx);
+        if self.in_voice {
+            self.ui_chat(ctx);
+        } else {
+            match self.sidebar_tab {
+                SidebarTab::Chats => self.ui_chat(ctx),
+                SidebarTab::Friends => self.ui_friends_view(ctx),
+            }
+        }
         self.ui_screen_fullscreen(ctx);
         self.ui_settings(ctx);
     }
 
     fn ui_top_bar(&mut self, ctx: &Context) {
-        egui::TopBottomPanel::top("skypeline_top").show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.heading(RichText::new("Skypeline").strong());
-                ui.separator();
-                if let Some(me) = &self.me {
-                    self::status_dot(ui, self.presence);
-                    ui.label(
-                        RichText::new(format!("{} · {}", me.username, self.presence.label()))
-                            .strong(),
-                    );
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let toggle = if self.config.dark_mode {
-                        "☀ Light"
-                    } else {
-                        "🌙 Dark"
-                    };
-                    if ui.button(toggle).clicked() {
-                        self.config.dark_mode = !self.config.dark_mode;
-                        self.config.save();
-                        theme::apply(ctx, self.config.dark_mode);
+        let frame = || {
+            egui::Frame::new()
+                .fill(theme::SURFACE_SIDEBAR)
+                .stroke(theme::border())
+                .inner_margin(egui::Margin::symmetric(14, 8))
+        };
+        egui::TopBottomPanel::top("skypeline_top")
+            .resizable(false)
+            .frame(frame())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Skypeline").size(18.0).strong());
+                    ui.add_space(12.0);
+                    if let Some(me) = &self.me {
+                        self::status_dot(ui, self.presence);
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("{} · {}", me.username, self.presence.label()))
+                                .strong(),
+                        );
                     }
-                    if ui.button("Settings").clicked() {
-                        self.settings_open = true;
-                    }
-                    if ui.button("Sign out").clicked() {
-                        self.sign_out();
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let toggle = if self.config.dark_mode {
+                            "☀ Light"
+                        } else {
+                            "🌙 Dark"
+                        };
+                        if ui
+                            .add(egui::Button::new(toggle).corner_radius(8.0))
+                            .clicked()
+                        {
+                            self.config.dark_mode = !self.config.dark_mode;
+                            self.config.save();
+                            theme::apply(ctx, self.config.dark_mode);
+                        }
+                        if ui
+                            .add(egui::Button::new("Settings").corner_radius(8.0))
+                            .clicked()
+                        {
+                            self.settings_open = true;
+                        }
+                        if ui
+                            .add(egui::Button::new("Sign out").corner_radius(8.0))
+                            .clicked()
+                        {
+                            self.sign_out();
+                        }
+                    });
                 });
             });
-            ui.add_space(4.0);
-        });
 
-        egui::TopBottomPanel::bottom("skypeline_status").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                self.ui_notice(ui);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new("Relayed chat · voice · screen")
-                            .small()
-                            .weak(),
-                    );
+        egui::TopBottomPanel::bottom("skypeline_status")
+            .resizable(false)
+            .frame(frame())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    self.ui_notice(ui);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(theme::muted("Relayed chat · voice · screen").small());
+                    });
                 });
             });
-        });
+    }
+
+    fn nav_button(ui: &mut Ui, icon: &str, label: &str, active: bool, badge: usize) -> bool {
+        let fill = if active {
+            theme::ACCENT_SOFT
+        } else {
+            theme::SURFACE_CARD
+        };
+        let text = if badge > 0 {
+            format!("{icon}  {label}   {badge}")
+        } else {
+            format!("{icon}  {label}")
+        };
+        ui.add_sized(
+            [ui.available_width(), 42.0],
+            egui::Button::new(RichText::new(text).strong().color(if active {
+                theme::PRIMARY_TEXT
+            } else {
+                theme::SECONDARY_TEXT
+            }))
+            .fill(fill)
+            .stroke(theme::border())
+            .corner_radius(10.0),
+        )
+        .clicked()
     }
 
     fn ui_left_sidebar(&mut self, ctx: &Context) {
         egui::SidePanel::left("channels_panel")
-            .resizable(true)
-            .default_width(244.0)
+            .exact_width(260.0)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::SURFACE_SIDEBAR)
+                    .stroke(theme::border())
+                    .inner_margin(egui::Margin::symmetric(12, 12)),
+            )
             .show(ctx, |ui| {
+                ui.add_space(2.0);
+                ui.label(theme::muted("WORKSPACE").small().strong());
                 ui.add_space(8.0);
-                ui.label(RichText::new("CHANNELS").small().strong());
-                for channel in self.channels.clone() {
-                    if channel.kind == "dm" {
-                        continue;
-                    }
-                    let selected = self.selected_channel == Some(channel.id);
-                    let icon = if channel.kind == "voice" { "🔊" } else { "#" };
-                    let enabled = channel.kind != "voice";
-                    if ui
-                        .add_sized(
-                            [ui.available_width(), 24.0],
-                            egui::SelectableLabel::new(
-                                selected,
-                                format!("{icon} {}", channel.name),
-                            ),
-                        )
-                        .clicked()
-                        && enabled
-                    {
-                        self.select_channel(channel.id);
-                    }
-                }
 
-                ui.add_space(12.0);
-                ui.label(RichText::new("DIRECT MESSAGES").small().strong());
-                let dms = self
-                    .channels
-                    .iter()
-                    .filter(|c| c.kind == "dm")
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if dms.is_empty() {
-                    ui.label(
-                        RichText::new("Add a friend below to start a private chat")
-                            .small()
-                            .weak(),
-                    );
-                }
-                for channel in dms {
-                    let selected = self.selected_channel == Some(channel.id);
-                    let unread = self.unread.get(&channel.id).copied().unwrap_or(0);
-                    ui.horizontal(|ui| {
-                        let label_width = (ui.available_width() - 34.0).max(80.0);
-                        let response = ui.add_sized(
-                            [label_width, 24.0],
-                            egui::SelectableLabel::new(selected, format!("@ {}", channel.name)),
-                        );
-                        if response.clicked() {
-                            self.select_channel(channel.id);
-                        }
-                        if unread > 0 {
-                            ui_badge(ui, &unread.to_string());
-                        }
-                        if ui
-                            .small_button("📞")
-                            .on_hover_text("Private voice call")
-                            .clicked()
-                        {
-                            let room = format!("dm-channel:{}", channel.id);
-                            self.join_voice_room(room, format!("Private call · {}", channel.name));
-                        }
-                    });
-                }
-
-                ui.add_space(12.0);
-                ui.label(RichText::new("FRIENDS / ONLINE").small().strong());
-                let friends = self.friends.clone();
-                let accepted = friends
-                    .iter()
-                    .filter(|f| f.status == FriendshipStatus::Accepted || f.direction == "mutual")
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if accepted.is_empty() {
-                    ui.label(
-                        RichText::new("No friends yet — add someone by username or email")
-                            .small()
-                            .weak(),
-                    );
-                }
-                for friend in accepted {
-                    let dm_selected = self.channels.iter().any(|c| {
-                        c.kind == "dm"
-                            && c.peer_user_id == Some(friend.user_id)
-                            && self.selected_channel == Some(c.id)
-                    });
-                    ui.horizontal(|ui| {
-                        self::status_dot(ui, friend.presence);
-                        let response = ui.add_sized(
-                            [ui.available_width() - 48.0, 22.0],
-                            egui::SelectableLabel::new(dm_selected, friend.username.clone()),
-                        );
-                        if response.on_hover_text(friend.presence.label()).clicked() {
-                            self.open_dm(friend.user_id, false);
-                        }
-                        if ui
-                            .small_button("📞")
-                            .on_hover_text("Private voice + screen call")
-                            .clicked()
-                        {
-                            self.open_dm(friend.user_id, true);
-                        }
-                    });
-                }
-
-                let incoming = friends
+                let incoming = self
+                    .friends
                     .iter()
                     .filter(|f| f.status == FriendshipStatus::Pending && f.direction == "incoming")
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if !incoming.is_empty() {
-                    ui.add_space(10.0);
-                    ui.label(RichText::new("FRIEND REQUESTS").small().strong());
-                    for friend in incoming {
-                        ui.horizontal(|ui| {
-                            ui.label(friend.username);
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.small_button("Accept").clicked() {
-                                        self.respond_friend(friend.user_id, true);
-                                    }
-                                    if ui.small_button("Decline").clicked() {
-                                        self.respond_friend(friend.user_id, false);
-                                    }
-                                },
-                            );
-                        });
-                    }
+                    .count();
+                if Self::nav_button(
+                    ui,
+                    "💬",
+                    "Direct Messages",
+                    self.sidebar_tab == SidebarTab::Chats,
+                    0,
+                ) {
+                    self.sidebar_tab = SidebarTab::Chats;
                 }
+                ui.add_space(6.0);
+                if Self::nav_button(
+                    ui,
+                    "👥",
+                    "Friends",
+                    self.sidebar_tab == SidebarTab::Friends,
+                    incoming,
+                ) {
+                    self.sidebar_tab = SidebarTab::Friends;
+                }
+                ui.add_space(16.0);
 
-                ui.add_space(10.0);
-                ui.label(RichText::new("ADD FRIEND").small().strong());
-                let busy = self.friend_busy;
+                match self.sidebar_tab {
+                    SidebarTab::Chats => self.ui_chat_nav(ui),
+                    SidebarTab::Friends => self.ui_friends_nav(ui),
+                }
+            });
+    }
+
+    fn ui_chat_nav(&mut self, ui: &mut Ui) {
+        ui.label(theme::muted("CHANNELS").small().strong());
+        ui.add_space(6.0);
+        for channel in self.channels.clone() {
+            if channel.kind == "dm" {
+                continue;
+            }
+            let selected = self.selected_channel == Some(channel.id);
+            let icon = if channel.kind == "voice" { "🔊" } else { "#" };
+            let enabled = channel.kind != "voice";
+            if ui
+                .add_sized(
+                    [ui.available_width(), 30.0],
+                    egui::SelectableLabel::new(selected, format!("{icon}  {}", channel.name)),
+                )
+                .clicked()
+                && enabled
+            {
+                self.select_channel(channel.id);
+            }
+        }
+
+        ui.add_space(16.0);
+        ui.label(theme::muted("DIRECT MESSAGES").small().strong());
+        ui.add_space(6.0);
+        let dms = self
+            .channels
+            .iter()
+            .filter(|c| c.kind == "dm")
+            .cloned()
+            .collect::<Vec<_>>();
+        if dms.is_empty() {
+            ui.label(theme::muted("Add a friend, then start a private chat.").small());
+        }
+        for channel in dms {
+            let selected = self.selected_channel == Some(channel.id);
+            let unread = self.unread.get(&channel.id).copied().unwrap_or(0);
+            ui.horizontal(|ui| {
+                let label_width = (ui.available_width() - 34.0).max(80.0);
+                let response = ui.add_sized(
+                    [label_width, 30.0],
+                    egui::SelectableLabel::new(selected, format!("@ {}", channel.name)),
+                );
+                if response.clicked() {
+                    self.select_channel(channel.id);
+                }
+                if unread > 0 {
+                    ui_badge(ui, &unread.to_string());
+                }
+                if ui
+                    .add(egui::Button::new("📞").frame(false))
+                    .on_hover_text("Private voice + screen call")
+                    .clicked()
+                {
+                    let room = format!("dm-channel:{}", channel.id);
+                    self.join_voice_room(room, format!("Private call · {}", channel.name));
+                }
+            });
+        }
+    }
+
+    fn ui_friends_nav(&mut self, ui: &mut Ui) {
+        let friends = self.friends.clone();
+        let accepted = friends
+            .iter()
+            .filter(|f| f.status == FriendshipStatus::Accepted || f.direction == "mutual")
+            .cloned()
+            .collect::<Vec<_>>();
+        ui.label(theme::muted("ONLINE FRIENDS").small().strong());
+        ui.add_space(6.0);
+        if accepted.is_empty() {
+            ui.label(theme::muted("No friends yet — add someone in the Friends tab.").small());
+        }
+        for friend in accepted {
+            ui.horizontal(|ui| {
+                self::status_dot(ui, friend.presence);
+                let selected = self.selected_friend == Some(friend.user_id);
+                if ui
+                    .add_sized(
+                        [ui.available_width() - 30.0, 30.0],
+                        egui::SelectableLabel::new(selected, friend.username.clone()),
+                    )
+                    .on_hover_text("View friend")
+                    .clicked()
+                {
+                    // Selecting a friend only shows their card. DMs are explicit.
+                    self.selected_friend = Some(friend.user_id);
+                }
+                if ui
+                    .add(egui::Button::new("💬").frame(false))
+                    .on_hover_text("Message (opens a private DM)")
+                    .clicked()
+                {
+                    self.open_dm(friend.user_id, false);
+                }
+            });
+        }
+
+        let incoming = friends
+            .iter()
+            .filter(|f| f.status == FriendshipStatus::Pending && f.direction == "incoming")
+            .count();
+        if incoming > 0 {
+            ui.add_space(14.0);
+            ui.label(
+                theme::muted(format!("INCOMING REQUESTS · {incoming}"))
+                    .small()
+                    .strong(),
+            );
+        }
+    }
+
+    fn ui_friends_view(&mut self, ctx: &Context) {
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::SURFACE_MAIN)
+                    .inner_margin(egui::Margin::same(24)),
+            )
+            .show(ctx, |ui| {
+                ui.heading(RichText::new("Friends").size(24.0).strong());
+                ui.add_space(4.0);
+                ui.label(theme::muted(
+                    "Private messages and calls require an accepted friendship.",
+                ));
+                ui.add_space(14.0);
+
                 ui.horizontal(|ui| {
-                    let response = ui.add_enabled(
-                        !busy,
-                        egui::TextEdit::singleline(&mut self.friend_query)
-                            .desired_width(ui.available_width() - 46.0)
-                            .hint_text("username or email")
-                            .id_source("friend_query"),
-                    );
-                    if ui.add_enabled(!busy, egui::Button::new("Add")).clicked()
-                        || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                    {
-                        self.send_friend_request();
-                        response.request_focus();
+                    for (tab, label) in [
+                        (FriendsTab::All, "All"),
+                        (FriendsTab::Requests, "Requests"),
+                        (FriendsTab::Add, "Add Friend"),
+                    ] {
+                        let active = self.friends_tab == tab;
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new(label).strong())
+                                    .fill(if active {
+                                        theme::ACCENT
+                                    } else {
+                                        theme::SURFACE_CARD
+                                    })
+                                    .stroke(theme::border())
+                                    .corner_radius(14.0)
+                                    .min_size([104.0, 32.0].into()),
+                            )
+                            .clicked()
+                        {
+                            self.friends_tab = tab;
+                        }
                     }
                 });
-                ui.label(
-                    RichText::new("Only accepted friends can message or call you.")
-                        .small()
-                        .weak(),
-                );
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(12.0);
+
+                match self.friends_tab {
+                    FriendsTab::All => {
+                        let friends = self.friends.clone();
+                        let accepted = friends
+                            .iter()
+                            .filter(|f| {
+                                f.status == FriendshipStatus::Accepted || f.direction == "mutual"
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        if accepted.is_empty() {
+                            ui.label(theme::muted(
+                                "No accepted friends yet. Use Add Friend to send a request.",
+                            ));
+                            return;
+                        }
+                        egui::Grid::new("friends_grid")
+                            .num_columns(2)
+                            .spacing([12.0, 12.0])
+                            .show(ui, |ui| {
+                                for (index, friend) in accepted.iter().enumerate() {
+                                    self.ui_friend_card(ui, friend);
+                                    if index % 2 == 1 {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
+                    }
+                    FriendsTab::Requests => {
+                        let friends = self.friends.clone();
+                        let incoming = friends
+                            .iter()
+                            .filter(|f| {
+                                f.status == FriendshipStatus::Pending && f.direction == "incoming"
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let outgoing = friends
+                            .iter()
+                            .filter(|f| {
+                                f.status == FriendshipStatus::Pending && f.direction == "outgoing"
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        if incoming.is_empty() && outgoing.is_empty() {
+                            ui.label(theme::muted("No pending friend requests."));
+                            return;
+                        }
+                        if !incoming.is_empty() {
+                            ui.label(theme::muted("INCOMING").small().strong());
+                            ui.add_space(6.0);
+                            for friend in incoming {
+                                egui::Frame::new()
+                                    .fill(theme::SURFACE_CARD)
+                                    .stroke(theme::border())
+                                    .corner_radius(10.0)
+                                    .inner_margin(egui::Margin::symmetric(14, 10))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            self::status_dot(ui, friend.presence);
+                                            ui.add_space(6.0);
+                                            ui.label(RichText::new(&friend.username).strong());
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if ui
+                                                        .add(
+                                                            egui::Button::new("Accept")
+                                                                .fill(theme::ACCENT)
+                                                                .corner_radius(8.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        self.respond_friend(friend.user_id, true);
+                                                    }
+                                                    if ui
+                                                        .add(
+                                                            egui::Button::new("Decline")
+                                                                .corner_radius(8.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        self.respond_friend(friend.user_id, false);
+                                                    }
+                                                },
+                                            );
+                                        });
+                                    });
+                                ui.add_space(8.0);
+                            }
+                        }
+                        if !outgoing.is_empty() {
+                            ui.add_space(8.0);
+                            ui.label(theme::muted("SENT").small().strong());
+                            ui.add_space(6.0);
+                            for friend in outgoing {
+                                ui.label(RichText::new(format!(
+                                    "{} · waiting for response",
+                                    friend.username
+                                )));
+                            }
+                        }
+                    }
+                    FriendsTab::Add => {
+                        egui::Frame::new()
+                            .fill(theme::SURFACE_CARD)
+                            .stroke(theme::border())
+                            .corner_radius(14.0)
+                            .inner_margin(egui::Margin::same(24))
+                            .show(ui, |ui| {
+                                ui.set_width(360.0);
+                                ui.heading(RichText::new("Add a friend").strong());
+                                ui.add_space(4.0);
+                                ui.label(theme::muted(
+                                    "Enter their exact username or email address.",
+                                ));
+                                ui.add_space(14.0);
+                                ui.label(theme::muted("Username or email"));
+                                let field = Self::form_field(
+                                    ui,
+                                    &mut self.friend_query,
+                                    "friend@example.com",
+                                    false,
+                                );
+                                ui.add_space(12.0);
+                                let add = egui::Button::new(
+                                    RichText::new("Send friend request").strong(),
+                                )
+                                .fill(theme::ACCENT)
+                                .corner_radius(9.0)
+                                .min_size([180.0, 36.0].into());
+                                if ui.add_enabled(!self.friend_busy, add).clicked()
+                                    || (field.lost_focus()
+                                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                                {
+                                    self.send_friend_request();
+                                }
+                                ui.add_space(8.0);
+                                ui.label(theme::muted(
+                                    "Only accepted friends can message or call you.",
+                                ));
+                            });
+                    }
+                }
             });
+    }
+
+    fn ui_friend_card(&mut self, ui: &mut Ui, friend: &FriendInfo) {
+        let selected = self.selected_friend == Some(friend.user_id);
+        egui::Frame::new()
+            .fill(theme::SURFACE_CARD)
+            .stroke(if selected {
+                Stroke::new(2.0_f32, theme::ACCENT)
+            } else {
+                theme::border()
+            })
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    self::status_dot(ui, friend.presence);
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(&friend.username).strong());
+                        ui.label(theme::muted(friend.presence.label()).small());
+                    });
+                });
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    let message = egui::Button::new("💬  Message").corner_radius(8.0);
+                    if ui.add(message).clicked() {
+                        self.open_dm(friend.user_id, false);
+                    }
+                    let call = egui::Button::new("📞  Call").corner_radius(8.0);
+                    if ui.add(call).clicked() {
+                        self.open_dm(friend.user_id, true);
+                    }
+                });
+            });
+    }
+
+    fn control_button(ui: &mut Ui, icon: &str, label: &str, active: bool) -> bool {
+        ui.add(
+            egui::Button::new(
+                RichText::new(format!("{icon}\n{label}"))
+                    .strong()
+                    .size(13.0),
+            )
+            .fill(if active {
+                theme::ACCENT_SOFT
+            } else {
+                theme::SURFACE_CARD
+            })
+            .stroke(theme::border())
+            .corner_radius(10.0)
+            .min_size([100.0, 56.0].into()),
+        )
+        .clicked()
     }
 
     fn ui_voice_sidebar(&mut self, ctx: &Context) {
         egui::SidePanel::right("voice_panel")
-            .resizable(true)
-            .default_width(268.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                let card_fill = if ui.visuals().dark_mode {
-                    Color32::from_rgb(0x1B, 0x25, 0x31)
-                } else {
-                    Color32::from_rgb(0xFF, 0xFF, 0xFF)
-                };
+            .exact_width(240.0)
+            .resizable(false)
+            .frame(
                 egui::Frame::new()
-                    .fill(card_fill)
-                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-                    .corner_radius(10.0)
-                    .inner_margin(12.0)
+                    .fill(theme::SURFACE_SIDEBAR)
+                    .stroke(theme::border())
+                    .inner_margin(egui::Margin::symmetric(12, 12)),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(2.0);
+                egui::Frame::new()
+                    .fill(theme::SURFACE_CARD)
+                    .stroke(theme::border())
+                    .corner_radius(12.0)
+                    .inner_margin(egui::Margin::symmetric(12, 12))
                     .show(ui, |ui| {
-                        ui.label(RichText::new("VOICE").small().strong());
+                        ui.label(theme::muted("VOICE").small().strong());
                         ui.label(RichText::new(VOICE_ROOM).strong());
-                        ui.add_space(8.0);
+                        ui.add_space(10.0);
 
-                        let gap = 6.0;
-                        let button_width = (ui.available_width() - gap) / 2.0;
                         egui::Grid::new("voice_controls")
                             .num_columns(2)
-                            .spacing([gap, gap])
+                            .spacing([8.0, 8.0])
                             .show(ui, |ui| {
-                                let voice_label = if self.in_voice {
-                                    "Leave Voice"
-                                } else {
-                                    "Join Voice"
-                                };
-                                if ui
-                                    .add_sized([button_width, 30.0], egui::Button::new(voice_label))
-                                    .clicked()
-                                {
+                                let voice_label =
+                                    if self.in_voice { "Leave" } else { "Join Voice" };
+                                if Self::control_button(ui, "🎧", voice_label, self.in_voice) {
                                     if self.in_voice {
                                         self.leave_voice();
                                     } else {
                                         self.join_voice();
                                     }
                                 }
-                                let mute_label = if self.muted { "Unmute" } else { "Mute" };
-                                if ui
-                                    .add_sized(
-                                        [button_width, 30.0],
-                                        egui::SelectableLabel::new(self.muted, mute_label),
-                                    )
-                                    .clicked()
-                                {
+                                if Self::control_button(
+                                    ui,
+                                    "🎙️",
+                                    if self.muted { "Unmute" } else { "Mute" },
+                                    self.muted,
+                                ) {
                                     self.toggle_mute();
                                 }
                                 ui.end_row();
 
-                                let deafen_label =
-                                    if self.deafened { "Undeafen" } else { "Deafen" };
-                                if ui
-                                    .add_sized(
-                                        [button_width, 30.0],
-                                        egui::SelectableLabel::new(self.deafened, deafen_label),
-                                    )
-                                    .clicked()
-                                {
+                                if Self::control_button(
+                                    ui,
+                                    "🔇",
+                                    if self.deafened { "Undeafen" } else { "Deafen" },
+                                    self.deafened,
+                                ) {
                                     self.toggle_deafen();
                                 }
-                                if ui
-                                    .add_sized(
-                                        [button_width, 30.0],
-                                        egui::SelectableLabel::new(
-                                            self.sharing,
-                                            if self.sharing {
-                                                "Stop Share"
-                                            } else {
-                                                "Share Screen"
-                                            },
-                                        ),
-                                    )
-                                    .clicked()
-                                {
+                                if Self::control_button(
+                                    ui,
+                                    "🖥️",
+                                    if self.sharing { "Stop Share" } else { "Share" },
+                                    self.sharing,
+                                ) {
                                     self.toggle_screen_share();
                                 }
                                 ui.end_row();
                             });
 
                         if !self.voice_hint.is_empty() {
-                            ui.add_space(6.0);
-                            ui.label(RichText::new(&self.voice_hint).small().weak());
+                            ui.add_space(8.0);
+                            ui.label(theme::muted(self.voice_hint.as_str()).small());
                         }
                     });
 
-                ui.add_space(12.0);
-                ui.label(RichText::new("PARTICIPANTS").small().strong());
+                ui.add_space(14.0);
+                ui.label(theme::muted("PARTICIPANTS").small().strong());
+                ui.add_space(6.0);
                 if self.participants.is_empty() {
-                    ui.label(RichText::new("Nobody here yet").small().weak());
+                    ui.label(theme::muted("Nobody here yet").small());
                 }
                 for participant in &self.participants {
                     ui.horizontal(|ui| {
                         ui.label(if participant.speaking { "🔈" } else { "👤" });
                         ui.label(&participant.username);
                         if participant.muted {
-                            ui.label(RichText::new("muted").small().weak());
+                            ui.label(theme::muted("muted").small());
+                        }
+                        if participant.deafened {
+                            ui.label(theme::muted("deafened").small());
                         }
                         if participant.sharing_screen {
-                            ui.label(RichText::new("sharing").small().weak());
+                            ui.label(theme::muted("sharing").small());
                         }
                     });
                 }
 
-                ui.add_space(12.0);
-                ui.label(RichText::new("STATUS").small().strong());
+                ui.add_space(14.0);
+                ui.label(theme::muted("STATUS").small().strong());
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    for status in [
-                        PresenceStatus::Online,
-                        PresenceStatus::Away,
-                        PresenceStatus::Dnd,
+                    for (status, icon) in [
+                        (PresenceStatus::Online, "●"),
+                        (PresenceStatus::Away, "◐"),
+                        (PresenceStatus::Dnd, "⛔"),
                     ] {
-                        self::status_dot(ui, status);
+                        let active = self.presence == status;
                         if ui
-                            .selectable_label(self.presence == status, status.label())
+                            .add(
+                                egui::Button::new(format!("{icon} {}", status.label()))
+                                    .fill(if active {
+                                        theme::ACCENT
+                                    } else {
+                                        theme::SURFACE_CARD
+                                    })
+                                    .stroke(theme::border())
+                                    .corner_radius(16.0)
+                                    .min_size([68.0, 30.0].into()),
+                            )
                             .clicked()
                         {
                             self.set_presence(status);
@@ -1349,19 +1764,43 @@ impl SkyApp {
             if !self.chat_collapsed {
                 if self.chat_on_side {
                     egui::SidePanel::right("voice_chat_panel")
-                        .resizable(true)
-                        .default_width(288.0)
+                        .exact_width(300.0)
+                        .resizable(false)
+                        .frame(
+                            egui::Frame::new()
+                                .fill(theme::SURFACE_SIDEBAR)
+                                .stroke(theme::border())
+                                .inner_margin(egui::Margin::symmetric(12, 12)),
+                        )
                         .show(ctx, |ui| self.chat_content(ui, true));
                 } else {
                     egui::TopBottomPanel::bottom("voice_chat_panel")
-                        .resizable(true)
-                        .default_height(184.0)
+                        .exact_height(220.0)
+                        .resizable(false)
+                        .frame(
+                            egui::Frame::new()
+                                .fill(theme::SURFACE_SIDEBAR)
+                                .stroke(theme::border())
+                                .inner_margin(egui::Margin::symmetric(12, 10)),
+                        )
                         .show(ctx, |ui| self.chat_content(ui, true));
                 }
             }
-            egui::CentralPanel::default().show(ctx, |ui| self.ui_voice_stage(ui));
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(theme::SURFACE_MAIN)
+                        .inner_margin(egui::Margin::same(24)),
+                )
+                .show(ctx, |ui| self.ui_voice_stage(ui));
         } else {
-            egui::CentralPanel::default().show(ctx, |ui| self.chat_content(ui, false));
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(theme::SURFACE_MAIN)
+                        .inner_margin(egui::Margin::same(24)),
+                )
+                .show(ctx, |ui| self.chat_content(ui, false));
         }
     }
 
@@ -1374,51 +1813,60 @@ impl SkyApp {
             .unwrap_or_else(|| "Select a channel".to_string());
         ui.horizontal(|ui| {
             ui.heading(if compact {
-                RichText::new(format!("Chat · {title}")).small().strong()
+                RichText::new(format!("Chat · {title}")).size(17.0).strong()
             } else {
-                RichText::new(title).strong()
+                RichText::new(title).size(24.0).strong()
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if compact {
                     if ui
-                        .small_button(if self.chat_on_side { "Bottom" } else { "Side" })
+                        .add(
+                            egui::Button::new(if self.chat_on_side { "Bottom" } else { "Side" })
+                                .corner_radius(8.0),
+                        )
                         .clicked()
                     {
                         self.chat_on_side = !self.chat_on_side;
                     }
-                    if ui.small_button("✕").on_hover_text("Hide chat").clicked() {
+                    if ui
+                        .add(egui::Button::new("✕").frame(false))
+                        .on_hover_text("Hide chat")
+                        .clicked()
+                    {
                         self.chat_collapsed = true;
                     }
                 } else {
-                    ui.label(RichText::new("Server-relayed • no P2P").small().weak());
+                    ui.label(theme::muted("Server-relayed • no P2P").small());
                 }
             });
         });
-        ui.separator();
+        ui.add_space(10.0);
 
         let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                for index in 0..self.messages.len() {
-                    let message = self.messages[index].clone();
-                    self.ui_message(ui, &message, index, me_id);
-                }
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::symmetric(if compact { 4 } else { 24 }, 8))
+                    .show(ui, |ui| {
+                        for index in 0..self.messages.len() {
+                            let message = self.messages[index].clone();
+                            self.ui_message(ui, &message, index, me_id);
+                        }
+                    });
             });
 
-        ui.separator();
+        ui.add_space(10.0);
         ui.horizontal(|ui| {
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.draft)
-                    .desired_width(ui.available_width() - 70.0)
-                    .hint_text("Write a message...")
-                    .id_source("message_draft"),
-            );
-            if ui.button("Send").clicked()
-                || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            let field = Self::form_field(ui, &mut self.draft, "Write a message...", false);
+            let send = egui::Button::new(RichText::new("Send").strong())
+                .fill(theme::ACCENT)
+                .corner_radius(9.0)
+                .min_size([78.0, 38.0].into());
+            if ui.add(send).clicked()
+                || (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 self.send_message();
-                response.request_focus();
             }
         });
     }
@@ -1426,24 +1874,24 @@ impl SkyApp {
     fn ui_voice_stage(&mut self, ui: &mut Ui) {
         let label = self.voice_label.clone();
         ui.horizontal(|ui| {
-            ui.heading(RichText::new(&label).strong());
-            ui.label(
-                RichText::new(format!("{} participant(s)", self.participants.len()))
-                    .small()
-                    .weak(),
-            );
+            ui.heading(RichText::new(&label).size(24.0).strong());
+            ui.add_space(8.0);
+            ui.label(theme::muted(format!("{} participant(s)", self.participants.len())).small());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .small_button(if self.chat_collapsed {
-                        "Chat"
-                    } else {
-                        "Hide chat"
-                    })
+                    .add(
+                        egui::Button::new(if self.chat_collapsed {
+                            "Chat"
+                        } else {
+                            "Hide chat"
+                        })
+                        .corner_radius(8.0),
+                    )
                     .clicked()
                 {
                     self.chat_collapsed = !self.chat_collapsed;
                 }
-                ui.label(RichText::new("Server-relayed • no P2P").small().weak());
+                ui.label(theme::muted("Server-relayed • no P2P").small());
             });
         });
         ui.separator();
@@ -1453,7 +1901,7 @@ impl SkyApp {
 
         if self.screen_texture.is_some() {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Viewer volume").small());
+                ui.label(theme::muted("Viewer volume").small());
                 let before = self.viewer_volume;
                 ui.add(
                     egui::Slider::new(&mut self.viewer_volume, 0.0..=2.0)
@@ -1469,7 +1917,7 @@ impl SkyApp {
             });
             self.ui_screen_stage(ui);
 
-            ui.label(RichText::new("IN CALL").small().strong());
+            ui.label(theme::muted("IN CALL").small().strong());
             egui::Grid::new("compact_participants")
                 .num_columns(4)
                 .spacing([8.0, 8.0])
@@ -1503,49 +1951,64 @@ impl SkyApp {
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
                 let button_width = 112.0;
-                let mute_label = if self.muted { "Unmute" } else { "Mute" };
-                if ui
-                    .add_sized(
-                        [button_width, 32.0],
-                        egui::SelectableLabel::new(self.muted, mute_label),
-                    )
-                    .clicked()
-                {
+                let mute = egui::Button::new(if self.muted {
+                    "🔇  Unmute"
+                } else {
+                    "🎙️  Mute"
+                })
+                .fill(if self.muted {
+                    theme::ACCENT_SOFT
+                } else {
+                    theme::SURFACE_CARD
+                })
+                .stroke(theme::border())
+                .corner_radius(9.0)
+                .min_size([button_width, 36.0].into());
+                if ui.add(mute).clicked() {
                     self.toggle_mute();
                 }
-                let deafen_label = if self.deafened { "Undeafen" } else { "Deafen" };
-                if ui
-                    .add_sized(
-                        [button_width, 32.0],
-                        egui::SelectableLabel::new(self.deafened, deafen_label),
-                    )
-                    .clicked()
-                {
+                let deafen = egui::Button::new(if self.deafened { "Undeafen" } else { "Deafen" })
+                    .fill(if self.deafened {
+                        theme::ACCENT_SOFT
+                    } else {
+                        theme::SURFACE_CARD
+                    })
+                    .stroke(theme::border())
+                    .corner_radius(9.0)
+                    .min_size([button_width, 36.0].into());
+                if ui.add(deafen).clicked() {
                     self.toggle_deafen();
                 }
-                let share_label = if self.sharing {
+                let share = egui::Button::new(if self.sharing {
                     "Stop Share"
                 } else {
-                    "Share Screen"
-                };
-                if ui
-                    .add_sized(
-                        [button_width, 32.0],
-                        egui::SelectableLabel::new(self.sharing, share_label),
-                    )
-                    .clicked()
-                {
+                    "🖥️  Share Screen"
+                })
+                .fill(if self.sharing {
+                    theme::ACCENT_SOFT
+                } else {
+                    theme::SURFACE_CARD
+                })
+                .stroke(theme::border())
+                .corner_radius(9.0)
+                .min_size([button_width, 36.0].into());
+                if ui.add(share).clicked() {
                     self.toggle_screen_share();
                 }
-                let disconnect =
-                    egui::Button::new(RichText::new("Disconnect").strong().color(Color32::WHITE))
-                        .fill(Color32::from_rgb(0xD9, 0x3B, 0x3B));
-                if ui.add_sized([button_width, 32.0], disconnect).clicked() {
+                let disconnect = egui::Button::new(
+                    RichText::new("Disconnect")
+                        .strong()
+                        .color(theme::PRIMARY_TEXT),
+                )
+                .fill(theme::DANGER)
+                .corner_radius(9.0)
+                .min_size([button_width, 36.0].into());
+                if ui.add(disconnect).clicked() {
                     self.leave_voice();
                 }
             });
-            ui.add_space(4.0);
-            ui.label(RichText::new(&self.voice_hint).small().weak());
+            ui.add_space(6.0);
+            ui.label(theme::muted(self.voice_hint.as_str()).small());
         });
     }
 
@@ -1557,13 +2020,9 @@ impl SkyApp {
         compact: bool,
     ) {
         egui::Frame::new()
-            .fill(if ui.visuals().dark_mode {
-                Color32::from_rgb(0x1B, 0x25, 0x31)
-            } else {
-                Color32::from_rgb(0xFF, 0xFF, 0xFF)
-            })
-            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .corner_radius(10.0)
+            .fill(theme::SURFACE_CARD)
+            .stroke(theme::border())
+            .corner_radius(12.0)
             .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1609,16 +2068,15 @@ impl SkyApp {
                             "🎤 open"
                         };
                         ui.label(
-                            RichText::new(if participant.deafened {
+                            theme::muted(if participant.deafened {
                                 format!("{icons} · deafened")
                             } else {
                                 icons.to_string()
                             })
-                            .small()
-                            .weak(),
+                            .small(),
                         );
                         if participant.sharing_screen {
-                            ui.label(RichText::new("sharing screen").small().weak());
+                            ui.label(theme::muted("sharing screen").small());
                         }
                     });
                 });
@@ -1648,9 +2106,10 @@ impl SkyApp {
         let image_height = image_width / aspect;
 
         egui::Frame::new()
-            .fill(Color32::from_rgb(0x0A, 0x10, 0x18))
-            .corner_radius(10.0)
-            .inner_margin(8.0)
+            .fill(theme::SURFACE_CARD)
+            .stroke(theme::border())
+            .corner_radius(12.0)
+            .inner_margin(10.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{owner} is sharing")).strong());
@@ -1748,31 +2207,26 @@ impl SkyApp {
                 .find(|f| f.user_id == message.user_id)
                 .and_then(|f| f.avatar_hash.clone())
         };
-        let fill = if ui.visuals().dark_mode {
-            if mine {
-                Color32::from_rgb(0x14, 0x3B, 0x5E)
-            } else {
-                Color32::from_rgb(0x1B, 0x25, 0x31)
-            }
-        } else if mine {
-            Color32::from_rgb(0xD9, 0xEC, 0xFF)
+        let fill = if mine {
+            theme::ACCENT_SOFT
         } else {
-            Color32::from_rgb(0xFF, 0xFF, 0xFF)
+            theme::SURFACE_CARD
         };
 
         let response = egui::Frame::new()
             .fill(fill)
-            .corner_radius(10.0)
-            .inner_margin(egui::Margin::symmetric(10, 7))
+            .stroke(theme::border())
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::symmetric(12, 9))
             .outer_margin(egui::Margin {
                 left: if grouped { 42 } else { 0 },
                 right: 0,
-                top: if grouped { 2 } else { 8 },
+                top: if grouped { 2 } else { 10 },
                 bottom: 0,
             })
             .show(ui, |ui| {
                 if grouped {
-                    ui.label(&message.content);
+                    ui.label(RichText::new(&message.content).line_height(Some(22.0)));
                 } else {
                     ui.horizontal_top(|ui| {
                         self.ui_person_avatar(
@@ -1786,17 +2240,18 @@ impl SkyApp {
                         ui.add_space(4.0);
                         ui.vertical(|ui| {
                             let name_color = if mine {
-                                Color32::from_rgb(0x2E, 0x9C, 0xF0)
+                                theme::ACCENT
                             } else {
-                                ui.visuals().text_color()
+                                theme::PRIMARY_TEXT
                             };
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new(&message.username).strong().color(name_color),
                                 );
-                                ui.label(RichText::new(&time).small().weak());
+                                ui.add_space(6.0);
+                                ui.label(theme::muted(time.as_str()).small());
                             });
-                            ui.label(&message.content);
+                            ui.label(RichText::new(&message.content).line_height(Some(22.0)));
                         });
                     });
                 }
@@ -1899,7 +2354,7 @@ impl SkyApp {
 
 fn status_color(status: PresenceStatus) -> Color32 {
     match status {
-        PresenceStatus::Online => Color32::from_rgb(0x30, 0xD1, 0x58),
+        PresenceStatus::Online => theme::SUCCESS,
         PresenceStatus::Away => Color32::from_rgb(0xFF, 0xD6, 0x0A),
         PresenceStatus::Dnd => Color32::from_rgb(0xFF, 0x45, 0x3A),
         PresenceStatus::Offline => Color32::from_gray(0x80),
@@ -1914,7 +2369,7 @@ fn status_dot(ui: &mut Ui, status: PresenceStatus) {
 
 fn ui_badge(ui: &mut Ui, text: &str) {
     egui::Frame::new()
-        .fill(Color32::from_rgb(0x00, 0x68, 0xC8))
+        .fill(theme::ACCENT)
         .corner_radius(9.0)
         .inner_margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
@@ -1924,7 +2379,7 @@ fn ui_badge(ui: &mut Ui, text: &str) {
 
 fn avatar_color(name: &str, mine: bool) -> Color32 {
     if mine {
-        return Color32::from_rgb(0x00, 0x68, 0xC8);
+        return theme::ACCENT;
     }
     let hash = name.bytes().fold(0u32, |acc, byte| {
         acc.wrapping_mul(31).wrapping_add(byte as u32)
