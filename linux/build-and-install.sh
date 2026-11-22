@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Skypeline Linux build & install helper
+#
+# Usage:
+#   ./linux/build-and-install.sh              # install deps, build, install binary
+#   ./linux/build-and-install.sh --no-install # build only (no /usr/local/bin copy)
+#   ./linux/build-and-install.sh --help       # show this help
+#
+# The release binary is always staged at ./target/release/client in addition
+# to Cargo's own ./target/release/skypeline-client output.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+INSTALL=true
+case "${1:-}" in
+  --no-install) INSTALL=false ;;
+  -h|--help)
+    grep -E '^# (Skypeline|Usage:|  )' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    echo "Unknown option: $1" >&2
+    echo "Try: $0 [--no-install|--help]" >&2
+    exit 2
+    ;;
+esac
+
+APT_PACKAGES=(
+  build-essential cmake pkg-config libasound2-dev libgtk-3-dev libssl-dev
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+  libwayland-dev
+)
+PACMAN_PACKAGES=(
+  base-devel cmake pkgconf alsa-lib gtk3 openssl libx11 libxrandr
+  libxinerama libxcursor libxi wayland
+)
+
+if [[ $EUID -eq 0 ]]; then
+  SUDO=()
+else
+  SUDO=(sudo)
+fi
+
+echo "==> Detecting package manager"
+if command -v apt-get >/dev/null 2>&1; then
+  echo "    apt detected (Ubuntu / Mint / Debian)"
+  "${SUDO[@]}" apt-get update
+  "${SUDO[@]}" apt-get install -y "${APT_PACKAGES[@]}"
+elif command -v pacman >/dev/null 2>&1; then
+  echo "    pacman detected (Arch / Arch-based)"
+  "${SUDO[@]}" pacman -Syu --needed --noconfirm "${PACMAN_PACKAGES[@]}"
+else
+  echo "Error: neither apt-get nor pacman was found." >&2
+  echo "Install the build dependencies manually and rerun with --no-install." >&2
+  exit 1
+fi
+
+echo "==> Building skypeline-client (release)"
+cargo build --release -p skypeline-client
+
+SRC="$ROOT_DIR/target/release/skypeline-client"
+DST="$ROOT_DIR/target/release/client"
+if [[ ! -f "$SRC" ]]; then
+  echo "Error: expected binary not found at $SRC" >&2
+  exit 1
+fi
+cp "$SRC" "$DST"
+chmod +x "$DST"
+echo "    staged: $DST"
+
+if [[ "$INSTALL" == true ]]; then
+  echo "==> Installing to /usr/local/bin/skypeline"
+  "${SUDO[@]}" install -m 0755 "$DST" /usr/local/bin/skypeline
+  echo "    You can now run: skypeline"
+else
+  echo "==> --no-install given; skipped /usr/local/bin install"
+fi
+
+echo "==> Done."

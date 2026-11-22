@@ -39,6 +39,54 @@ pub struct AuthResponse {
     pub user_id: i64,
     pub username: String,
     pub email: String,
+    #[serde(default)]
+    pub avatar_hash: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FriendshipStatus {
+    Pending,
+    Accepted,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendRequest {
+    pub query: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendRespondRequest {
+    pub requester_id: i64,
+    pub accept: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FriendInfo {
+    pub user_id: i64,
+    pub username: String,
+    pub status: FriendshipStatus,
+    /// `"incoming"`, `"outgoing"`, or `"mutual"`.
+    pub direction: String,
+    pub online: bool,
+    pub presence: PresenceStatus,
+    #[serde(default)]
+    pub avatar_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AvatarUpload {
+    pub mime: String,
+    pub data_base64: String,
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AvatarInfo {
+    pub user_id: i64,
+    pub hash: String,
+    pub mime: String,
+    pub data_base64: String,
 }
 
 /// Sign-up intentionally does not sign the user in. Neon Auth sends an email

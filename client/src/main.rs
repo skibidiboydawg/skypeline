@@ -1,6 +1,11 @@
-mod app;
+// Launch as a GUI application on Windows: no console window when started from
+// Explorer, the Start Menu, or a desktop shortcut.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod api;
+mod app;
 mod audio;
+mod avatar;
 mod config;
 mod events;
 mod native;

@@ -38,6 +38,8 @@ pub struct RelayHub {
     pub voice_rooms: DashMap<String, DashMap<i64, VoiceParticipant>>,
     /// user_id -> voice room they are currently in
     pub user_rooms: DashMap<i64, String>,
+    /// user_id -> accepted friend ids whose presence may be shown to them
+    pub friend_cache: DashMap<i64, Vec<i64>>,
 }
 
 impl RelayHub {
@@ -50,12 +52,35 @@ impl RelayHub {
             online_users: DashMap::new(),
             voice_rooms: rooms,
             user_rooms: DashMap::new(),
+            friend_cache: DashMap::new(),
         }
+    }
+
+    /// Replaces the cached accepted-friend list for a user.
+    pub fn refresh_friends(&self, user_id: i64, friends: Vec<i64>) {
+        self.friend_cache.insert(user_id, friends);
+    }
+
+    /// The viewer always sees themselves, plus accepted friends only.
+    pub fn visible_users_for(&self, viewer: i64) -> Vec<i64> {
+        let mut ids = vec![viewer];
+        if let Some(friends) = self.friend_cache.get(&viewer) {
+            for id in friends.value() {
+                if *id != viewer && !ids.contains(id) {
+                    ids.push(*id);
+                }
+            }
+        }
+        ids
     }
 
     pub fn send(&self, scope: Scope, exclude: Option<i64>, msg: &WsServerMsg) {
         if let Ok(json) = serde_json::to_string(msg) {
-            let _ = self.tx.send(Arc::new(Relay { scope, exclude, json }));
+            let _ = self.tx.send(Arc::new(Relay {
+                scope,
+                exclude,
+                json,
+            }));
         }
     }
 
@@ -66,18 +91,32 @@ impl RelayHub {
         match &relay.scope {
             Scope::All => true,
             Scope::Users(ids) => ids.contains(&user_id),
-            Scope::Room(room) => self.user_rooms.get(&user_id).is_some_and(|r| r.as_str() == room),
+            Scope::Room(room) => self
+                .user_rooms
+                .get(&user_id)
+                .is_some_and(|r| r.as_str() == room),
         }
     }
 
-    fn presence_msg(&self) -> WsServerMsg {
-        WsServerMsg::PresenceSnapshot {
-            users: self.online_users.iter().map(|e| e.value().clone()).collect(),
-        }
+    fn presence_msg(&self, viewer: i64) -> WsServerMsg {
+        let mut users: Vec<OnlineUser> = self
+            .visible_users_for(viewer)
+            .into_iter()
+            .filter_map(|id| {
+                self.online_users
+                    .get(&id)
+                    .map(|entry| entry.value().clone())
+            })
+            .collect();
+        users.sort_by_key(|user| user.user_id);
+        WsServerMsg::PresenceSnapshot { users }
     }
 
     pub fn broadcast_presence(&self) {
-        self.send(Scope::All, None, &self.presence_msg());
+        let viewers: Vec<i64> = self.online_users.iter().map(|entry| *entry.key()).collect();
+        for viewer in viewers {
+            self.send(Scope::Users(vec![viewer]), None, &self.presence_msg(viewer));
+        }
     }
 
     fn voice_room_msg(&self, room: &str) -> WsServerMsg {
@@ -93,7 +132,11 @@ impl RelayHub {
     }
 
     pub fn broadcast_voice_room(&self, room: &str) {
-        self.send(Scope::All, None, &self.voice_room_msg(room));
+        self.send(
+            Scope::Room(room.to_string()),
+            None,
+            &self.voice_room_msg(room),
+        );
     }
 
     pub fn leave_voice(&self, user_id: i64) {
@@ -153,10 +196,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
         },
     );
 
-    // Send an initial snapshot directly to this client, then announce presence.
-    let mut initial = vec![hub.presence_msg()];
-    for room in hub.voice_rooms.iter().map(|e| e.key().clone()).collect::<Vec<_>>() {
-        initial.push(hub.voice_room_msg(&room));
+    // Refresh the privacy cache on connect, then send a personalized snapshot.
+    if let Ok(ids) = db::accepted_friend_ids(&state.db, user_id).await {
+        hub.refresh_friends(user_id, ids);
+    }
+
+    let mut initial = vec![hub.presence_msg(user_id)];
+    // Only rooms this user actually occupies; a fresh socket normally has none.
+    if let Some(room) = hub.user_rooms.get(&user_id).map(|entry| entry.clone()) {
+        if hub.voice_rooms.contains_key(room.as_str()) {
+            initial.push(hub.voice_room_msg(&room));
+        }
     }
     for msg in initial {
         if let Ok(json) = serde_json::to_string(&msg) {
@@ -176,7 +226,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
                     if !state_for_send.hub.should_deliver(&relay, user_id) {
                         continue;
                     }
-                    if sender.send(Message::Text(relay.json.clone().into())).await.is_err() {
+                    if sender
+                        .send(Message::Text(relay.json.clone().into()))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -208,7 +262,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
 async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, msg: WsClientMsg) {
     let hub = &state.hub;
     match msg {
-        WsClientMsg::SendMessage { channel_id, content } => {
+        WsClientMsg::SendMessage {
+            channel_id,
+            content,
+        } => {
             let trimmed = content.trim();
             if trimmed.is_empty() || trimmed.len() > 4000 {
                 return;
@@ -219,10 +276,18 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             };
             let scope = match channel.kind.as_str() {
                 "text" => Scope::All,
-                "dm" => match db::dm_members(&channel.name) {
-                    Some((a, b)) if a == user_id || b == user_id => Scope::Users(vec![a, b]),
-                    _ => return,
-                },
+                "dm" => {
+                    let Some((a, b)) = db::dm_members(&channel.name) else {
+                        return;
+                    };
+                    if a != user_id && b != user_id {
+                        return;
+                    }
+                    match db::are_friends(&state.db, a, b).await {
+                        Ok(true) => Scope::Users(vec![a, b]),
+                        _ => return,
+                    }
+                }
                 _ => return,
             };
             match db::insert_message(&state.db, channel.id, user_id, username, trimmed).await {
@@ -242,8 +307,35 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             hub.broadcast_presence();
         }
         WsClientMsg::JoinVoice { room } => {
-            if !hub.voice_rooms.contains_key(&room) {
+            let dm_channel_id: Option<i64> = room
+                .strip_prefix("dm-channel:")
+                .and_then(|value| value.parse::<i64>().ok());
+            let room = if let Some(channel_id) = dm_channel_id {
+                let channel = match db::get_channel(&state.db, channel_id).await {
+                    Ok(Some(channel)) => channel,
+                    _ => return,
+                };
+                if channel.kind != "dm" {
+                    return;
+                }
+                let Some((a, b)) = db::dm_members(&channel.name) else {
+                    return;
+                };
+                if a != user_id && b != user_id {
+                    return;
+                }
+                match db::are_friends(&state.db, a, b).await {
+                    Ok(true) => {}
+                    _ => return,
+                }
+                format!("dm-channel:{channel_id}")
+            } else if hub.voice_rooms.contains_key(&room) {
+                room
+            } else {
                 return;
+            };
+            if !hub.voice_rooms.contains_key(&room) {
+                hub.voice_rooms.insert(room.clone(), DashMap::new());
             }
             hub.leave_voice(user_id);
             if let Some(members) = hub.voice_rooms.get(&room) {
@@ -263,7 +355,11 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             hub.broadcast_voice_room(&room);
         }
         WsClientMsg::LeaveVoice => hub.leave_voice(user_id),
-        WsClientMsg::SetVoiceState { muted, deafened, speaking } => {
+        WsClientMsg::SetVoiceState {
+            muted,
+            deafened,
+            speaking,
+        } => {
             let Some(room) = hub.user_rooms.get(&user_id).map(|r| r.clone()) else {
                 return;
             };
@@ -320,7 +416,12 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             }
             hub.broadcast_voice_room(&room);
         }
-        WsClientMsg::ScreenFrame { width, height, jpeg_b64, .. } => {
+        WsClientMsg::ScreenFrame {
+            width,
+            height,
+            jpeg_b64,
+            ..
+        } => {
             let Some(room) = hub.user_rooms.get(&user_id).map(|r| r.clone()) else {
                 return;
             };

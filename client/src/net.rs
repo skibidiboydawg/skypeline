@@ -2,12 +2,18 @@
 //!
 //! Every chat message, Opus packet and screen frame travels through the server.
 //! No peer addresses are ever discovered or used by this client.
+//!
+//! Everything coming off the wire is untrusted: audio packets and screen
+//! frames are size-checked and decoded defensively, and a bad packet is
+//! skipped instead of panicking the relay task.
 
 use crate::events::UiEvent;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use skypeline_shared::{WsClientMsg, WsServerMsg};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc;
 use std::time::Duration;
 use tokio::sync::mpsc as tmpsc;
@@ -16,6 +22,16 @@ use tokio_tungstenite::tungstenite::Message;
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 15_000;
 const KEEPALIVE_SECS: u64 = 45;
+
+// --- untrusted payload limits ------------------------------------------------
+const OPUS_FRAME: usize = 960;
+const MAX_VOICE_BYTES: usize = 8 * 1024;
+const MAX_VOICE_B64_LEN: usize = (MAX_VOICE_BYTES / 3 + 1) * 4 + 8;
+const MAX_DECODERS: usize = 32;
+const MAX_SCREEN_BYTES: usize = 12 * 1024 * 1024;
+const MAX_SCREEN_B64_LEN: usize = (MAX_SCREEN_BYTES / 3 + 1) * 4 + 8;
+const MAX_SCREEN_DIM: u32 = 8192;
+const MAX_SCREEN_PIXELS: u64 = 16_000_000;
 
 pub fn http_to_ws(base: &str, token: &str) -> String {
     let base = base.trim().trim_end_matches('/');
@@ -29,7 +45,9 @@ pub fn http_to_ws(base: &str, token: &str) -> String {
     let encoded = token
         .bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect::<String>();
@@ -135,9 +153,7 @@ fn handle_server_msg(
         WsServerMsg::PresenceSnapshot { users } => {
             let _ = events.send(UiEvent::Presence(users));
         }
-        WsServerMsg::VoiceState {
-            participants, ..
-        } => {
+        WsServerMsg::VoiceState { participants, .. } => {
             let _ = events.send(UiEvent::VoiceState(participants));
         }
         WsServerMsg::VoicePacket {
@@ -145,20 +161,7 @@ fn handle_server_msg(
             opus_b64,
             ..
         } => {
-            let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(opus_b64) else {
-                return;
-            };
-            let decoder = decoders.entry(from_user_id).or_insert_with(|| {
-                opus1::OpusDecoder::new(opus1::SampleRate::Hz48000, opus1::Channels::Mono)
-                    .expect("create Opus decoder")
-            });
-            let mut pcm = [0.0f32; 960];
-            if decoder.decode(&bytes, 960, &mut pcm).is_ok() {
-                let _ = events.send(UiEvent::VoicePcm {
-                    _from: from_user_id,
-                    pcm: pcm.to_vec(),
-                });
-            }
+            handle_voice_packet(from_user_id, &opus_b64, events, decoders);
         }
         WsServerMsg::ScreenFrame {
             from_user_id,
@@ -168,19 +171,14 @@ fn handle_server_msg(
             jpeg_b64,
             ..
         } => {
-            let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(jpeg_b64) else {
-                return;
-            };
-            if let Ok(img) = image::load_from_memory(&bytes) {
-                let rgba = img.to_rgba8();
-                let _ = events.send(UiEvent::ScreenFrame {
-                    from: from_user_id,
-                    username: from_username,
-                    width,
-                    height,
-                    rgba: rgba.into_raw(),
-                });
-            }
+            handle_screen_frame(
+                from_user_id,
+                from_username,
+                width,
+                height,
+                &jpeg_b64,
+                events,
+            );
         }
         WsServerMsg::ScreenShareStopped { from_user_id, .. } => {
             let _ = events.send(UiEvent::ScreenStopped { from: from_user_id });
@@ -189,4 +187,144 @@ fn handle_server_msg(
             let _ = events.send(UiEvent::Error(message));
         }
     }
+}
+
+fn handle_voice_packet(
+    from_user_id: i64,
+    opus_b64: &str,
+    events: &mpsc::Sender<UiEvent>,
+    decoders: &mut HashMap<i64, opus1::OpusDecoder>,
+) {
+    // Reject absurd/partial payloads before allocating the decoded buffer.
+    if opus_b64.is_empty() || opus_b64.len() > MAX_VOICE_B64_LEN {
+        tracing::warn!("skipping oversized voice packet from {from_user_id}");
+        return;
+    }
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(opus_b64) else {
+        tracing::warn!("skipping malformed base64 voice packet from {from_user_id}");
+        return;
+    };
+    if bytes.is_empty() || bytes.len() > MAX_VOICE_BYTES {
+        tracing::warn!("skipping oversized voice packet from {from_user_id}");
+        return;
+    }
+
+    // Cap the decoder map so a spoofed user id cannot grow it without limit.
+    if decoders.len() >= MAX_DECODERS && !decoders.contains_key(&from_user_id) {
+        if let Some(victim) = decoders.keys().next().copied() {
+            decoders.remove(&victim);
+        }
+    }
+    let decoder = match decoders.entry(from_user_id) {
+        Entry::Occupied(entry) => entry.into_mut(),
+        Entry::Vacant(entry) => {
+            match opus1::OpusDecoder::new(opus1::SampleRate::Hz48000, opus1::Channels::Mono) {
+                Ok(decoder) => entry.insert(decoder),
+                Err(e) => {
+                    tracing::warn!("cannot create Opus decoder for {from_user_id}: {e}");
+                    return;
+                }
+            }
+        }
+    };
+
+    let mut pcm = [0.0f32; OPUS_FRAME];
+    // Malformed Opus bitstreams may trip an internal panic: contain it.
+    let decoded = catch_unwind(AssertUnwindSafe(|| {
+        decoder.decode(&bytes, OPUS_FRAME, &mut pcm)
+    }));
+    match decoded {
+        Ok(Ok(len)) if len == OPUS_FRAME => {}
+        Ok(Ok(len)) => {
+            tracing::warn!("short Opus decode from {from_user_id}: {len} samples");
+            return;
+        }
+        Ok(Err(e)) => {
+            tracing::warn!("Opus decode error from {from_user_id}: {e}");
+            return;
+        }
+        Err(_) => {
+            tracing::warn!("Opus decoder panicked on packet from {from_user_id}");
+            decoders.remove(&from_user_id);
+            return;
+        }
+    }
+
+    // A hostile packet must not inject NaN/Inf into the playback queue.
+    for sample in &mut pcm {
+        if !sample.is_finite() {
+            *sample = 0.0;
+        }
+    }
+    let _ = events.send(UiEvent::VoicePcm {
+        _from: from_user_id,
+        pcm: pcm.to_vec(),
+    });
+}
+
+fn handle_screen_frame(
+    from_user_id: i64,
+    from_username: String,
+    width: u32,
+    height: u32,
+    jpeg_b64: &str,
+    events: &mpsc::Sender<UiEvent>,
+) {
+    if width == 0
+        || height == 0
+        || width > MAX_SCREEN_DIM
+        || height > MAX_SCREEN_DIM
+        || u64::from(width) * u64::from(height) > MAX_SCREEN_PIXELS
+    {
+        tracing::warn!("skipping screen frame with absurd dimensions from {from_user_id}");
+        return;
+    }
+    let expected_rgba = match (u64::from(width) * u64::from(height))
+        .checked_mul(4)
+        .and_then(|len| usize::try_from(len).ok())
+    {
+        Some(len) if len <= MAX_SCREEN_BYTES => len,
+        _ => return,
+    };
+    if jpeg_b64.is_empty() || jpeg_b64.len() > MAX_SCREEN_B64_LEN {
+        tracing::warn!("skipping oversized screen frame from {from_user_id}");
+        return;
+    }
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(jpeg_b64) else {
+        tracing::warn!("skipping malformed base64 screen frame from {from_user_id}");
+        return;
+    };
+    if bytes.is_empty() || bytes.len() > MAX_SCREEN_BYTES {
+        tracing::warn!("skipping oversized screen frame from {from_user_id}");
+        return;
+    }
+
+    let loaded = catch_unwind(AssertUnwindSafe(|| image::load_from_memory(&bytes)));
+    let img = match loaded {
+        Ok(Ok(img)) => img,
+        Ok(Err(e)) => {
+            tracing::warn!("skipping undecodable screen frame from {from_user_id}: {e}");
+            return;
+        }
+        Err(_) => {
+            tracing::warn!("screen frame decoder panicked on packet from {from_user_id}");
+            return;
+        }
+    };
+    if img.width() != width || img.height() != height {
+        tracing::warn!("skipping screen frame with mismatched dimensions from {from_user_id}");
+        return;
+    }
+    let rgba = img.into_rgba8().into_raw();
+    if rgba.len() != expected_rgba {
+        tracing::warn!("skipping screen frame with RGBA length mismatch from {from_user_id}");
+        return;
+    }
+    let _ = events.send(UiEvent::ScreenFrame {
+        from: from_user_id,
+        username: from_username,
+        width,
+        height,
+        rgba,
+    });
 }

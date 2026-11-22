@@ -11,6 +11,9 @@ config.json
 **/target
 **/build
 
+# Local avatar disk cache
+skypeline-cache/
+
 # Local database / temporary files
 *.db
 *.sqlite

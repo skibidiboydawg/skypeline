@@ -1,5 +1,7 @@
 mod auth;
+mod avatar;
 mod db;
+mod friends;
 mod hub;
 
 use axum::routing::{get, post};
@@ -45,9 +47,12 @@ async fn main() {
     if jwt_secret.len() < 16 || jwt_secret == "change_me_to_random_secret" {
         panic!("JWT_SECRET is too weak; set a long random secret");
     }
-    let port: u16 = env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(7860);
-    let neon_auth_base_url = env::var("NEON_AUTH_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_NEON_AUTH_BASE_URL.to_string());
+    let port: u16 = env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(7860);
+    let neon_auth_base_url =
+        env::var("NEON_AUTH_BASE_URL").unwrap_or_else(|_| DEFAULT_NEON_AUTH_BASE_URL.to_string());
     let neon_auth_origin =
         env::var("NEON_AUTH_ORIGIN").unwrap_or_else(|_| DEFAULT_NEON_AUTH_ORIGIN.to_string());
 
@@ -80,12 +85,21 @@ async fn main() {
         .route("/api/channels", get(auth::list_channels))
         .route("/api/messages/{channel_id}", get(auth::list_messages))
         .route("/api/dm/{user_id}", post(auth::open_dm))
+        .route("/api/friends/request", post(friends::request))
+        .route("/api/friends/respond", post(friends::respond))
+        .route("/api/friends", get(friends::list))
+        .route("/api/avatar", post(avatar::upload))
+        .route("/api/avatar/{user_id}", get(avatar::get))
         .route("/ws", get(hub::ws_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("Skypeline relay server listening on http://{addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("failed to bind port");
-    axum::serve(listener, app).await.expect("server exited unexpectedly");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("failed to bind port");
+    axum::serve(listener, app)
+        .await
+        .expect("server exited unexpectedly");
 }

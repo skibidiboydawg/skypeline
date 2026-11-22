@@ -1,0 +1,33 @@
+name: Linux build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-build:
+    name: Check and build client on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config libasound2-dev libgtk-3-dev \
+            libssl-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libwayland-dev
+
+      - name: Check workspace
+        run: cargo check --workspace
+
+      - name: Build client (release)
+        run: cargo build --release -p skypeline-client
+
+      - name: Stage client binary
+        run: cp target/release/skypeline-client target/release/client

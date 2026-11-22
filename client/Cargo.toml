@@ -18,7 +18,8 @@ futures-util = "0.3"
 cpal = "0.18"
 opus1 = "0.3"
 xcap = "0.4.1"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+rfd = "0.15"
 tracing = "0.1"
 
 [build-dependencies]

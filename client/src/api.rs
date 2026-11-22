@@ -2,7 +2,8 @@
 
 use serde::Serialize;
 use skypeline_shared::{
-    AuthResponse, ChannelInfo, LoginRequest, MessageDto, RegisterRequest, RegisterResponse,
+    AuthResponse, AvatarInfo, AvatarUpload, ChannelInfo, FriendInfo, FriendRequest,
+    FriendRespondRequest, LoginRequest, MessageDto, RegisterRequest, RegisterResponse,
     ResendCodeRequest, StatusResponse, VerifyCodeRequest,
 };
 
@@ -33,7 +34,10 @@ impl ApiClient {
         if let Some(token) = token {
             req = req.bearer_auth(token);
         }
-        let resp = req.send().await.map_err(|e| format!("network error: {e}"))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("network error: {e}"))?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -83,11 +87,47 @@ impl ApiClient {
     }
 
     pub async fn messages(&self, token: &str, channel_id: i64) -> Result<Vec<MessageDto>, String> {
-        self.get(&format!("/api/messages/{channel_id}"), token).await
+        self.get(&format!("/api/messages/{channel_id}"), token)
+            .await
     }
 
     pub async fn open_dm(&self, token: &str, user_id: i64) -> Result<ChannelInfo, String> {
-        self.post(&format!("/api/dm/{user_id}"), &(), Some(token)).await
+        self.post(&format!("/api/dm/{user_id}"), &(), Some(token))
+            .await
+    }
+
+    pub async fn friends(&self, token: &str) -> Result<Vec<FriendInfo>, String> {
+        self.get("/api/friends", token).await
+    }
+
+    pub async fn friend_request(
+        &self,
+        token: &str,
+        request: &FriendRequest,
+    ) -> Result<StatusResponse, String> {
+        self.post("/api/friends/request", request, Some(token))
+            .await
+    }
+
+    pub async fn friend_respond(
+        &self,
+        token: &str,
+        request: &FriendRespondRequest,
+    ) -> Result<StatusResponse, String> {
+        self.post("/api/friends/respond", request, Some(token))
+            .await
+    }
+
+    pub async fn get_avatar(&self, token: &str, user_id: i64) -> Result<AvatarInfo, String> {
+        self.get(&format!("/api/avatar/{user_id}"), token).await
+    }
+
+    pub async fn upload_avatar(
+        &self,
+        token: &str,
+        upload: &AvatarUpload,
+    ) -> Result<AvatarInfo, String> {
+        self.post("/api/avatar", upload, Some(token)).await
     }
 }
 

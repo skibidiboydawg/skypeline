@@ -12,7 +12,7 @@ use skypeline_shared::{
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-type ApiError = (StatusCode, String);
+pub(crate) type ApiError = (StatusCode, String);
 
 const DEFAULT_NEON_AUTH_ORIGIN: &str = "https://skypeline-co.onrender.com";
 
@@ -60,20 +60,21 @@ pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims, jsonwebtoken::err
     .map(|d| d.claims)
 }
 
-fn bearer(headers: &HeaderMap, secret: &str) -> Result<Claims, ApiError> {
+pub(crate) fn bearer(headers: &HeaderMap, secret: &str) -> Result<Claims, ApiError> {
     let raw = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
-        .ok_or((
+        .ok_or((StatusCode::UNAUTHORIZED, "missing bearer token".to_string()))?;
+    verify_jwt(secret, raw).map_err(|_| {
+        (
             StatusCode::UNAUTHORIZED,
-            "missing bearer token".to_string(),
-        ))?;
-    verify_jwt(secret, raw)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid or expired token".to_string()))
+            "invalid or expired token".to_string(),
+        )
+    })
 }
 
-fn internal<E: std::fmt::Display>(e: E) -> ApiError {
+pub(crate) fn internal<E: std::fmt::Display>(e: E) -> ApiError {
     tracing::warn!("internal error: {e}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -120,11 +121,7 @@ fn trim_error(body: &str, status: u16) -> String {
 /// Calls a Managed Better Auth REST endpoint. Skypeline sends a trusted Origin
 /// because Neon Auth requires one when no absolute callback URL is supplied.
 async fn neon_post(state: &AppState, path: &str, body: Value) -> Result<Value, ApiError> {
-    let url = format!(
-        "{}{}",
-        state.neon_auth_base_url.trim_end_matches('/'),
-        path
-    );
+    let url = format!("{}{}", state.neon_auth_base_url.trim_end_matches('/'), path);
     let origin = if state.neon_auth_origin.trim().is_empty() {
         DEFAULT_NEON_AUTH_ORIGIN
     } else {
@@ -145,7 +142,10 @@ async fn neon_post(state: &AppState, path: &str, body: Value) -> Result<Value, A
     if !(200..300).contains(&status) {
         let message = auth_error_message(&text, status);
         let lower = message.to_ascii_lowercase();
-        let mapped = if status == 409 || lower.contains("already exists") || lower.contains("already registered") {
+        let mapped = if status == 409
+            || lower.contains("already exists")
+            || lower.contains("already registered")
+        {
             409
         } else {
             status
@@ -160,15 +160,17 @@ async fn neon_post(state: &AppState, path: &str, body: Value) -> Result<Value, A
 }
 
 fn parse_neon_user(value: &Value) -> Result<NeonAuthUser, ApiError> {
-    let user = value
-        .get("user")
-        .and_then(Value::as_object)
-        .ok_or((
-            StatusCode::BAD_GATEWAY,
-            "auth service returned an invalid user".to_string(),
-        ))?;
+    let user = value.get("user").and_then(Value::as_object).ok_or((
+        StatusCode::BAD_GATEWAY,
+        "auth service returned an invalid user".to_string(),
+    ))?;
 
-    let get_str = |key: &str| user.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+    let get_str = |key: &str| {
+        user.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     let id = get_str("id");
     let email = get_str("email");
     if id.is_empty() || email.is_empty() {
@@ -267,7 +269,10 @@ pub async fn verify_code(
         return Err((StatusCode::BAD_REQUEST, "valid email required".to_string()));
     }
     if code.len() < 4 || code.len() > 16 {
-        return Err((StatusCode::BAD_REQUEST, "enter the code from your email".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "enter the code from your email".to_string(),
+        ));
     }
 
     neon_post(
@@ -284,13 +289,17 @@ pub async fn verify_code(
             StatusCode::FORBIDDEN,
             "no Skypeline account exists for this email".to_string(),
         ))?;
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email)
+    let token =
+        issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email).map_err(internal)?;
+    let avatar_hash = db::avatar_hash_for_user(&state.db, user.id)
+        .await
         .map_err(internal)?;
     Ok(Json(AuthResponse {
         token,
         user_id: user.id,
         username: user.username,
         email: user.email,
+        avatar_hash,
     }))
 }
 
@@ -371,13 +380,17 @@ pub async fn login(
         },
     };
 
-    let token = issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email)
+    let token =
+        issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email).map_err(internal)?;
+    let avatar_hash = db::avatar_hash_for_user(&state.db, user.id)
+        .await
         .map_err(internal)?;
     Ok(Json(AuthResponse {
         token,
         user_id: user.id,
         username: user.username,
         email: user.email,
+        avatar_hash,
     }))
 }
 
@@ -402,7 +415,10 @@ pub async fn can_access_channel(
         return Ok(false);
     };
     if ch.kind == "dm" {
-        return Ok(db::dm_members(&ch.name).is_some_and(|(a, b)| a == user_id || b == user_id));
+        let Some((a, b)) = db::dm_members(&ch.name) else {
+            return Ok(false);
+        };
+        return Ok((a == user_id || b == user_id) && db::are_friends(&state.db, a, b).await?);
     }
     Ok(ch.kind == "text")
 }
@@ -433,9 +449,15 @@ pub async fn open_dm(
 ) -> Result<Json<ChannelInfo>, ApiError> {
     let claims = bearer(&headers, &state.jwt_secret)?;
     if peer_id == claims.sub {
+        return Err((StatusCode::BAD_REQUEST, "cannot DM yourself".to_string()));
+    }
+    if !db::are_friends(&state.db, claims.sub, peer_id)
+        .await
+        .map_err(internal)?
+    {
         return Err((
-            StatusCode::BAD_REQUEST,
-            "cannot DM yourself".to_string(),
+            StatusCode::FORBIDDEN,
+            "you must be friends before messaging".to_string(),
         ));
     }
     let peer_name = db::find_username(&state.db, peer_id)

@@ -1,7 +1,7 @@
 use skypeline_shared::{ChannelInfo, MessageDto};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 /// Connects to Neon/Lakebase Postgres (honoring `?sslmode=require` via rustls
@@ -21,7 +21,9 @@ pub async fn connect_and_migrate(
         .connect_with(opts)
         .await?;
 
-    let ddl_url = migration_url.filter(|url| !url.is_empty()).unwrap_or(database_url);
+    let ddl_url = migration_url
+        .filter(|url| !url.is_empty())
+        .unwrap_or(database_url);
     let ddl_opts = PgConnectOptions::from_str(ddl_url)?;
     let migration_pool = PgPoolOptions::new()
         .max_connections(1)
@@ -78,11 +80,9 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     // Neon Auth owns the user identity. This links the stable Neon user UUID
     // to Skypeline's integer primary keys (used by messages and DM channels).
-    sqlx::query(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS neon_auth_user_id TEXT",
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS neon_auth_user_id TEXT")
+        .execute(pool)
+        .await?;
     sqlx::query(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_neon_auth_user_id
          ON users (neon_auth_user_id) WHERE neon_auth_user_id IS NOT NULL",
@@ -90,22 +90,60 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Avatars are stored as normalized 128x128 JPEG bytes in the users row.
+    for column in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data BYTEA",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_hash TEXT",
+    ] {
+        sqlx::query(column).execute(pool).await?;
+    }
+
+    // Friendships are directional rows; accepting inserts the reciprocal row so
+    // "accepted" is always symmetric and cheap to look up.
     sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages (channel_id, id)",
+        r#"
+        CREATE TABLE IF NOT EXISTS friendships (
+            id         BIGSERIAL PRIMARY KEY,
+            user_id    BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            friend_id  BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status     VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'accepted')),
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (user_id, friend_id),
+            CHECK (user_id <> friend_id)
+        )
+        "#,
     )
     .execute(pool)
     .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_friendships_user_id ON friendships (user_id, status)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_friendships_friend_id ON friendships (friend_id, status)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages (channel_id, id)")
+        .execute(pool)
+        .await?;
 
     for (name, kind) in [
         ("general", "text"),
         ("random", "text"),
         ("General Voice", "voice"),
     ] {
-        sqlx::query("INSERT INTO channels (name, kind) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING")
-            .bind(name)
-            .bind(kind)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO channels (name, kind) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
+        )
+        .bind(name)
+        .bind(kind)
+        .execute(pool)
+        .await?;
     }
     Ok(())
 }
@@ -116,7 +154,10 @@ pub struct UserRow {
     pub username: String,
 }
 
-pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>, sqlx::Error> {
+pub async fn find_user_by_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Option<UserRow>, sqlx::Error> {
     let row = sqlx::query("SELECT id, email, username FROM users WHERE email = $1")
         .bind(email)
         .fetch_optional(pool)
@@ -209,13 +250,55 @@ pub async fn find_username(pool: &PgPool, user_id: i64) -> Result<Option<String>
     Ok(row.map(|r| r.get("username")))
 }
 
+pub async fn avatar_hash_for_user(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let row = sqlx::query("SELECT avatar_hash FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.and_then(|r| r.get("avatar_hash")))
+}
+
+/// Accepted friend ids in both directions (the reciprocal row is stored too).
+pub async fn accepted_friend_ids(pool: &PgPool, user_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT CASE WHEN user_id = $1 THEN friend_id ELSE user_id END AS other_id
+         FROM friendships
+         WHERE status = 'accepted' AND (user_id = $1 OR friend_id = $1)",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| r.get("other_id")).collect())
+}
+
+pub async fn are_friends(pool: &PgPool, a: i64, b: i64) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT EXISTS (
+            SELECT 1 FROM friendships
+            WHERE status = 'accepted'
+              AND ((user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1))
+         ) AS friends",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.get("friends"))
+}
+
 pub struct ChannelRow {
     pub id: i64,
     pub name: String,
     pub kind: String,
 }
 
-pub async fn get_channel(pool: &PgPool, channel_id: i64) -> Result<Option<ChannelRow>, sqlx::Error> {
+pub async fn get_channel(
+    pool: &PgPool,
+    channel_id: i64,
+) -> Result<Option<ChannelRow>, sqlx::Error> {
     let row = sqlx::query("SELECT id, name, kind FROM channels WHERE id = $1")
         .bind(channel_id)
         .fetch_optional(pool)
@@ -253,10 +336,17 @@ pub async fn get_or_create_dm(pool: &PgPool, a: i64, b: i64) -> Result<i64, sqlx
 
 /// Lists public text/voice channels plus only the DM channels this user belongs to.
 /// DM channel names are replaced with the peer's username for display.
-pub async fn list_channels_for_user(pool: &PgPool, user_id: i64) -> Result<Vec<ChannelInfo>, sqlx::Error> {
+pub async fn list_channels_for_user(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<Vec<ChannelInfo>, sqlx::Error> {
     let rows = sqlx::query("SELECT id, name, kind FROM channels ORDER BY id ASC")
         .fetch_all(pool)
         .await?;
+    let friends: HashSet<i64> = accepted_friend_ids(pool, user_id)
+        .await?
+        .into_iter()
+        .collect();
 
     let mut out = Vec::new();
     let mut dm_peers: Vec<(usize, i64)> = Vec::new();
@@ -265,15 +355,30 @@ pub async fn list_channels_for_user(pool: &PgPool, user_id: i64) -> Result<Vec<C
         let name: String = r.get("name");
         let kind: String = r.get("kind");
         if kind == "dm" {
-            let Some((lo, hi)) = dm_members(&name) else { continue };
+            let Some((lo, hi)) = dm_members(&name) else {
+                continue;
+            };
             if lo != user_id && hi != user_id {
                 continue;
             }
             let peer = if lo == user_id { hi } else { lo };
+            if !friends.contains(&peer) {
+                continue;
+            }
             dm_peers.push((out.len(), peer));
-            out.push(ChannelInfo { id, name, kind, peer_user_id: Some(peer) });
+            out.push(ChannelInfo {
+                id,
+                name,
+                kind,
+                peer_user_id: Some(peer),
+            });
         } else {
-            out.push(ChannelInfo { id, name, kind, peer_user_id: None });
+            out.push(ChannelInfo {
+                id,
+                name,
+                kind,
+                peer_user_id: None,
+            });
         }
     }
 
@@ -325,7 +430,11 @@ pub async fn insert_message(
     })
 }
 
-pub async fn list_messages(pool: &PgPool, channel_id: i64, limit: i64) -> Result<Vec<MessageDto>, sqlx::Error> {
+pub async fn list_messages(
+    pool: &PgPool,
+    channel_id: i64,
+    limit: i64,
+) -> Result<Vec<MessageDto>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, channel_id, user_id, username, content,
                 EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at
