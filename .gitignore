@@ -1,0 +1,17 @@
+# Secrets & environment — never commit any .env file
+.env
+.env.*
+/target
+/build
+config.json
+
+# Build artifacts in nested crates
+**/target
+**/build
+
+# Local database / temporary files
+*.db
+*.sqlite
+*.sqlite3
+*.tmp
+*.log
