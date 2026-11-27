@@ -1058,7 +1058,6 @@ impl SkyApp {
     }
 
     fn ui_main(&mut self, ctx: &Context) {
-        self.ui_app_rail(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
         self.ui_screen_fullscreen(ctx);

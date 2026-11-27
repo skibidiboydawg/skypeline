@@ -1,4 +1,5 @@
-//! 64px navigation rail, 256px secondary sidebar with Ctrl+K search, active call mini-bar, and 56px bottom user dock.
+//! Clean 2-column left sidebar (256px, #0F1218) with W brand header, Ctrl+K search,
+//! Friends & Calls nav, Direct Messages, active voice mini-bar, and strict 56px bottom user dock.
 
 use super::{avatar_color, icons, status_color, RailSection, SkyApp};
 use crate::theme;
@@ -7,183 +8,6 @@ use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, Ui};
 use skypeline_shared::{ChannelInfo, FriendshipStatus, PresenceStatus};
 
 impl SkyApp {
-    pub(crate) fn ui_app_rail(&mut self, ctx: &Context) {
-        egui::SidePanel::left("app_rail")
-            .exact_width(64.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::SURFACE_RAIL)
-                    .stroke(Stroke::NONE)
-                    .inner_margin(egui::Margin::symmetric(12, 14)),
-            )
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    // Clean W logo badge (40x40 rounded-xl bg-indigo-600)
-                    let (brand_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::hover());
-                    ui.painter()
-                        .rect_filled(brand_rect, 12.0, Color32::from_rgb(0x4F, 0x46, 0xE5));
-                    ui.painter().text(
-                        brand_rect.center(),
-                        Align2::CENTER_CENTER,
-                        "W",
-                        FontId::proportional(19.0),
-                        Color32::WHITE,
-                    );
-
-                    ui.add_space(14.0);
-                    let sep_rect = Rect::from_center_size(
-                        ui.cursor().center_top() + egui::vec2(0.0, 1.0),
-                        egui::vec2(26.0, 1.0),
-                    );
-                    ui.painter().rect_filled(sep_rect, 0.5, theme::BORDER);
-                    ui.add_space(14.0);
-
-                    let pending_count = self
-                        .friends
-                        .iter()
-                        .filter(|f| {
-                            f.status == FriendshipStatus::Pending && f.direction == "incoming"
-                        })
-                        .count();
-
-                    // 1. Direct Messages (<MessageSquare />)
-                    let active_friends = self.selected_channel.is_none()
-                        && self.rail_section == RailSection::Friends;
-                    let (r1, resp1) =
-                        ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
-                    ui.painter().rect_filled(
-                        r1,
-                        12.0,
-                        if active_friends {
-                            theme::ACCENT
-                        } else if resp1.hovered() {
-                            theme::HOVER
-                        } else {
-                            theme::SURFACE_SIDEBAR
-                        },
-                    );
-                    icons::paint_message_square(
-                        ui.painter(),
-                        r1.center(),
-                        18.0,
-                        if active_friends {
-                            Color32::WHITE
-                        } else {
-                            theme::SECONDARY_TEXT
-                        },
-                    );
-                    if pending_count > 0 {
-                        ui.painter().circle_filled(
-                            r1.right_top() + egui::vec2(-3.0, 3.0),
-                            5.0,
-                            theme::DANGER,
-                        );
-                    }
-                    if resp1.on_hover_text("Direct Messages").clicked() {
-                        self.rail_section = RailSection::Friends;
-                        self.selected_channel = None;
-                        self.messages.clear();
-                    }
-
-                    ui.add_space(10.0);
-
-                    // 2. Call History (<Phone />)
-                    let active_calls =
-                        self.selected_channel.is_none() && self.rail_section == RailSection::Calls;
-                    let (r2, resp2) =
-                        ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
-                    ui.painter().rect_filled(
-                        r2,
-                        12.0,
-                        if active_calls {
-                            theme::ACCENT
-                        } else if resp2.hovered() {
-                            theme::HOVER
-                        } else {
-                            theme::SURFACE_SIDEBAR
-                        },
-                    );
-                    icons::paint_phone(
-                        ui.painter(),
-                        r2.center(),
-                        17.0,
-                        if active_calls {
-                            Color32::WHITE
-                        } else {
-                            theme::SECONDARY_TEXT
-                        },
-                    );
-                    if resp2.on_hover_text("Call History").clicked() {
-                        self.rail_section = RailSection::Calls;
-                        self.selected_channel = None;
-                        self.messages.clear();
-                    }
-
-                    ui.add_space(10.0);
-
-                    // 3. Groups (<Users />)
-                    let active_groups =
-                        self.selected_channel.is_none() && self.rail_section == RailSection::Groups;
-                    let (r3, resp3) =
-                        ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
-                    ui.painter().rect_filled(
-                        r3,
-                        12.0,
-                        if active_groups {
-                            theme::ACCENT
-                        } else if resp3.hovered() {
-                            theme::HOVER
-                        } else {
-                            theme::SURFACE_SIDEBAR
-                        },
-                    );
-                    icons::paint_users(
-                        ui.painter(),
-                        r3.center(),
-                        18.0,
-                        if active_groups {
-                            Color32::WHITE
-                        } else {
-                            theme::SECONDARY_TEXT
-                        },
-                    );
-                    if resp3.on_hover_text("People & Groups").clicked() {
-                        self.rail_section = RailSection::Groups;
-                        self.selected_channel = None;
-                        self.messages.clear();
-                    }
-
-                    // Bottom: <Compass /> (Discover / Theme) — no duplicate gear icon!
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                        let (rt, respt) =
-                            ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
-                        ui.painter().rect_filled(
-                            rt,
-                            12.0,
-                            if respt.hovered() {
-                                theme::HOVER
-                            } else {
-                                theme::SURFACE_SIDEBAR
-                            },
-                        );
-                        icons::paint_compass(
-                            ui.painter(),
-                            rt.center(),
-                            18.0,
-                            theme::SECONDARY_TEXT,
-                        );
-                        if respt.on_hover_text("Discover / Toggle Theme").clicked() {
-                            self.config.dark_mode = !self.config.dark_mode;
-                            self.config.save();
-                            theme::apply(ctx, self.config.dark_mode);
-                        }
-                    });
-                });
-            });
-    }
-
     pub(crate) fn ui_left_sidebar(&mut self, ctx: &Context) {
         let search_id = egui::Id::new("sidebar_search_input");
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
@@ -216,163 +40,187 @@ impl SkyApp {
                     .frame(
                         egui::Frame::new()
                             .fill(theme::SURFACE_SIDEBAR)
-                            .inner_margin(egui::Margin::symmetric(12, 12)),
+                            .inner_margin(egui::Margin::same(0)),
                     )
                     .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Wireline").size(16.0).strong());
-                        });
-                        ui.add_space(10.0);
-
-                        // Search bar with <Search /> + subtle Ctrl+K / ⌘K hint pill
-                        let search_focused = ui.memory(|m| m.has_focus(search_id));
-                        egui::Frame::new()
-                            .fill(theme::SURFACE_RAIL)
-                            .stroke(if search_focused {
-                                theme::focus_border()
-                            } else {
-                                theme::input_border()
-                            })
-                            .corner_radius(8.0)
-                            .inner_margin(egui::Margin::symmetric(10, 6))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    let (ir, _) = ui.allocate_exact_size(
-                                        egui::vec2(14.0, 14.0),
-                                        Sense::hover(),
-                                    );
-                                    icons::paint_search(
-                                        ui.painter(),
-                                        ir.center(),
-                                        14.0,
-                                        theme::MUTED_TEXT,
-                                    );
-                                    let input_w = (ui.available_width() - 40.0).max(80.0);
-                                    ui.add_sized(
-                                        [input_w, 20.0],
-                                        egui::TextEdit::singleline(&mut self.chat_search)
-                                            .id(search_id)
-                                            .frame(false)
-                                            .hint_text("Search conversations..."),
-                                    );
-                                    let (kr, _) = ui.allocate_exact_size(
-                                        egui::vec2(34.0, 18.0),
-                                        Sense::hover(),
-                                    );
-                                    ui.painter().rect_filled(
-                                        kr,
-                                        4.0,
-                                        Color32::from_rgb(0x16, 0x1A, 0x24),
-                                    );
-                                    ui.painter().text(
-                                        kr.center(),
-                                        Align2::CENTER_CENTER,
-                                        "Ctrl K",
-                                        FontId::proportional(9.5),
-                                        theme::MUTED_TEXT,
-                                    );
-                                });
-                            });
-                        ui.add_space(10.0);
-
-                        // Sleek active pill for "Friends & Calls" (<Users />)
-                        let home = self.selected_channel.is_none();
-                        let (nav_rect, nav_resp) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 36.0),
-                            Sense::click(),
+                        // Top Brand Header (h-12 / 48px, px-4, W badge + Wireline title)
+                        let (hdr_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 48.0),
+                            Sense::hover(),
+                        );
+                        let badge_rect = Rect::from_center_size(
+                            egui::pos2(hdr_rect.left() + 30.0, hdr_rect.center().y),
+                            egui::vec2(28.0, 28.0),
                         );
                         ui.painter().rect_filled(
-                            nav_rect,
+                            badge_rect,
                             8.0,
-                            if home {
-                                Color32::from_rgb(0x1D, 0x22, 0x30)
-                            } else if nav_resp.hovered() {
-                                theme::HOVER
-                            } else {
-                                Color32::TRANSPARENT
-                            },
-                        );
-                        let icon_c = nav_rect.left_center() + egui::vec2(16.0, 0.0);
-                        icons::paint_users(
-                            ui.painter(),
-                            icon_c,
-                            16.0,
-                            if home {
-                                Color32::WHITE
-                            } else {
-                                theme::SECONDARY_TEXT
-                            },
+                            Color32::from_rgb(0x4F, 0x46, 0xE5),
                         );
                         ui.painter().text(
-                            nav_rect.left_center() + egui::vec2(34.0, 0.0),
+                            badge_rect.center(),
+                            Align2::CENTER_CENTER,
+                            "W",
+                            FontId::proportional(14.5),
+                            Color32::WHITE,
+                        );
+                        ui.painter().text(
+                            egui::pos2(badge_rect.right() + 10.0, hdr_rect.center().y),
                             Align2::LEFT_CENTER,
-                            "Friends & Calls",
-                            FontId::proportional(13.5),
-                            if home {
-                                Color32::WHITE
-                            } else {
-                                theme::SECONDARY_TEXT
-                            },
+                            "Wireline",
+                            FontId::proportional(16.0),
+                            Color32::WHITE,
                         );
-                        if nav_resp.clicked() {
-                            self.selected_channel = None;
-                            self.rail_section = RailSection::Friends;
-                            self.messages.clear();
-                        }
 
-                        ui.add_space(14.0);
-                        ui.label(
-                            RichText::new("DIRECT MESSAGES")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::MUTED_TEXT),
-                        );
-                        ui.add_space(6.0);
-
-                        let search = self.chat_search.trim().to_ascii_lowercase();
-                        let mut dms: Vec<ChannelInfo> = self
-                            .channels
-                            .iter()
-                            .filter(|c| c.kind == "dm")
-                            .cloned()
-                            .collect();
-                        dms.sort_by(|a, b| b.id.cmp(&a.id));
-
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin::symmetric(12, 6))
                             .show(ui, |ui| {
-                                let visible_dms: Vec<ChannelInfo> = dms
-                                    .into_iter()
-                                    .filter(|ch| {
-                                        search.is_empty()
-                                            || ch.name.to_ascii_lowercase().contains(&search)
+                                // Search bar with <Search /> + subtle Ctrl K hint pill
+                                let search_focused = ui.memory(|m| m.has_focus(search_id));
+                                egui::Frame::new()
+                                    .fill(theme::SURFACE_RAIL)
+                                    .stroke(if search_focused {
+                                        theme::focus_border()
+                                    } else {
+                                        theme::input_border()
                                     })
-                                    .collect();
-                                if visible_dms.is_empty() {
-                                    ui.add_space(28.0);
-                                    ui.vertical_centered(|ui| {
-                                        let (er, _) = ui.allocate_exact_size(
-                                            egui::vec2(28.0, 28.0),
-                                            Sense::hover(),
-                                        );
-                                        icons::paint_message_circle(
-                                            ui.painter(),
-                                            er.center(),
-                                            24.0,
-                                            theme::MUTED_TEXT,
-                                        );
-                                        ui.add_space(6.0);
-                                        ui.label(
-                                            RichText::new("No conversations yet")
-                                                .small()
-                                                .color(theme::MUTED_TEXT),
-                                        );
+                                    .corner_radius(8.0)
+                                    .inner_margin(egui::Margin::symmetric(10, 6))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            let (ir, _) = ui.allocate_exact_size(
+                                                egui::vec2(14.0, 14.0),
+                                                Sense::hover(),
+                                            );
+                                            icons::paint_search(
+                                                ui.painter(),
+                                                ir.center(),
+                                                14.0,
+                                                theme::MUTED_TEXT,
+                                            );
+                                            let input_w = (ui.available_width() - 40.0).max(80.0);
+                                            ui.add_sized(
+                                                [input_w, 20.0],
+                                                egui::TextEdit::singleline(&mut self.chat_search)
+                                                    .id(search_id)
+                                                    .frame(false)
+                                                    .hint_text("Search conversations..."),
+                                            );
+                                            let (kr, _) = ui.allocate_exact_size(
+                                                egui::vec2(34.0, 18.0),
+                                                Sense::hover(),
+                                            );
+                                            ui.painter().rect_filled(
+                                                kr,
+                                                4.0,
+                                                Color32::from_rgb(0x16, 0x1A, 0x24),
+                                            );
+                                            ui.painter().text(
+                                                kr.center(),
+                                                Align2::CENTER_CENTER,
+                                                "Ctrl K",
+                                                FontId::proportional(9.5),
+                                                theme::MUTED_TEXT,
+                                            );
+                                        });
                                     });
-                                } else {
-                                    for ch in visible_dms {
-                                        self.ui_channel_row(ui, &ch);
-                                    }
+                                ui.add_space(10.0);
+
+                                // Sleek "Friends & Calls" navigation button (<Users /> in indigo-400)
+                                let home = self.selected_channel.is_none();
+                                let (nav_rect, nav_resp) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), 36.0),
+                                    Sense::click(),
+                                );
+                                ui.painter().rect_filled(
+                                    nav_rect,
+                                    8.0,
+                                    if home {
+                                        Color32::from_rgb(0x1D, 0x22, 0x30)
+                                    } else if nav_resp.hovered() {
+                                        theme::HOVER
+                                    } else {
+                                        Color32::TRANSPARENT
+                                    },
+                                );
+                                let icon_c = nav_rect.left_center() + egui::vec2(16.0, 0.0);
+                                icons::paint_users(
+                                    ui.painter(),
+                                    icon_c,
+                                    16.0,
+                                    Color32::from_rgb(0x81, 0x8C, 0xF8),
+                                );
+                                ui.painter().text(
+                                    nav_rect.left_center() + egui::vec2(34.0, 0.0),
+                                    Align2::LEFT_CENTER,
+                                    "Friends & Calls",
+                                    FontId::proportional(13.5),
+                                    if home {
+                                        Color32::WHITE
+                                    } else {
+                                        theme::SECONDARY_TEXT
+                                    },
+                                );
+                                if nav_resp.clicked() {
+                                    self.selected_channel = None;
+                                    self.rail_section = RailSection::Friends;
+                                    self.messages.clear();
                                 }
+
+                                ui.add_space(14.0);
+                                ui.label(
+                                    RichText::new("DIRECT MESSAGES")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(theme::MUTED_TEXT),
+                                );
+                                ui.add_space(6.0);
+
+                                let search = self.chat_search.trim().to_ascii_lowercase();
+                                let mut dms: Vec<ChannelInfo> = self
+                                    .channels
+                                    .iter()
+                                    .filter(|c| c.kind == "dm")
+                                    .cloned()
+                                    .collect();
+                                dms.sort_by(|a, b| b.id.cmp(&a.id));
+
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        let visible_dms: Vec<ChannelInfo> = dms
+                                            .into_iter()
+                                            .filter(|ch| {
+                                                search.is_empty()
+                                                    || ch.name.to_ascii_lowercase().contains(&search)
+                                            })
+                                            .collect();
+                                        if visible_dms.is_empty() {
+                                            ui.add_space(28.0);
+                                            ui.vertical_centered(|ui| {
+                                                let (er, _) = ui.allocate_exact_size(
+                                                    egui::vec2(28.0, 28.0),
+                                                    Sense::hover(),
+                                                );
+                                                icons::paint_message_circle(
+                                                    ui.painter(),
+                                                    er.center(),
+                                                    24.0,
+                                                    theme::MUTED_TEXT,
+                                                );
+                                                ui.add_space(6.0);
+                                                ui.label(
+                                                    RichText::new("No conversations yet")
+                                                        .small()
+                                                        .color(theme::MUTED_TEXT),
+                                                );
+                                            });
+                                        } else {
+                                            for ch in visible_dms {
+                                                self.ui_channel_row(ui, &ch);
+                                            }
+                                        }
+                                    });
                             });
                     });
             });
@@ -761,7 +609,7 @@ impl SkyApp {
         egui::Area::new(egui::Id::new("profile_popover_card"))
             .constrain(true)
             .fixed_pos(egui::pos2(
-                74.0,
+                12.0,
                 (ctx.screen_rect().bottom() - 270.0).max(16.0),
             ))
             .order(egui::Order::Foreground)
