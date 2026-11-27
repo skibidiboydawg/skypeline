@@ -783,10 +783,19 @@ impl SkyApp {
                 }
                 UiEvent::RegisterPending(response) => {
                     self.busy = false;
-                    self.verify_email = response.email;
-                    self.verify_code.clear();
-                    self.auth_step = AuthStep::VerifyCode;
-                    self.notice = response.message;
+                    if response.verification_required {
+                        self.verify_email = response.email;
+                        self.verify_code.clear();
+                        self.auth_step = AuthStep::VerifyCode;
+                        self.notice = response.message;
+                    } else {
+                        self.login_email = response.email;
+                        self.login_password = self.register_password.clone();
+                        self.auth_step = AuthStep::Credentials;
+                        self.auth_tab = AuthTab::Login;
+                        self.notice = "Account created! Signing in...".into();
+                        self.submit_login();
+                    }
                 }
                 UiEvent::Channels(channels) => {
                     self.channels = channels;

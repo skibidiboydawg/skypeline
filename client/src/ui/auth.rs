@@ -325,7 +325,7 @@ impl SkyApp {
             });
     }
 
-    fn submit_login(&mut self) {
+    pub(crate) fn submit_login(&mut self) {
         if self.busy {
             return;
         }
