@@ -27,6 +27,7 @@ fn paint_arc(
 }
 
 /// <MessageSquare />
+#[allow(dead_code)]
 pub fn paint_message_square(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let w = size * 0.80;
@@ -148,6 +149,7 @@ pub fn paint_user_plus(painter: &egui::Painter, c: Pos2, size: f32, color: Color
 }
 
 /// <Compass />
+#[allow(dead_code)]
 pub fn paint_compass(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     painter.circle_stroke(c, size * 0.38, s);

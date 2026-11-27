@@ -172,6 +172,7 @@ impl ApiClient {
             .await
     }
 
+    #[allow(dead_code)]
     pub async fn create_group(
         &self,
         token: &str,
@@ -180,6 +181,7 @@ impl ApiClient {
         self.post("/api/groups", request, Some(token)).await
     }
 
+    #[allow(dead_code)]
     pub async fn add_group_member(
         &self,
         token: &str,

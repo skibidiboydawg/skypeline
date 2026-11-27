@@ -57,13 +57,6 @@ pub(crate) enum FriendsTab {
     Pending,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RailSection {
-    Friends,
-    Calls,
-    Groups,
-}
-
 pub struct SkyApp {
     pub(crate) rt: tokio::runtime::Runtime,
     pub(crate) config: Config,
@@ -103,10 +96,10 @@ pub struct SkyApp {
     pub(crate) last_typing_sent: Option<(i64, f64)>,
     pub(crate) presence: PresenceStatus,
     pub(crate) friends_tab: FriendsTab,
-    pub(crate) rail_section: RailSection,
     pub(crate) show_profile_popover: bool,
     pub(crate) show_inbox_popover: bool,
     pub(crate) show_settings_modal: bool,
+    pub(crate) incoming_call: Option<(i64, String)>,
     pub(crate) chat_search: String,
 
     pub(crate) voice_hint: String,
@@ -187,10 +180,10 @@ impl SkyApp {
             last_typing_sent: None,
             presence: PresenceStatus::Online,
             friends_tab: FriendsTab::Online,
-            rail_section: RailSection::Friends,
             show_profile_popover: false,
             show_inbox_popover: false,
             show_settings_modal: false,
+            incoming_call: None,
             chat_search: String::new(),
             voice_hint: String::new(),
             voice_room: None,
@@ -407,6 +400,7 @@ impl SkyApp {
         };
         let api = self.api();
         let tx = self.events_tx.clone();
+        self.friend_query.clear();
         self.friend_busy = true;
         self.notice = format!("Looking for {query}...");
         self.rt.spawn(async move {
@@ -617,6 +611,7 @@ impl SkyApp {
         match audio.start_capture(room.clone(), ws.clone()) {
             Ok(()) => {
                 self.in_voice = true;
+                self.incoming_call = None;
                 self.voice_room = Some(room);
                 self.voice_hint.clear();
                 self.voice_participants_seen.clear();
@@ -933,8 +928,40 @@ impl SkyApp {
                         .avatars
                         .on_loaded(ctx, user_id, hash, mime, data_base64);
                 }
-                UiEvent::VoiceState(participants) => {
+                UiEvent::VoiceState { room, participants } => {
                     let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
+                    let in_this_room =
+                        self.in_voice && self.voice_room.as_deref() == Some(room.as_str());
+                    if !in_this_room {
+                        if let Some(ch_id) = room
+                            .strip_prefix("channel:")
+                            .and_then(|s| s.parse::<i64>().ok())
+                        {
+                            if let Some(caller) = participants.iter().find(|p| p.user_id != me_id) {
+                                let already_ringing = self
+                                    .incoming_call
+                                    .as_ref()
+                                    .is_some_and(|(id, _)| *id == ch_id);
+                                if !already_ringing {
+                                    self.incoming_call =
+                                        Some((ch_id, caller.username.clone()));
+                                    native::voice_join_chime();
+                                    native::notify(
+                                        "Wireline",
+                                        &format!("{} is calling you", caller.username),
+                                    );
+                                }
+                            } else if self
+                                .incoming_call
+                                .as_ref()
+                                .is_some_and(|(id, _)| *id == ch_id)
+                            {
+                                self.incoming_call = None;
+                            }
+                        }
+                        continue;
+                    }
+
                     let new_joiner = participants.iter().any(|p| {
                         p.user_id != me_id && !self.voice_participants_seen.contains(&p.user_id)
                     });

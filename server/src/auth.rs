@@ -29,7 +29,6 @@ pub struct Claims {
 struct NeonAuthUser {
     id: String,
     name: String,
-    email_verified: bool,
 }
 
 pub fn issue_jwt(
@@ -184,10 +183,6 @@ fn parse_neon_user(value: &Value) -> Result<NeonAuthUser, ApiError> {
     Ok(NeonAuthUser {
         id,
         name: get_str("name"),
-        email_verified: user
-            .get("emailVerified")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
     })
 }
 
@@ -550,6 +545,11 @@ pub async fn open_dm(
     let id = db::get_or_create_dm(&state.db, claims.sub, peer_id)
         .await
         .map_err(internal)?;
+    state.hub.send(
+        hub::Scope::Users(vec![peer_id]),
+        None,
+        &WsServerMsg::ChannelsUpdated,
+    );
     let members = db::channel_members(&state.db, id).await.map_err(internal)?;
     Ok(Json(ChannelInfo {
         id,

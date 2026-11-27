@@ -1,7 +1,7 @@
 //! Clean 2-column left sidebar (256px, #0F1218) with W brand header, Ctrl+K search,
 //! Friends & Calls nav, Direct Messages, active voice mini-bar, and strict 56px bottom user dock.
 
-use super::{avatar_color, icons, status_color, RailSection, SkyApp};
+use super::{avatar_color, icons, status_color, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, Ui};
@@ -31,6 +31,8 @@ impl SkyApp {
                     .show_inside(ui, |ui| {
                         if self.in_voice {
                             self.ui_active_call_banner(ui);
+                        } else if let Some((call_ch_id, caller_name)) = self.incoming_call.clone() {
+                            self.ui_incoming_call_banner(ui, call_ch_id, &caller_name);
                         }
                         self.ui_user_dock(ui);
                     });
@@ -163,7 +165,6 @@ impl SkyApp {
                                 );
                                 if nav_resp.clicked() {
                                     self.selected_channel = None;
-                                    self.rail_section = RailSection::Friends;
                                     self.messages.clear();
                                 }
 
@@ -335,6 +336,89 @@ impl SkyApp {
         );
         if disc_resp.on_hover_text("Disconnect").clicked() {
             self.leave_voice();
+        }
+    }
+
+    fn ui_incoming_call_banner(&mut self, ui: &mut Ui, channel_id: i64, caller: &str) {
+        let (bar_rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 50.0), Sense::hover());
+        ui.painter()
+            .rect_filled(bar_rect, 0.0, Color32::from_rgb(0x13, 0x1A, 0x2E));
+        ui.painter().line_segment(
+            [bar_rect.left_top(), bar_rect.right_top()],
+            theme::focus_border(),
+        );
+        ui.painter().text(
+            bar_rect.left_top() + egui::vec2(12.0, 9.0),
+            Align2::LEFT_TOP,
+            caller,
+            FontId::proportional(13.0),
+            Color32::WHITE,
+        );
+        ui.painter().text(
+            bar_rect.left_top() + egui::vec2(12.0, 26.0),
+            Align2::LEFT_TOP,
+            "Incoming call...",
+            FontId::proportional(11.0),
+            Color32::from_rgb(0x6E, 0xE7, 0xB7),
+        );
+
+        let dec_r = Rect::from_center_size(
+            bar_rect.right_center() - egui::vec2(20.0, 0.0),
+            egui::vec2(28.0, 28.0),
+        );
+        let dec_resp = ui.interact(dec_r, ui.id().with("inc_call_decline"), Sense::click());
+        ui.painter().circle_filled(
+            dec_r.center(),
+            14.0,
+            if dec_resp.hovered() {
+                theme::DANGER
+            } else {
+                Color32::from_rgb(0x2A, 0x15, 0x18)
+            },
+        );
+        icons::paint_x(
+            ui.painter(),
+            dec_r.center(),
+            14.0,
+            if dec_resp.hovered() {
+                Color32::WHITE
+            } else {
+                theme::DANGER
+            },
+        );
+        if dec_resp.on_hover_text("Dismiss").clicked() {
+            self.incoming_call = None;
+        }
+
+        let ans_r = Rect::from_center_size(
+            bar_rect.right_center() - egui::vec2(54.0, 0.0),
+            egui::vec2(28.0, 28.0),
+        );
+        let ans_resp = ui.interact(ans_r, ui.id().with("inc_call_accept"), Sense::click());
+        ui.painter().circle_filled(
+            ans_r.center(),
+            14.0,
+            if ans_resp.hovered() {
+                theme::SUCCESS
+            } else {
+                Color32::from_rgb(0x10, 0x2A, 0x20)
+            },
+        );
+        icons::paint_phone(
+            ui.painter(),
+            ans_r.center(),
+            14.0,
+            if ans_resp.hovered() {
+                Color32::WHITE
+            } else {
+                theme::SUCCESS
+            },
+        );
+        if ans_resp.on_hover_text("Answer call").clicked() {
+            self.incoming_call = None;
+            self.select_channel(channel_id);
+            self.start_call(channel_id);
         }
     }
 
@@ -595,6 +679,10 @@ impl SkyApp {
         if !self.show_profile_popover {
             return;
         }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_profile_popover = false;
+            return;
+        }
         let me_name = self
             .me
             .as_ref()
@@ -741,6 +829,10 @@ impl SkyApp {
 
     pub(crate) fn ui_inbox_popover(&mut self, ctx: &Context) {
         if !self.show_inbox_popover {
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_inbox_popover = false;
             return;
         }
         let incoming: Vec<_> = self

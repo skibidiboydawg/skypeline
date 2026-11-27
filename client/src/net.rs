@@ -204,8 +204,8 @@ fn handle_server_msg(
         WsServerMsg::PresenceSnapshot { users } => {
             let _ = events.send(UiEvent::Presence(users));
         }
-        WsServerMsg::VoiceState { participants, .. } => {
-            let _ = events.send(UiEvent::VoiceState(participants));
+        WsServerMsg::VoiceState { room, participants } => {
+            let _ = events.send(UiEvent::VoiceState { room, participants });
         }
         WsServerMsg::VoicePacket {
             from_user_id,

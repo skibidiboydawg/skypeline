@@ -13,7 +13,6 @@ pub const SURFACE_SIDEBAR: Color32 = Color32::from_rgb(0x0F, 0x12, 0x18);
 pub const SURFACE_MAIN: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x12);
 pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x13, 0x17, 0x20);
 pub const SURFACE_ELEVATED: Color32 = Color32::from_rgb(0x1B, 0x20, 0x2C);
-pub const SURFACE_DOCK: Color32 = Color32::from_rgb(0x0C, 0x0F, 0x14);
 
 pub const BORDER: Color32 = Color32::from_rgb(0x1A, 0x1E, 0x28);
 pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x1E, 0x23, 0x30);

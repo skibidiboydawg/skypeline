@@ -337,6 +337,7 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                     room.strip_prefix("dm-channel:")
                         .and_then(|value| value.parse::<i64>().ok())
                 });
+            let mut notify_peer: Option<i64> = None;
             let room = if let Some(channel_id) = channel_id {
                 let channel = match db::get_channel(&state.db, channel_id).await {
                     Ok(Some(channel)) => channel,
@@ -351,7 +352,9 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                             return;
                         }
                         match db::are_friends(&state.db, a, b).await {
-                            Ok(true) => {}
+                            Ok(true) => {
+                                notify_peer = Some(if a == user_id { b } else { a });
+                            }
                             _ => return,
                         }
                     }
@@ -384,6 +387,20 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             }
             hub.user_rooms.insert(user_id, room.clone());
             hub.broadcast_voice_room(&room);
+            // Ring the DM peer if they aren't in the call yet so they get an incoming call alert.
+            if let Some(peer_id) = notify_peer {
+                let peer_in_room = hub
+                    .user_rooms
+                    .get(&peer_id)
+                    .is_some_and(|r| r.as_str() == room);
+                if !peer_in_room {
+                    hub.send(
+                        Scope::Users(vec![peer_id]),
+                        None,
+                        &hub.voice_room_msg(&room),
+                    );
+                }
+            }
         }
         WsClientMsg::LeaveVoice => hub.leave_voice(user_id),
         WsClientMsg::SetVoiceState {

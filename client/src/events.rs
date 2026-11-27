@@ -16,6 +16,7 @@ pub enum UiEvent {
         channel: ChannelInfo,
         start_call: bool,
     },
+    #[allow(dead_code)]
     GroupCreated(ChannelInfo),
     Messages {
         channel_id: i64,
@@ -48,7 +49,10 @@ pub enum UiEvent {
     ReloadFriends,
     /// Refresh the channels list after a group/friendship mutation.
     ReloadChannels,
-    VoiceState(Vec<VoiceParticipant>),
+    VoiceState {
+        room: String,
+        participants: Vec<VoiceParticipant>,
+    },
     /// Decoded 48 kHz mono PCM from a remote participant, ready to enqueue.
     VoicePcm {
         _from: i64,
