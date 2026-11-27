@@ -230,17 +230,17 @@ impl SkyApp {
                             });
                         ui.add_space(10.0);
 
-                        // Sleek left-aligned navigation item for "Friends & Calls"
+                        // Sleek active pill for "Friends & Calls"
                         let home = self.selected_channel.is_none();
                         let (nav_rect, nav_resp) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 34.0),
+                            egui::vec2(ui.available_width(), 36.0),
                             Sense::click(),
                         );
                         ui.painter().rect_filled(
                             nav_rect,
                             8.0,
                             if home {
-                                theme::SURFACE_CARD
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 25)
                             } else if nav_resp.hovered() {
                                 theme::HOVER
                             } else {
@@ -510,12 +510,13 @@ impl SkyApp {
         egui::Frame::new()
             .fill(theme::SURFACE_DOCK)
             .stroke(theme::border())
-            .inner_margin(egui::Margin::symmetric(10, 10))
+            .inner_margin(egui::Margin::symmetric(12, 12))
             .show(ui, |ui| {
+                ui.set_min_height(36.0);
                 ui.horizontal(|ui| {
                     // Clickable Avatar + Name/Status block -> opens Profile Popover Card
                     let (prof_rect, prof_resp) =
-                        ui.allocate_exact_size(egui::vec2(126.0, 36.0), Sense::click());
+                        ui.allocate_exact_size(egui::vec2(124.0, 36.0), Sense::click());
                     if prof_resp.hovered() {
                         ui.painter().rect_filled(prof_rect, 8.0, theme::HOVER);
                     }
@@ -589,6 +590,7 @@ impl SkyApp {
 
                     // Right-aligned icon buttons: Mute Mic, Deafen Audio, User Settings (Gear)
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
                         let (gr, gresp) =
                             ui.allocate_exact_size(egui::vec2(26.0, 26.0), Sense::click());
                         if gresp.hovered() {

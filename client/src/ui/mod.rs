@@ -326,7 +326,7 @@ impl SkyApp {
         self.me = Some(auth);
         self.token = Some(session.token.clone());
         self.page = Page::Main;
-        self.notice = "Connecting to relay...".into();
+        self.notice.clear();
         self.connect_ws(&session.token);
         self.load_channels();
         self.load_friends();
@@ -974,7 +974,11 @@ impl SkyApp {
                 UiEvent::Status(status) => {
                     self.busy = false;
                     self.friend_busy = false;
-                    self.notice = status;
+                    if status == "Connected" || status == "Connecting to relay..." {
+                        self.notice.clear();
+                    } else {
+                        self.notice = status;
+                    }
                 }
                 UiEvent::Error(error) => {
                     self.busy = false;

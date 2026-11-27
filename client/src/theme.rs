@@ -6,15 +6,15 @@ pub const PRIMARY_TEXT: Color32 = Color32::from_rgb(0xF3, 0xF4, 0xF6);
 pub const SECONDARY_TEXT: Color32 = Color32::from_rgb(0x9C, 0xA3, 0xAF);
 pub const MUTED_TEXT: Color32 = Color32::from_rgb(0x6B, 0x72, 0x80);
 
-pub const SURFACE_RAIL: Color32 = Color32::from_rgb(0x0F, 0x11, 0x17);
-pub const SURFACE_SIDEBAR: Color32 = Color32::from_rgb(0x16, 0x19, 0x22);
-pub const SURFACE_MAIN: Color32 = Color32::from_rgb(0x0F, 0x11, 0x17);
-pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x1E, 0x22, 0x2D);
-pub const SURFACE_ELEVATED: Color32 = Color32::from_rgb(0x26, 0x2B, 0x38);
-pub const SURFACE_DOCK: Color32 = Color32::from_rgb(0x12, 0x15, 0x1D);
+pub const SURFACE_RAIL: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x12);
+pub const SURFACE_SIDEBAR: Color32 = Color32::from_rgb(0x0F, 0x12, 0x18);
+pub const SURFACE_MAIN: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x12);
+pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x13, 0x16, 0x1F);
+pub const SURFACE_ELEVATED: Color32 = Color32::from_rgb(0x1E, 0x22, 0x2D);
+pub const SURFACE_DOCK: Color32 = Color32::from_rgb(0x0F, 0x12, 0x18);
 
-pub const BORDER: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 20);
-pub const INPUT_BORDER: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 32);
+pub const BORDER: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 14);
+pub const INPUT_BORDER: Color32 = Color32::from_rgba_premultiplied(255, 255, 255, 26);
 
 pub const ACCENT: Color32 = Color32::from_rgb(0x63, 0x66, 0xF1);
 pub const ACCENT_SOFT: Color32 = Color32::from_rgba_premultiplied(99, 102, 241, 36);

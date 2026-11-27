@@ -1,4 +1,4 @@
-//! Main Content Area: 48px top header bar, max-width 760px container, Add a Friend card, and centered empty state.
+//! Main Content Area: 48px top header bar, vertical column max-w-2xl wrapper, Add a Friend card, and centered empty state.
 
 use super::{avatar_color, icons, status_color, FriendsTab, SkyApp};
 use crate::theme;
@@ -19,7 +19,7 @@ impl SkyApp {
             .filter(|f| f.status == FriendshipStatus::Pending && f.direction == "incoming")
             .count();
 
-        // 1. Top Header Bar (48px height)
+        // 1. Top Header Bar (48px height, border-b border-white/5, px-6)
         let (header_rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::hover());
         ui.painter()
@@ -29,7 +29,7 @@ impl SkyApp {
             theme::border(),
         );
 
-        let header_inner = header_rect.shrink2(egui::vec2(18.0, 6.0));
+        let header_inner = header_rect.shrink2(egui::vec2(24.0, 6.0));
         ui.allocate_new_ui(
             egui::UiBuilder::new()
                 .max_rect(header_inner)
@@ -55,7 +55,7 @@ impl SkyApp {
                         tr,
                         7.0,
                         if active {
-                            theme::SURFACE_ELEVATED
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 24)
                         } else if tresp.hovered() {
                             theme::HOVER
                         } else {
@@ -76,9 +76,9 @@ impl SkyApp {
                         text_pos,
                         align,
                         label,
-                        FontId::proportional(13.0),
+                        FontId::proportional(13.5),
                         if active {
-                            theme::PRIMARY_TEXT
+                            Color32::WHITE
                         } else {
                             theme::SECONDARY_TEXT
                         },
@@ -99,7 +99,7 @@ impl SkyApp {
                     }
                 }
 
-                // Right side: "Update Available" pill + Notifications Inbox icon
+                // Right side: crisp emerald "Update Available" pill + Notifications Inbox icon
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (bell_r, bell_resp) =
                         ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::click());
@@ -129,45 +129,45 @@ impl SkyApp {
                         self.show_inbox_popover = !self.show_inbox_popover;
                     }
 
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
 
+                    let emerald_text = Color32::from_rgb(0x34, 0xD3, 0x99);
+                    let emerald_bg = Color32::from_rgba_unmultiplied(16, 185, 129, 38);
+                    let emerald_border = Color32::from_rgba_unmultiplied(16, 185, 129, 90);
                     let (upd_r, upd_resp) =
-                        ui.allocate_exact_size(egui::vec2(148.0, 28.0), Sense::click());
+                        ui.allocate_exact_size(egui::vec2(146.0, 28.0), Sense::click());
                     ui.painter().rect_filled(
                         upd_r,
                         14.0,
                         if upd_resp.hovered() {
-                            theme::SUCCESS
+                            Color32::from_rgb(0x05, 0x96, 0x69)
                         } else {
-                            Color32::from_rgba_unmultiplied(34, 197, 94, 36)
+                            emerald_bg
                         },
                     );
                     ui.painter().rect_stroke(
                         upd_r,
                         14.0,
-                        Stroke::new(1.0_f32, theme::SUCCESS),
+                        Stroke::new(1.0_f32, emerald_border),
                         egui::StrokeKind::Inside,
                     );
+                    let fg = if upd_resp.hovered() {
+                        Color32::WHITE
+                    } else {
+                        emerald_text
+                    };
                     icons::paint_download_icon(
                         ui.painter(),
                         upd_r.left_center() + egui::vec2(16.0, 0.0),
                         13.0,
-                        if upd_resp.hovered() {
-                            Color32::WHITE
-                        } else {
-                            theme::SUCCESS
-                        },
+                        fg,
                     );
                     ui.painter().text(
                         upd_r.left_center() + egui::vec2(28.0, 0.0),
                         Align2::LEFT_CENTER,
                         "Update Available",
-                        FontId::proportional(12.0),
-                        if upd_resp.hovered() {
-                            Color32::WHITE
-                        } else {
-                            theme::SUCCESS
-                        },
+                        FontId::proportional(12.5),
+                        fg,
                     );
                     if upd_resp
                         .on_hover_text("Open latest Wireline release")
@@ -181,32 +181,41 @@ impl SkyApp {
             },
         );
 
-        // 2. Constrained Content Container (max-width: 760px)
+        // 2. Vertical column container (flex-1 flex flex-col items-center pt-12 px-8)
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let avail_w = ui.available_width();
-                let container_w = (avail_w - 48.0).clamp(280.0, 760.0);
+                let container_w = (avail_w - 64.0).clamp(280.0, 672.0);
                 let side_pad = ((avail_w - container_w) * 0.5).max(16.0);
 
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(side_pad);
-                    ui.allocate_ui(egui::vec2(container_w, ui.available_height()), |ui| {
-                        // "Add a Friend" Card
+                ui.add_space(48.0);
+                // IMPORTANT: top_down layout so children stack vertically, never sideways!
+                ui.allocate_new_ui(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(
+                            ui.cursor().min + egui::vec2(side_pad, 0.0),
+                            egui::vec2(container_w, ui.available_height().max(400.0)),
+                        ))
+                        .layout(egui::Layout::top_down(egui::Align::LEFT)),
+                    |ui| {
+                        ui.set_width(container_w);
+
+                        // "Add a Friend" Card (flex flex-col gap-3, p-5)
                         egui::Frame::new()
                             .fill(theme::SURFACE_CARD)
                             .stroke(theme::border())
                             .corner_radius(12.0)
-                            .inner_margin(egui::Margin::same(18))
+                            .inner_margin(egui::Margin::same(20))
                             .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
                                 ui.label(RichText::new("Add a Friend").size(16.0).strong());
                                 ui.add_space(4.0);
                                 ui.label(
                                     theme::muted(
-                                        "You can add friends with their Wireline username or email",
+                                        "You can add friends with their Wireline username or email.",
                                     )
-                                    .small(),
+                                    .size(13.5),
                                 );
                                 ui.add_space(12.0);
 
@@ -219,16 +228,17 @@ impl SkyApp {
                                 };
 
                                 egui::Frame::new()
-                                    .fill(theme::SURFACE_RAIL)
+                                    .fill(theme::SURFACE_MAIN)
                                     .stroke(bar_stroke)
-                                    .corner_radius(10.0)
-                                    .inner_margin(egui::Margin::symmetric(10, 5))
+                                    .corner_radius(9.0)
+                                    .inner_margin(egui::Margin::symmetric(12, 6))
                                     .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
                                             let input_w =
                                                 (ui.available_width() - 122.0).max(120.0);
                                             let field = ui.add_sized(
-                                                [input_w, 34.0],
+                                                [input_w, 32.0],
                                                 egui::TextEdit::singleline(&mut self.friend_query)
                                                     .id(focus_id)
                                                     .frame(false)
@@ -237,12 +247,13 @@ impl SkyApp {
                                             let send_btn = egui::Button::new(
                                                 RichText::new("Send Request")
                                                     .strong()
+                                                    .size(13.5)
                                                     .color(Color32::WHITE),
                                             )
                                             .fill(theme::ACCENT)
                                             .stroke(Stroke::NONE)
-                                            .corner_radius(8.0)
-                                            .min_size(egui::vec2(112.0, 34.0));
+                                            .corner_radius(7.0)
+                                            .min_size(egui::vec2(114.0, 32.0));
                                             if ui.add_enabled(!self.friend_busy, send_btn).clicked()
                                                 || (field.lost_focus()
                                                     && ui.input(|i| i.key_pressed(egui::Key::Enter)))
@@ -254,14 +265,14 @@ impl SkyApp {
                             });
 
                         if !self.notice.is_empty() {
-                            ui.add_space(10.0);
+                            ui.add_space(12.0);
                             self.ui_notice(ui);
                         }
 
-                        ui.add_space(18.0);
+                        ui.add_space(32.0);
                         self.ui_friends_list(ui);
-                    });
-                });
+                    },
+                );
             });
     }
 
@@ -286,41 +297,53 @@ impl SkyApp {
             .collect();
 
         if filtered.is_empty() {
-            ui.add_space(36.0);
+            ui.add_space(32.0);
             ui.vertical_centered(|ui| {
-                let (icon_r, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), Sense::hover());
-                ui.painter()
-                    .circle_filled(icon_r.center(), 30.0, theme::SURFACE_CARD);
-                ui.painter().circle_stroke(
+                let (icon_r, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), Sense::hover());
+                ui.painter().circle_filled(
                     icon_r.center(),
-                    30.0,
-                    theme::border(),
+                    24.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 13),
                 );
                 icons::paint_users_icon(
                     ui.painter(),
                     icon_r.center(),
-                    28.0,
-                    theme::MUTED_TEXT,
+                    22.0,
+                    theme::SECONDARY_TEXT,
                 );
-                ui.add_space(12.0);
+                ui.add_space(16.0);
                 let (title, subtitle) = match self.friends_tab {
                     FriendsTab::Online => (
-                        "No friends online right now",
-                        "When your friends come online, they'll appear here ready to chat or call.",
+                        "No friends online",
+                        "When your friends come online, they'll show up here ready to chat or jump into a call.",
                     ),
                     FriendsTab::All => (
                         "No friends added yet",
                         "Use the Add a Friend bar above to connect with someone on Wireline.",
                     ),
                     FriendsTab::Pending => (
-                        "No pending friend requests",
+                        "No pending requests",
                         "Incoming and outgoing friend requests will show up here.",
                     ),
                 };
-                ui.label(RichText::new(title).size(16.0).strong());
-                ui.add_space(4.0);
-                ui.label(theme::muted(subtitle).small());
+                ui.label(
+                    RichText::new(title)
+                        .size(16.0)
+                        .strong()
+                        .color(Color32::from_rgb(0xE4, 0xE4, 0xE7)),
+                );
+                ui.add_space(6.0);
+                ui.add_sized(
+                    [384.0_f32.min(ui.available_width()), 36.0],
+                    egui::Label::new(
+                        RichText::new(subtitle)
+                            .size(14.0)
+                            .color(Color32::from_rgb(0x71, 0x71, 0x7A)),
+                    )
+                    .wrap(),
+                );
             });
+            ui.add_space(32.0);
             return;
         }
 
@@ -329,8 +352,9 @@ impl SkyApp {
                 .fill(theme::SURFACE_CARD)
                 .stroke(theme::border())
                 .corner_radius(12.0)
-                .inner_margin(egui::Margin::symmetric(14, 10))
+                .inner_margin(egui::Margin::symmetric(16, 12))
                 .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(36.0, 36.0), Sense::hover());
@@ -388,9 +412,9 @@ impl SkyApp {
                                 Stroke::new(1.5_f32, theme::SURFACE_CARD),
                             );
                         }
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                         ui.vertical(|ui| {
-                            ui.label(RichText::new(&friend.username).strong());
+                            ui.label(RichText::new(&friend.username).size(14.5).strong());
                             let status = if friend.status == FriendshipStatus::Pending {
                                 if friend.direction == "incoming" {
                                     "Incoming friend request".to_string()
