@@ -344,7 +344,7 @@ pub fn dm_members(name: &str) -> Option<(i64, i64)> {
 pub async fn get_or_create_dm(pool: &PgPool, a: i64, b: i64) -> Result<i64, sqlx::Error> {
     let row = sqlx::query(
         "INSERT INTO channels (name, kind) VALUES ($1, 'dm')
-         ON CONFLICT (name) DO UPDATE SET kind = EXCLUDED.kind
+         ON CONFLICT (name) WHERE kind = 'dm' DO UPDATE SET kind = EXCLUDED.kind
          RETURNING id",
     )
     .bind(dm_channel_name(a, b))
