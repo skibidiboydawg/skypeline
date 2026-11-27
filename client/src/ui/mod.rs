@@ -25,7 +25,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 use tokio::sync::mpsc as tmpsc;
 use tokio::task::JoinHandle;
+#[cfg(target_os = "windows")]
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+#[cfg(target_os = "windows")]
 use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 pub const MESSAGE_PAGE_SIZE: i64 = 50;
@@ -130,9 +132,13 @@ pub struct SkyApp {
     pub(crate) skip_join_chimes: bool,
     pub(crate) call_started_at: Option<f64>,
 
+    #[cfg(target_os = "windows")]
     pub(crate) _tray: Option<TrayIcon>,
+    #[cfg(target_os = "windows")]
     pub(crate) tray_show_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
     pub(crate) tray_quit_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
     pub(crate) allow_close: bool,
     pub(crate) window_visible: bool,
 }
@@ -142,6 +148,7 @@ impl SkyApp {
         let config = Config::load();
         theme::apply(&cc.egui_ctx, config.dark_mode);
         let (events_tx, events_rx) = mpsc::channel();
+        #[cfg(target_os = "windows")]
         let (tray, tray_show_id, tray_quit_id) = Self::init_tray();
         let mut app = Self {
             rt: tokio::runtime::Runtime::new().expect("create tokio runtime"),
@@ -204,9 +211,13 @@ impl SkyApp {
             voice_participants_seen: HashSet::new(),
             skip_join_chimes: false,
             call_started_at: None,
+            #[cfg(target_os = "windows")]
             _tray: tray,
+            #[cfg(target_os = "windows")]
             tray_show_id,
+            #[cfg(target_os = "windows")]
             tray_quit_id,
+            #[cfg(target_os = "windows")]
             allow_close: false,
             window_visible: true,
         };
@@ -238,17 +249,6 @@ impl SkyApp {
             Ok(t) => (Some(t), Some(show_id), Some(quit_id)),
             Err(_) => (None, Some(show_id), Some(quit_id)),
         }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn init_tray() -> (
-        Option<TrayIcon>,
-        Option<tray_icon::menu::MenuId>,
-        Option<tray_icon::menu::MenuId>,
-    ) {
-        // On Linux, winit/eframe does not initialize GTK; calling tray-icon's
-        // GTK menu API without gtk::init() panics on startup.
-        (None, None, None)
     }
 
     #[cfg(target_os = "windows")]
@@ -1042,6 +1042,7 @@ impl SkyApp {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn handle_tray(&mut self, ctx: &Context) {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             if matches!(
@@ -1072,6 +1073,9 @@ impl SkyApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
     }
+
+    #[cfg(not(target_os = "windows"))]
+    fn handle_tray(&mut self, _ctx: &Context) {}
 
     fn ui_main(&mut self, ctx: &Context) {
         self.ui_left_sidebar(ctx);
