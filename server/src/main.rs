@@ -83,10 +83,11 @@ async fn main() {
         .route("/api/resend-code", post(auth::resend_code))
         .route("/api/login", post(auth::login))
         .route("/api/channels", get(auth::list_channels))
-        .route("/api/messages/{channel_id}", get(auth::list_messages))
         .route(
-            "/api/messages/{message_id}",
-            patch(auth::edit_message).delete(auth::delete_message),
+            "/api/messages/{id}",
+            get(auth::list_messages)
+                .patch(auth::edit_message)
+                .delete(auth::delete_message),
         )
         .route("/api/dm/{user_id}", post(auth::open_dm))
         .route("/api/groups", post(auth::create_group))
