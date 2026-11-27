@@ -75,6 +75,34 @@ async fn main() {
         neon_auth_origin,
     });
 
+    // Periodic Neon Postgres storage pruning so free-tier storage stays lean.
+    {
+        let db_pool = state.db.clone();
+        let max_per_channel: i64 = env::var("MAX_MESSAGES_PER_CHANNEL")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(500);
+        let retention_days: i64 = env::var("MESSAGE_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            loop {
+                interval.tick().await;
+                match db::prune_storage(&db_pool, max_per_channel, retention_days).await {
+                    Ok((msgs, auth)) if msgs > 0 || auth > 0 => {
+                        tracing::info!(
+                            "storage prune: removed {msgs} old message(s), {auth} expired auth row(s)"
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("storage prune skipped: {e}"),
+                }
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/", get(|| async { "Wireline relay server is running" }))
         .route("/health", get(|| async { "ok" }))

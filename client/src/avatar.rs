@@ -18,8 +18,9 @@ use std::sync::mpsc;
 use crate::events::UiEvent;
 
 const CACHE_DIR: &str = "skypeline-cache/avatars";
+const MAX_CACHED_FILES: usize = 100;
 const AVATAR_SIZE: u32 = 128;
-const MAX_AVATAR_BYTES: usize = 15 * 1024;
+const MAX_AVATAR_BYTES: usize = 12 * 1024;
 const QUALITIES: [u8; 5] = [75, 65, 55, 45, 35];
 /// Request key used when the caller does not know the avatar hash yet.
 const UNKNOWN_HASH_KEY: &str = "*";
@@ -37,6 +38,7 @@ pub struct AvatarCache {
 
 impl AvatarCache {
     pub fn new() -> Self {
+        prune_disk_cache(MAX_CACHED_FILES);
         Self {
             textures: HashMap::new(),
             requested: HashSet::new(),
@@ -332,4 +334,32 @@ fn is_animated_webp(bytes: &[u8]) -> bool {
     }
     // Tolerate odd/malformed chunk lengths while still catching animation.
     bytes.windows(4).any(|window| window == b"ANIM")
+}
+
+/// Evicts oldest avatar cache files when the disk cache exceeds `max_files`.
+fn prune_disk_cache(max_files: usize) {
+    let Ok(entries) = fs::read_dir(CACHE_DIR) else {
+        return;
+    };
+    let mut files: Vec<(PathBuf, std::time::SystemTime)> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            let modified = meta
+                .modified()
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            Some((e.path(), modified))
+        })
+        .collect();
+    if files.len() <= max_files {
+        return;
+    }
+    files.sort_by_key(|(_, mtime)| *mtime);
+    let remove_count = files.len() - max_files;
+    for (path, _) in files.into_iter().take(remove_count) {
+        let _ = fs::remove_file(path);
+    }
 }

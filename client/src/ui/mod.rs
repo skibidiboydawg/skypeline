@@ -847,6 +847,10 @@ impl SkyApp {
                     let mine = message.user_id == self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
                     if selected {
                         self.messages.push(message);
+                        if self.messages.len() > 300 {
+                            let excess = self.messages.len() - 300;
+                            self.messages.drain(..excess);
+                        }
                     } else if !mine {
                         *self.unread.entry(message.channel_id).or_insert(0) += 1;
                         native::message_chime();

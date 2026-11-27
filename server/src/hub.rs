@@ -44,7 +44,7 @@ pub struct RelayHub {
 
 impl RelayHub {
     pub fn new() -> Self {
-        let (tx, _) = broadcast::channel(4096);
+        let (tx, _) = broadcast::channel(1024);
         let rooms = DashMap::new();
         rooms.insert("General Voice".to_string(), DashMap::new());
         Self {

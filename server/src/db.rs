@@ -707,3 +707,51 @@ pub async fn delete_message(
 
     Ok(row.map(|r| r.get("channel_id")))
 }
+
+/// Keeps Neon Postgres storage compact by pruning old/excess messages and
+/// expired Neon Auth verification/session rows.
+pub async fn prune_storage(
+    pool: &PgPool,
+    max_per_channel: i64,
+    retention_days: i64,
+) -> Result<(u64, u64), sqlx::Error> {
+    let del_old = sqlx::query(
+        "DELETE FROM messages
+         WHERE created_at < NOW() - ($1::BIGINT * INTERVAL '1 day')",
+    )
+    .bind(retention_days.max(1))
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    let del_excess = sqlx::query(
+        "WITH ranked AS (
+             SELECT id,
+                    ROW_NUMBER() OVER (PARTITION BY channel_id ORDER BY id DESC) AS rn
+             FROM messages
+         )
+         DELETE FROM messages
+         WHERE id IN (SELECT id FROM ranked WHERE rn > $1)",
+    )
+    .bind(max_per_channel.max(50))
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    // Best-effort cleanup of expired Neon Auth rows (ignore if schema absent).
+    let mut auth_cleaned = 0u64;
+    if let Ok(r) = sqlx::query(r#"DELETE FROM neon_auth.verification WHERE "expiresAt" < NOW()"#)
+        .execute(pool)
+        .await
+    {
+        auth_cleaned += r.rows_affected();
+    }
+    if let Ok(r) = sqlx::query(r#"DELETE FROM neon_auth.session WHERE "expiresAt" < NOW()"#)
+        .execute(pool)
+        .await
+    {
+        auth_cleaned += r.rows_affected();
+    }
+
+    Ok((del_old + del_excess, auth_cleaned))
+}

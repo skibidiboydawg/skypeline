@@ -14,7 +14,7 @@ use std::sync::Arc;
 const MAX_DECODED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ENCODED_BYTES: usize = (MAX_DECODED_BYTES / 3 + 1) * 4;
 const AVATAR_PIXELS: u32 = 128;
-const MAX_AVATAR_BYTES: usize = 15 * 1024;
+const MAX_AVATAR_BYTES: usize = 12 * 1024;
 
 fn bad_request(message: &str) -> ApiError {
     (StatusCode::BAD_REQUEST, message.to_string())
