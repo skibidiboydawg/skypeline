@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Skypeline Linux build & install helper
+# Wireline Linux build & install helper (Ubuntu / Linux Mint / Arch)
 #
 # Usage:
-#   ./linux/build-and-install.sh              # install deps, build, install binary
+#   ./linux/build-and-install.sh              # install deps, build, install binary + desktop entry
 #   ./linux/build-and-install.sh --no-install # build only (no /usr/local/bin copy)
 #   ./linux/build-and-install.sh --help       # show this help
-#
-# The release binary is always staged at ./target/release/client in addition
-# to Cargo's own ./target/release/skypeline-client output.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -19,7 +16,7 @@ INSTALL=true
 case "${1:-}" in
   --no-install) INSTALL=false ;;
   -h|--help)
-    grep -E '^# (Skypeline|Usage:|  )' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    grep -E '^# (Wireline|Usage:|  )' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   "")
@@ -61,11 +58,11 @@ else
   exit 1
 fi
 
-echo "==> Building skypeline-client (release)"
+echo "==> Building Wireline client (release)"
 cargo build --release -p skypeline-client
 
 SRC="$ROOT_DIR/target/release/skypeline-client"
-DST="$ROOT_DIR/target/release/client"
+DST="$ROOT_DIR/target/release/wireline"
 if [[ ! -f "$SRC" ]]; then
   echo "Error: expected binary not found at $SRC" >&2
   exit 1
@@ -75,11 +72,24 @@ chmod +x "$DST"
 echo "    staged: $DST"
 
 if [[ "$INSTALL" == true ]]; then
-  echo "==> Installing to /usr/local/bin/skypeline"
-  "${SUDO[@]}" install -m 0755 "$DST" /usr/local/bin/skypeline
-  echo "    You can now run: skypeline"
+  echo "==> Installing to /usr/local/bin/wireline"
+  "${SUDO[@]}" install -m 0755 "$DST" /usr/local/bin/wireline
+
+  DESKTOP_FILE="$(mktemp)"
+  cat > "$DESKTOP_FILE" <<'EOF'
+[Desktop Entry]
+Name=Wireline
+Comment=Desktop chat, voice calls, and screen sharing
+Exec=/usr/local/bin/wireline
+Terminal=false
+Type=Application
+Categories=Network;InstantMessaging;Chat;
+EOF
+  "${SUDO[@]}" install -Dm 0644 "$DESKTOP_FILE" /usr/share/applications/wireline.desktop
+  rm -f "$DESKTOP_FILE"
+  echo "    You can now launch Wireline from your app menu or run: wireline"
 else
-  echo "==> --no-install given; skipped /usr/local/bin install"
+  echo "==> --no-install given; skipped system install"
 fi
 
 echo "==> Done."

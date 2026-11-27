@@ -213,7 +213,7 @@ impl SkyApp {
         Option<tray_icon::menu::MenuId>,
     ) {
         let icon = tray_icon::Icon::from_rgba(Self::tray_icon_rgba(), 32, 32).ok();
-        let show = MenuItem::new("Show Skypeline", true, None);
+        let show = MenuItem::new("Show Wireline", true, None);
         let quit = MenuItem::new("Quit", true, None);
         let menu = Menu::new();
         let _ = menu.append(&show);
@@ -222,7 +222,7 @@ impl SkyApp {
         let quit_id = quit.id().clone();
         let mut builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("Skypeline");
+            .with_tooltip("Wireline");
         if let Some(icon) = icon {
             builder = builder.with_icon(icon);
         }
@@ -895,12 +895,12 @@ impl SkyApp {
                             .iter()
                             .find(|c| c.id == message.channel_id)
                             .map(|c| c.name.as_str())
-                            .unwrap_or("Skypeline");
+                            .unwrap_or("Wireline");
                         let body = format!(
                             "{} in {}: {}",
                             message.username, channel_name, message.content
                         );
-                        native::notify("Skypeline", &body);
+                        native::notify("Wireline", &body);
                         if !self.window_visible {
                             self.notice = body;
                         }

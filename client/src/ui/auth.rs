@@ -67,7 +67,7 @@ impl SkyApp {
                         ui.vertical(|ui| {
                             ui.vertical_centered(|ui| {
                                 ui.label(
-                                    RichText::new("SKYPELINE")
+                                    RichText::new("WIRELINE")
                                         .size(13.0)
                                         .strong()
                                         .color(theme::ACCENT),

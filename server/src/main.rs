@@ -4,7 +4,7 @@ mod db;
 mod friends;
 mod hub;
 
-use axum::routing::{get, patch, post};
+use axum::routing::{get, post};
 use axum::Router;
 use sqlx::PgPool;
 use std::env;
@@ -76,7 +76,7 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/", get(|| async { "Skypeline relay server is running" }))
+        .route("/", get(|| async { "Wireline relay server is running" }))
         .route("/health", get(|| async { "ok" }))
         .route("/api/register", post(auth::register))
         .route("/api/verify-code", post(auth::verify_code))
@@ -105,7 +105,7 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("Skypeline relay server listening on http://{addr}");
+    tracing::info!("Wireline relay server listening on http://{addr}");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind port");

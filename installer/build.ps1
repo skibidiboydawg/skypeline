@@ -8,19 +8,20 @@ if (-not $versionMatch) {
 }
 $version = $versionMatch.Matches[0].Groups[1].Value
 
-$icon = Join-Path $PSScriptRoot "skypeline.ico"
-$nsi = Join-Path $PSScriptRoot "Skypeline.nsi"
+$icon = Join-Path $PSScriptRoot "wireline.ico"
 $exeSource = Join-Path $root "target\release\skypeline-client.exe"
 $dist = Join-Path $root "dist"
-$portable = Join-Path $dist "portable\Skypeline"
-$zip = Join-Path $dist "Skypeline-$version-Portable.zip"
-$setup = Join-Path $dist "Skypeline-$version-Setup.exe"
+$portable = Join-Path $dist "portable\Wireline"
+$zip = Join-Path $dist "Wireline-$version-Portable.zip"
+$setup = Join-Path $dist "Wireline-$version-Setup.exe"
+$setupLatest = Join-Path $dist "Wireline-Setup.exe"
+$webSetup = Join-Path $dist "Wireline-WebSetup.exe"
 
-function New-SkypelineIcon {
+function New-WirelineIcon {
   param([string]$Path)
 
   Add-Type -AssemblyName System.Drawing
-  Add-Type -Namespace Skypeline -Name NativeMethods -MemberDefinition @'
+  Add-Type -Namespace Wireline -Name NativeMethods -MemberDefinition @'
 [DllImport("user32.dll")]
 public static extern bool DestroyIcon(IntPtr hIcon);
 '@
@@ -50,12 +51,12 @@ public static extern bool DestroyIcon(IntPtr hIcon);
   $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(190, 255, 255, 255), 7)
   $graphics.DrawArc($pen, 28, 30, 200, 196, -35, 250)
 
-  $font = New-Object System.Drawing.Font("Segoe UI Semibold", 132, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+  $font = New-Object System.Drawing.Font("Segoe UI Semibold", 118, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
   $format = New-Object System.Drawing.StringFormat
   $format.Alignment = [System.Drawing.StringAlignment]::Center
   $format.LineAlignment = [System.Drawing.StringAlignment]::Center
   $textRect = New-Object System.Drawing.RectangleF 0, 8, 256, 240
-  $graphics.DrawString("S", $font, [System.Drawing.Brushes]::White, $textRect, $format)
+  $graphics.DrawString("W", $font, [System.Drawing.Brushes]::White, $textRect, $format)
 
   $hIcon = $bitmap.GetHicon()
   $iconObject = [System.Drawing.Icon]::FromHandle($hIcon)
@@ -67,7 +68,7 @@ public static extern bool DestroyIcon(IntPtr hIcon);
   finally {
     $stream.Dispose()
     $iconObject.Dispose()
-    [Skypeline.NativeMethods]::DestroyIcon($hIcon) | Out-Null
+    [Wireline.NativeMethods]::DestroyIcon($hIcon) | Out-Null
     $graphics.Dispose()
     $brush.Dispose()
     $pen.Dispose()
@@ -79,7 +80,7 @@ public static extern bool DestroyIcon(IntPtr hIcon);
 }
 
 if (-not (Test-Path -LiteralPath $icon)) {
-  New-SkypelineIcon -Path $icon
+  New-WirelineIcon -Path $icon
 }
 
 Write-Host "Building client release binary..."
@@ -103,21 +104,13 @@ if (Test-Path -LiteralPath $portable) {
   Remove-Item -LiteralPath $portable -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $portable | Out-Null
-Copy-Item -LiteralPath $exeSource -Destination (Join-Path $portable "Skypeline.exe") -Force
-Copy-Item -LiteralPath $icon -Destination (Join-Path $portable "skypeline.ico") -Force
+Copy-Item -LiteralPath $exeSource -Destination (Join-Path $portable "Wireline.exe") -Force
+Copy-Item -LiteralPath $icon -Destination (Join-Path $portable "wireline.ico") -Force
 
 $readme = @"
-Skypeline $version
+Wireline $version
 
-Run Skypeline.exe to launch the desktop client.
-
-Hosted service: https://skypeline-co.onrender.com
-
-Sign up with email and password, then enter the confirmation code Neon Auth
-emails you. Verification is required before signing in.
-
-Preferences are stored in config.json next to this executable.
-No password or token is stored in config.json.
+Run Wireline.exe to launch the desktop client.
 "@
 Set-Content -LiteralPath (Join-Path $portable "README.txt") -Value $readme -Encoding UTF8
 
@@ -126,7 +119,7 @@ if (Test-Path -LiteralPath $zip) {
 }
 Compress-Archive -Path (Join-Path $portable "*") -DestinationPath $zip -CompressionLevel Optimal
 
-Write-Host "Building installer..."
+Write-Host "Building installers..."
 $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
 if (-not $makensis) {
   foreach ($candidate in @(
@@ -145,9 +138,15 @@ if (-not $makensis) {
 
 Push-Location $PSScriptRoot
 try {
-  & $makensis "/DAPP_VERSION=$version" "Skypeline.nsi"
+  & $makensis "/DAPP_VERSION=$version" "Wireline.nsi"
   if ($LASTEXITCODE -ne 0) {
-    throw "makensis failed with exit code $LASTEXITCODE"
+    throw "makensis Wireline.nsi failed with exit code $LASTEXITCODE"
+  }
+  Copy-Item -LiteralPath $setup -Destination $setupLatest -Force
+
+  & $makensis "/DAPP_VERSION=$version" "WirelineWebSetup.nsi"
+  if ($LASTEXITCODE -ne 0) {
+    throw "makensis WirelineWebSetup.nsi failed with exit code $LASTEXITCODE"
   }
 }
 finally {
@@ -156,7 +155,7 @@ finally {
 
 Write-Host ""
 Write-Host "Artifacts:"
-foreach ($artifact in @((Join-Path $portable "Skypeline.exe"), $zip, $setup)) {
+foreach ($artifact in @((Join-Path $portable "Wireline.exe"), $zip, $setup, $setupLatest, $webSetup)) {
   $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash
   Write-Host "$artifact"
   Write-Host "  SHA256: $hash"
