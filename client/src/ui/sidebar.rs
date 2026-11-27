@@ -14,7 +14,7 @@ impl SkyApp {
             .frame(
                 egui::Frame::new()
                     .fill(theme::SURFACE_RAIL)
-                    .stroke(theme::border())
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::symmetric(10, 14)),
             )
             .show(ctx, |ui| {
@@ -189,7 +189,7 @@ impl SkyApp {
             .frame(
                 egui::Frame::new()
                     .fill(theme::SURFACE_SIDEBAR)
-                    .stroke(theme::border())
+                    .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::same(0)),
             )
             .show(ctx, |ui| {
@@ -202,10 +202,16 @@ impl SkyApp {
                         });
                         ui.add_space(10.0);
 
-                        // Subtle search bar with search icon
+                        // Recessed search bar (#0A0C10) with soft indigo focus ring
+                        let search_id = ui.id().with("sidebar_search_input");
+                        let search_focused = ui.memory(|m| m.has_focus(search_id));
                         egui::Frame::new()
                             .fill(theme::SURFACE_RAIL)
-                            .stroke(theme::border())
+                            .stroke(if search_focused {
+                                theme::focus_border()
+                            } else {
+                                theme::input_border()
+                            })
                             .corner_radius(8.0)
                             .inner_margin(egui::Margin::symmetric(10, 7))
                             .show(ui, |ui| {
@@ -222,6 +228,7 @@ impl SkyApp {
                                     );
                                     ui.add(
                                         egui::TextEdit::singleline(&mut self.chat_search)
+                                            .id(search_id)
                                             .frame(false)
                                             .hint_text("Search conversations...")
                                             .desired_width(ui.available_width()),
@@ -509,14 +516,19 @@ impl SkyApp {
 
         egui::Frame::new()
             .fill(theme::SURFACE_DOCK)
-            .stroke(theme::border())
-            .inner_margin(egui::Margin::symmetric(12, 12))
+            .stroke(Stroke::NONE)
+            .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| {
-                ui.set_min_height(36.0);
+                let top_edge = ui.max_rect().left_top();
+                ui.painter().line_segment(
+                    [top_edge - egui::vec2(12.0, 10.0), egui::pos2(ui.max_rect().right() + 12.0, top_edge.y - 10.0)],
+                    theme::border(),
+                );
+                ui.set_min_height(38.0);
                 ui.horizontal(|ui| {
                     // Clickable Avatar + Name/Status block -> opens Profile Popover Card
                     let (prof_rect, prof_resp) =
-                        ui.allocate_exact_size(egui::vec2(124.0, 36.0), Sense::click());
+                        ui.allocate_exact_size(egui::vec2(124.0, 38.0), Sense::click());
                     if prof_resp.hovered() {
                         ui.painter().rect_filled(prof_rect, 8.0, theme::HOVER);
                     }

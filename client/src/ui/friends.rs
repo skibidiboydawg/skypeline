@@ -131,30 +131,30 @@ impl SkyApp {
 
                     ui.add_space(6.0);
 
-                    let emerald_text = Color32::from_rgb(0x34, 0xD3, 0x99);
-                    let emerald_bg = Color32::from_rgba_unmultiplied(16, 185, 129, 38);
-                    let emerald_border = Color32::from_rgba_unmultiplied(16, 185, 129, 90);
+                    let mint_text = Color32::from_rgb(0x6E, 0xE7, 0xB7);
+                    let mint_bg = Color32::from_rgb(0x0E, 0x29, 0x22);
+                    let mint_border = Color32::from_rgb(0x1B, 0x4D, 0x3E);
                     let (upd_r, upd_resp) =
-                        ui.allocate_exact_size(egui::vec2(146.0, 28.0), Sense::click());
+                        ui.allocate_exact_size(egui::vec2(148.0, 28.0), Sense::click());
                     ui.painter().rect_filled(
                         upd_r,
                         14.0,
                         if upd_resp.hovered() {
                             Color32::from_rgb(0x05, 0x96, 0x69)
                         } else {
-                            emerald_bg
+                            mint_bg
                         },
                     );
                     ui.painter().rect_stroke(
                         upd_r,
                         14.0,
-                        Stroke::new(1.0_f32, emerald_border),
+                        Stroke::new(1.0_f32, mint_border),
                         egui::StrokeKind::Inside,
                     );
                     let fg = if upd_resp.hovered() {
                         Color32::WHITE
                     } else {
-                        emerald_text
+                        mint_text
                     };
                     icons::paint_download_icon(
                         ui.painter(),
@@ -201,12 +201,12 @@ impl SkyApp {
                     |ui| {
                         ui.set_width(container_w);
 
-                        // "Add a Friend" Card (flex flex-col gap-3, p-5)
+                        // "Add a Friend" Card (borderless elevated #131720 surface, p-6)
                         egui::Frame::new()
                             .fill(theme::SURFACE_CARD)
-                            .stroke(theme::border())
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0x18, 0x1D, 0x28)))
                             .corner_radius(12.0)
-                            .inner_margin(egui::Margin::same(20))
+                            .inner_margin(egui::Margin::same(24))
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.label(RichText::new("Add a Friend").size(16.0).strong());
@@ -217,18 +217,18 @@ impl SkyApp {
                                     )
                                     .size(13.5),
                                 );
-                                ui.add_space(12.0);
+                                ui.add_space(14.0);
 
                                 let focus_id = ui.id().with("add_friend_input");
                                 let has_focus = ui.memory(|m| m.has_focus(focus_id));
                                 let bar_stroke = if has_focus {
-                                    theme::accent_border()
+                                    theme::focus_border()
                                 } else {
                                     theme::input_border()
                                 };
 
                                 egui::Frame::new()
-                                    .fill(theme::SURFACE_MAIN)
+                                    .fill(theme::SURFACE_RAIL)
                                     .stroke(bar_stroke)
                                     .corner_radius(9.0)
                                     .inner_margin(egui::Margin::symmetric(12, 6))
