@@ -9,16 +9,16 @@ A lightweight desktop app for private messaging, voice calls, and 720p screen sh
 ## Install
 
 ### Windows
-- **Web Installer:** Run `Wireline-WebSetup.exe` from [Releases](https://github.com/skibidiboydawg/skypeline/releases/latest).
-- **Offline Installer:** Run `Wireline-Setup.exe` from [Releases](https://github.com/skibidiboydawg/skypeline/releases/latest).
+- **Web Installer:** Run `Wireline-WebSetup.exe` from [Releases](https://github.com/skibidiboydawg/wireline/releases/latest).
+- **Offline Installer:** Run `Wireline-Setup.exe` from [Releases](https://github.com/skibidiboydawg/wireline/releases/latest).
 
 ### Linux (Arch / Linux Mint / Ubuntu)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/skibidiboydawg/skypeline/main/linux/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/skibidiboydawg/wireline/main/linux/install.sh | bash
 ```
 Or build from source:
 ```bash
-git clone https://github.com/skibidiboydawg/skypeline.git
-cd skypeline
+git clone https://github.com/skibidiboydawg/wireline.git
+cd wireline
 bash linux/build-and-install.sh
 ```

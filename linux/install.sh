@@ -3,11 +3,11 @@
 # Wireline Linux web installer (Arch / Linux Mint / Ubuntu)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/skibidiboydawg/skypeline/main/linux/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/skibidiboydawg/wireline/main/linux/install.sh | bash
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-REPO="skibidiboydawg/skypeline"
+REPO="skibidiboydawg/wireline"
 TARBALL_URL="https://github.com/${REPO}/releases/latest/download/wireline-linux-x86_64.tar.gz"
 
 if [[ $EUID -eq 0 ]]; then
@@ -19,10 +19,10 @@ fi
 install_runtime_deps() {
   if command -v apt-get >/dev/null 2>&1; then
     "${SUDO[@]}" apt-get update
-    "${SUDO[@]}" apt-get install -y libasound2t64 libgtk-3-0 libssl3 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libwayland-client0 || \
-    "${SUDO[@]}" apt-get install -y libasound2 libgtk-3-0 libssl3 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libwayland-client0
+    "${SUDO[@]}" apt-get install -y libasound2t64 libgtk-3-0 libssl3 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libwayland-client0 libxdo3 libdbus-1-3 libxcb1 || \
+    "${SUDO[@]}" apt-get install -y libasound2 libgtk-3-0 libssl3 libx11-6 libxrandr2 libxinerama1 libxcursor1 libxi6 libwayland-client0 libxdo3 libdbus-1-3 libxcb1
   elif command -v pacman >/dev/null 2>&1; then
-    "${SUDO[@]}" pacman -Syu --needed --noconfirm alsa-lib gtk3 openssl libx11 libxrandr libxinerama libxcursor libxi wayland
+    "${SUDO[@]}" pacman -Syu --needed --noconfirm alsa-lib gtk3 openssl libx11 libxrandr libxinerama libxcursor libxi wayland xdotool dbus libxcb
   fi
 }
 

@@ -31,11 +31,11 @@ esac
 APT_PACKAGES=(
   build-essential cmake pkg-config libasound2-dev libgtk-3-dev libssl-dev
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
-  libwayland-dev
+  libwayland-dev libxdo-dev libdbus-1-dev libxcb1-dev
 )
 PACMAN_PACKAGES=(
   base-devel cmake pkgconf alsa-lib gtk3 openssl libx11 libxrandr
-  libxinerama libxcursor libxi wayland
+  libxinerama libxcursor libxi wayland xdotool dbus libxcb
 )
 
 if [[ $EUID -eq 0 ]]; then

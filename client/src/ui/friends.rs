@@ -174,7 +174,7 @@ impl SkyApp {
                         .clicked()
                     {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(
-                            "https://github.com/skibidiboydawg/skypeline/releases/latest",
+                            "https://github.com/skibidiboydawg/wireline/releases/latest",
                         ));
                     }
                 });

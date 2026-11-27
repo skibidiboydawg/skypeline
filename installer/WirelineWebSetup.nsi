@@ -7,7 +7,7 @@ Unicode true
 !ifndef APP_VERSION
 !define APP_VERSION "0.1.0"
 !endif
-!define DOWNLOAD_URL "https://github.com/skibidiboydawg/skypeline/releases/latest/download/Wireline-Setup.exe"
+!define DOWNLOAD_URL "https://github.com/skibidiboydawg/wireline/releases/latest/download/Wireline-Setup.exe"
 
 Name "${APP_NAME} Web Installer"
 OutFile "..\dist\Wireline-WebSetup.exe"
