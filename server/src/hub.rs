@@ -291,6 +291,7 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
         WsClientMsg::SendMessage {
             channel_id,
             content,
+            reply_to_id,
         } => {
             let trimmed = content.trim();
             if trimmed.is_empty() || trimmed.len() > 4000 {
@@ -299,9 +300,38 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             let Some(scope) = channel_scope(state, user_id, channel_id).await else {
                 return;
             };
-            match db::insert_message(&state.db, channel_id, user_id, username, trimmed).await {
+            match db::insert_message(&state.db, channel_id, user_id, username, trimmed, reply_to_id)
+                .await
+            {
                 Ok(saved) => hub.send(scope, None, &WsServerMsg::NewMessage { message: saved }),
                 Err(e) => tracing::warn!("message insert failed: {e}"),
+            }
+        }
+        WsClientMsg::ToggleReaction {
+            channel_id,
+            message_id,
+            emoji,
+        } => {
+            let emoji = emoji.trim();
+            if emoji.is_empty() || emoji.len() > 32 {
+                return;
+            }
+            let Some(scope) = channel_scope(state, user_id, channel_id).await else {
+                return;
+            };
+            match db::toggle_reaction(&state.db, message_id, user_id, emoji).await {
+                Ok(added) => hub.send(
+                    scope,
+                    None,
+                    &WsServerMsg::ReactionUpdated {
+                        channel_id,
+                        message_id,
+                        emoji: emoji.to_string(),
+                        user_id,
+                        added,
+                    },
+                ),
+                Err(e) => tracing::warn!("toggle reaction failed: {e}"),
             }
         }
         WsClientMsg::Typing { channel_id } => {

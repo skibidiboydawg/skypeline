@@ -37,6 +37,13 @@ pub enum UiEvent {
         channel_id: i64,
         message_id: i64,
     },
+    ReactionUpdated {
+        channel_id: i64,
+        message_id: i64,
+        emoji: String,
+        user_id: i64,
+        added: bool,
+    },
     Typing {
         channel_id: i64,
         user_id: i64,

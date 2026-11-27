@@ -1,4 +1,4 @@
-use skypeline_shared::{ChannelInfo, ChannelMemberInfo, MessageDto};
+use skypeline_shared::{ChannelInfo, ChannelMemberInfo, MessageDto, ReactionDto};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Row};
 use std::collections::HashSet;
@@ -153,6 +153,22 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ")
         .execute(pool)
         .await?;
+    sqlx::query("ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id BIGINT")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id BIGINT      NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            user_id    BIGINT      NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+            emoji      VARCHAR(32) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (message_id, user_id, emoji)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
 
     // Allow multiple group chats to share a display name while keeping DM keys unique.
     sqlx::query("ALTER TABLE channels DROP CONSTRAINT IF EXISTS channels_name_key")
@@ -605,16 +621,18 @@ pub async fn insert_message(
     user_id: i64,
     username: &str,
     content: &str,
+    reply_to_id: Option<i64>,
 ) -> Result<MessageDto, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO messages (channel_id, user_id, username, content)
-         VALUES ($1, $2, $3, $4)
+        "INSERT INTO messages (channel_id, user_id, username, content, reply_to_id)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id, EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at",
     )
     .bind(channel_id)
     .bind(user_id)
     .bind(username)
     .bind(content)
+    .bind(reply_to_id)
     .fetch_one(pool)
     .await?;
 
@@ -626,6 +644,8 @@ pub async fn insert_message(
         content: content.to_string(),
         created_at: row.get("created_at"),
         edited_at: None,
+        reply_to_id,
+        reactions: Vec::new(),
     })
 }
 
@@ -638,7 +658,8 @@ pub async fn list_messages(
     let rows = sqlx::query(
         "SELECT id, channel_id, user_id, username, content,
                 EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at,
-                EXTRACT(EPOCH FROM edited_at)::BIGINT AS edited_at
+                EXTRACT(EPOCH FROM edited_at)::BIGINT AS edited_at,
+                reply_to_id
          FROM messages
          WHERE channel_id = $1
            AND ($2::BIGINT IS NULL OR id < $2)
@@ -661,10 +682,82 @@ pub async fn list_messages(
             content: r.get("content"),
             created_at: r.get("created_at"),
             edited_at: r.get("edited_at"),
+            reply_to_id: r.get("reply_to_id"),
+            reactions: Vec::new(),
         })
         .collect();
     msgs.reverse();
+
+    if !msgs.is_empty() {
+        let msg_ids: Vec<i64> = msgs.iter().map(|m| m.id).collect();
+        let react_rows = sqlx::query(
+            "SELECT message_id, emoji, user_id
+             FROM message_reactions
+             WHERE message_id = ANY($1)
+             ORDER BY created_at ASC",
+        )
+        .bind(&msg_ids)
+        .fetch_all(pool)
+        .await?;
+
+        let mut by_msg: std::collections::HashMap<i64, Vec<ReactionDto>> =
+            std::collections::HashMap::new();
+        for r in react_rows {
+            let mid: i64 = r.get("message_id");
+            let emoji: String = r.get("emoji");
+            let uid: i64 = r.get("user_id");
+            let list = by_msg.entry(mid).or_default();
+            if let Some(existing) = list.iter_mut().find(|item| item.emoji == emoji) {
+                existing.user_ids.push(uid);
+            } else {
+                list.push(ReactionDto {
+                    emoji,
+                    user_ids: vec![uid],
+                });
+            }
+        }
+        for m in &mut msgs {
+            if let Some(list) = by_msg.remove(&m.id) {
+                m.reactions = list;
+            }
+        }
+    }
     Ok(msgs)
+}
+
+/// Toggles a reaction for `(message_id, user_id, emoji)`. Returns `true` if added, `false` if removed.
+pub async fn toggle_reaction(
+    pool: &PgPool,
+    message_id: i64,
+    user_id: i64,
+    emoji: &str,
+) -> Result<bool, sqlx::Error> {
+    let deleted = sqlx::query(
+        "DELETE FROM message_reactions
+         WHERE message_id = $1 AND user_id = $2 AND emoji = $3",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .bind(emoji)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if deleted > 0 {
+        return Ok(false);
+    }
+
+    sqlx::query(
+        "INSERT INTO message_reactions (message_id, user_id, emoji)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .bind(emoji)
+    .execute(pool)
+    .await?;
+    Ok(true)
 }
 
 /// Edits a message owned by `user_id`, returning `(channel_id, edited_at)` on success.

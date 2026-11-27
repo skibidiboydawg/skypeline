@@ -1,6 +1,7 @@
-//! Studio-dark Wireline call stage with speaking rings, screen-share viewport, and control dock.
+//! Discord-style Voice/Video Call Stage (#1e1f22): participant grid tiles (#2b2d31),
+//! speaking green ring (#23a559), screen-share viewport, and circular Discord controls.
 
-use super::{avatar_color, SkyApp};
+use super::{avatar_color, icons, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, Ui};
@@ -16,8 +17,8 @@ impl SkyApp {
             format!("Calling {}...", channel.name)
         } else {
             format!(
-                "In call · {} people · {:02}:{:02}",
-                self.participants.len(),
+                "Voice Connected · {} · {:02}:{:02}",
+                channel.name,
                 elapsed / 60,
                 elapsed % 60
             )
@@ -26,38 +27,58 @@ impl SkyApp {
         let has_screen =
             self.screen_texture.is_some() && self.screen_size.0 > 0 && self.screen_size.1 > 0;
         let rect = ui.available_rect_before_wrap();
-        let max_h: f32 = if has_screen { 360.0 } else { 244.0 };
+        let max_h: f32 = if has_screen { 360.0 } else { 236.0 };
         let height = max_h.min(rect.height() * 0.52).max(180.0);
         let (stage_rect, _) =
             ui.allocate_exact_size(egui::vec2(rect.width(), height), Sense::hover());
         let painter = ui.painter_at(stage_rect);
 
-        let top = Color32::from_rgb(0x16, 0x16, 0x24);
-        let bottom = Color32::from_rgb(0x0B, 0x0B, 0x10);
-        painter.rect_filled(stage_rect, 0.0, bottom);
-        let mut mesh = egui::epaint::Mesh::default();
-        let i0 = mesh.vertices.len() as u32;
-        mesh.colored_vertex(stage_rect.left_top(), top);
-        mesh.colored_vertex(stage_rect.right_top(), top);
-        mesh.colored_vertex(stage_rect.right_bottom(), bottom);
-        mesh.colored_vertex(stage_rect.left_bottom(), bottom);
-        mesh.add_triangle(i0, i0 + 1, i0 + 2);
-        mesh.add_triangle(i0, i0 + 2, i0 + 3);
-        painter.add(egui::Shape::mesh(mesh));
+        // Discord #1e1f22 call stage background + subtle bottom border
+        painter.rect_filled(stage_rect, 0.0, theme::BG_TERTIARY);
+        painter.line_segment(
+            [stage_rect.left_bottom(), stage_rect.right_bottom()],
+            theme::border(),
+        );
 
         painter.text(
-            stage_rect.left_top() + egui::vec2(20.0, 14.0),
+            stage_rect.left_top() + egui::vec2(18.0, 14.0),
             Align2::LEFT_TOP,
             status,
-            FontId::proportional(14.0),
-            theme::PRIMARY_TEXT,
+            FontId::proportional(13.5),
+            theme::SUCCESS,
         );
+
+        // Collapse stage toggle (top right)
+        let col_r = Rect::from_min_size(
+            stage_rect.right_top() + egui::vec2(-84.0, 10.0),
+            egui::vec2(70.0, 24.0),
+        );
+        let col_resp = ui.interact(col_r, ui.id().with("call_collapse"), Sense::click());
+        painter.rect_filled(
+            col_r,
+            4.0,
+            if col_resp.hovered() {
+                theme::BG_ACTIVE
+            } else {
+                theme::BG_SECONDARY
+            },
+        );
+        painter.text(
+            col_r.center(),
+            Align2::CENTER_CENTER,
+            "Minimize",
+            FontId::proportional(11.5),
+            theme::TEXT_SECONDARY,
+        );
+        if col_resp.clicked() {
+            self.call_expanded = false;
+        }
 
         if let Some(texture) = self.screen_texture.clone() {
             let (sw, sh) = self.screen_size;
             if sw > 0 && sh > 0 {
-                let pad_top = 40.0;
-                let pad_bottom = 72.0;
+                let pad_top = 42.0;
+                let pad_bottom = 66.0;
                 let avail_w = (stage_rect.width() - 40.0).max(80.0);
                 let avail_h = (stage_rect.height() - pad_top - pad_bottom).max(60.0);
                 let aspect = sw as f32 / sh as f32;
@@ -70,7 +91,7 @@ impl SkyApp {
                     ),
                     egui::vec2(draw_w, draw_h),
                 );
-                painter.rect_filled(img_rect.expand(2.0), 10.0, Color32::BLACK);
+                painter.rect_filled(img_rect.expand(2.0), 8.0, Color32::BLACK);
                 painter.image(
                     texture.id(),
                     img_rect,
@@ -78,24 +99,24 @@ impl SkyApp {
                     Color32::WHITE,
                 );
                 let fs_rect = Rect::from_min_size(
-                    stage_rect.right_top() + egui::vec2(-116.0, 10.0),
-                    egui::vec2(96.0, 26.0),
+                    stage_rect.right_top() + egui::vec2(-180.0, 10.0),
+                    egui::vec2(88.0, 24.0),
                 );
                 let fs_resp = ui.interact(fs_rect, ui.id().with("fs_btn"), Sense::click());
                 painter.rect_filled(
                     fs_rect,
-                    8.0,
+                    4.0,
                     if fs_resp.hovered() {
                         theme::ACCENT
                     } else {
-                        theme::SURFACE_CARD
+                        theme::BG_SECONDARY
                     },
                 );
                 painter.text(
                     fs_rect.center(),
                     Align2::CENTER_CENTER,
                     "Fullscreen",
-                    FontId::proportional(12.0),
+                    FontId::proportional(11.5),
                     Color32::WHITE,
                 );
                 if fs_resp.clicked() {
@@ -103,8 +124,9 @@ impl SkyApp {
                 }
             }
         } else {
+            // Participant tile grid (#2b2d31 tiles, 8px radius, 60px avatar, green speaking ring)
             let center = stage_rect.center() - egui::vec2(0.0, 10.0);
-            let mut shown: Vec<(String, Option<String>, i64, bool)> = Vec::new();
+            let mut shown: Vec<(String, Option<String>, i64, bool, bool)> = Vec::new();
             if let Some(me) = &self.me {
                 let speaking = self
                     .participants
@@ -115,6 +137,7 @@ impl SkyApp {
                     me.avatar_hash.clone(),
                     me.user_id,
                     speaking,
+                    self.muted,
                 ));
             }
             for p in &self.participants {
@@ -126,22 +149,26 @@ impl SkyApp {
                     .iter()
                     .find(|f| f.user_id == p.user_id)
                     .and_then(|f| f.avatar_hash.clone());
-                shown.push((p.username.clone(), hash, p.user_id, p.speaking));
+                shown.push((p.username.clone(), hash, p.user_id, p.speaking, p.muted));
             }
             let n = shown.len().max(1);
-            for (idx, (name, hash, user_id, speaking)) in shown.into_iter().enumerate() {
-                let x = center.x + (idx as f32 - (n as f32 - 1.0) / 2.0) * 120.0;
-                let c = egui::pos2(x, center.y);
-                let ring = if speaking {
-                    theme::CYAN_GLOW
-                } else {
-                    theme::BORDER
-                };
-                painter.circle_stroke(
-                    c,
-                    44.0,
-                    Stroke::new(if speaking { 3.5_f32 } else { 1.5_f32 }, ring),
-                );
+            let tile_w = 160.0;
+            let tile_h = 108.0;
+            let gap = 14.0;
+            for (idx, (name, hash, user_id, speaking, is_muted)) in shown.into_iter().enumerate() {
+                let x = center.x + (idx as f32 - (n as f32 - 1.0) / 2.0) * (tile_w + gap);
+                let tile = Rect::from_center_size(egui::pos2(x, center.y), egui::vec2(tile_w, tile_h));
+                painter.rect_filled(tile, 8.0, theme::BG_SECONDARY);
+                if speaking {
+                    painter.rect_stroke(
+                        tile,
+                        8.0,
+                        Stroke::new(2.5_f32, theme::SUCCESS),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+
+                let av_c = tile.center() - egui::vec2(0.0, 8.0);
                 let mut drew = false;
                 if let Some(hash) = hash.as_deref() {
                     let tex = self.avatars.texture(
@@ -155,7 +182,7 @@ impl SkyApp {
                     if let Some(t) = tex {
                         painter.image(
                             t.id(),
-                            Rect::from_center_size(c, egui::vec2(78.0, 78.0)),
+                            Rect::from_center_size(av_c, egui::vec2(60.0, 60.0)),
                             Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                             Color32::WHITE,
                         );
@@ -164,8 +191,8 @@ impl SkyApp {
                 }
                 if !drew {
                     painter.circle_filled(
-                        c,
-                        39.0,
+                        av_c,
+                        30.0,
                         avatar_color(
                             &name,
                             self.me.as_ref().is_some_and(|m| m.user_id == user_id),
@@ -178,70 +205,98 @@ impl SkyApp {
                         .to_ascii_uppercase()
                         .to_string();
                     painter.text(
-                        c,
+                        av_c,
                         Align2::CENTER_CENTER,
                         initial,
-                        FontId::proportional(26.0),
+                        FontId::proportional(22.0),
                         Color32::WHITE,
                     );
                 }
                 painter.text(
-                    c + egui::vec2(0.0, 56.0),
-                    Align2::CENTER_TOP,
+                    egui::pos2(tile.left() + 10.0, tile.bottom() - 10.0),
+                    Align2::LEFT_BOTTOM,
                     name,
-                    FontId::proportional(13.0),
-                    theme::PRIMARY_TEXT,
+                    FontId::proportional(12.5),
+                    theme::TEXT_PRIMARY,
                 );
+                if is_muted {
+                    let badge_c = tile.right_bottom() - egui::vec2(16.0, 14.0);
+                    painter.circle_filled(badge_c, 10.0, theme::BG_FLOATING);
+                    icons::paint_mic(&painter, badge_c, 12.0, theme::DANGER, true);
+                }
             }
         }
 
-        let controls_y = stage_rect.bottom() - 34.0;
-        let buttons = [
-            ("Share", if self.sharing { "Stop" } else { "Screen" }),
-            ("Mute", if self.muted { "Unmute" } else { "Mute" }),
-            ("Deafen", if self.deafened { "Undeaf" } else { "Deafen" }),
-            ("End", "End"),
-        ];
-        let mut actions = [false; 4];
-        let btn_w = 76.0;
-        let gap = 10.0;
-        let total_w = buttons.len() as f32 * btn_w + (buttons.len() - 1) as f32 * gap;
-        let dock_rect = Rect::from_center_size(
-            egui::pos2(stage_rect.center().x, controls_y),
-            egui::vec2(total_w + 16.0, 44.0),
-        );
-        painter.rect_filled(dock_rect, 22.0, theme::SURFACE_CARD);
-        painter.rect_stroke(dock_rect, 22.0, theme::border(), egui::StrokeKind::Inside);
+        // Bottom circular Discord call controls (44px circles: Screen, Mute, Deafen, End red)
+        let controls_y = stage_rect.bottom() - 32.0;
+        let gap = 14.0;
+        let btn_d = 42.0;
+        let total_w = 4.0 * btn_d + 3.0 * gap;
+        let start_x = stage_rect.center().x - total_w * 0.5 + btn_d * 0.5;
 
-        let mut x = stage_rect.center().x - total_w / 2.0 + btn_w * 0.5;
-        for (i, (key, text)) in buttons.iter().enumerate() {
-            let c = egui::pos2(x, controls_y);
-            let r = Rect::from_center_size(c, egui::vec2(btn_w, 32.0));
-            let resp = ui.interact(r, ui.id().with(("call_btn", i)), Sense::click());
-            let fill = if *key == "End" {
-                theme::DANGER
-            } else if (*key == "Mute" && self.muted)
-                || (*key == "Deafen" && self.deafened)
-                || (*key == "Share" && self.sharing)
-            {
-                theme::ACCENT
-            } else if resp.hovered() {
-                theme::HOVER
-            } else {
-                theme::SURFACE_ELEVATED
+        let mut actions = [false; 4];
+        for i in 0..4 {
+            let c = egui::pos2(start_x + (i as f32) * (btn_d + gap), controls_y);
+            let r = Rect::from_center_size(c, egui::vec2(btn_d, btn_d));
+            let resp = ui.interact(r, ui.id().with(("call_ctrl", i)), Sense::click());
+            let (bg, fg, tip) = match i {
+                0 => (
+                    if self.sharing {
+                        theme::ACCENT
+                    } else if resp.hovered() {
+                        theme::BG_ACTIVE
+                    } else {
+                        theme::BG_SECONDARY
+                    },
+                    Color32::WHITE,
+                    if self.sharing {
+                        "Stop Screen Share"
+                    } else {
+                        "Share Screen"
+                    },
+                ),
+                1 => (
+                    if self.muted {
+                        Color32::WHITE
+                    } else if resp.hovered() {
+                        theme::BG_ACTIVE
+                    } else {
+                        theme::BG_SECONDARY
+                    },
+                    if self.muted {
+                        theme::BG_FLOATING
+                    } else {
+                        Color32::WHITE
+                    },
+                    if self.muted { "Unmute" } else { "Mute" },
+                ),
+                2 => (
+                    if self.deafened {
+                        Color32::WHITE
+                    } else if resp.hovered() {
+                        theme::BG_ACTIVE
+                    } else {
+                        theme::BG_SECONDARY
+                    },
+                    if self.deafened {
+                        theme::BG_FLOATING
+                    } else {
+                        Color32::WHITE
+                    },
+                    if self.deafened { "Undeafen" } else { "Deafen" },
+                ),
+                _ => (theme::DANGER, Color32::WHITE, "Disconnect"),
             };
-            painter.rect_filled(r, 16.0, fill);
-            painter.text(
-                c,
-                Align2::CENTER_CENTER,
-                *text,
-                FontId::proportional(12.5),
-                Color32::WHITE,
-            );
-            if resp.clicked() {
+            painter.circle_filled(c, btn_d * 0.5, bg);
+            match i {
+                0 => icons::paint_video(&painter, c, 19.0, fg),
+                1 => icons::paint_mic(&painter, c, 19.0, fg, self.muted),
+                2 => icons::paint_headphones(&painter, c, 19.0, fg, self.deafened),
+                _ => icons::paint_phone_off(&painter, c, 19.0, fg),
+            }
+            if resp.on_hover_text(tip).clicked() {
                 actions[i] = true;
             }
-            x += btn_w + gap;
         }
         if actions[0] {
             self.toggle_screen_share();

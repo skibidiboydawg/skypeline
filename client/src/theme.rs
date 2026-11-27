@@ -1,34 +1,39 @@
-//! Wireline ultra-clean dark-mode palette (#0A0C10, #0F1218, #131720, #6366F1).
-//! All surface and divider colors use opaque dark slate shades so there are
-//! never harsh white lines or premultiplied-alpha artifacts.
+//! Pixel-faithful Discord dark UI color tokens & typography.
 
 use eframe::egui::{Color32, Context, FontId, RichText, Stroke, TextStyle, Visuals};
 
-pub const PRIMARY_TEXT: Color32 = Color32::from_rgb(0xF3, 0xF4, 0xF6);
-pub const SECONDARY_TEXT: Color32 = Color32::from_rgb(0x9C, 0xA3, 0xAF);
-pub const MUTED_TEXT: Color32 = Color32::from_rgb(0x6B, 0x72, 0x80);
+// Exact Discord dark tokens from spec
+pub const BG_PRIMARY: Color32 = Color32::from_rgb(0x31, 0x33, 0x38); // main chat area
+pub const BG_SECONDARY: Color32 = Color32::from_rgb(0x2B, 0x2D, 0x31); // left/right sidebar
+pub const BG_TERTIARY: Color32 = Color32::from_rgb(0x1E, 0x1F, 0x22); // user panel, code blocks, call bar
+pub const BG_FLOATING: Color32 = Color32::from_rgb(0x11, 0x12, 0x14); // modals, dropdowns, popups, toasts
+pub const BG_HOVER: Color32 = Color32::from_rgb(0x35, 0x37, 0x3C); // ~rgba(255,255,255,0.05) on secondary/primary
+pub const BG_ACTIVE: Color32 = Color32::from_rgb(0x40, 0x42, 0x49);
+pub const MESSAGE_HOVER: Color32 = Color32::from_rgb(0x2E, 0x30, 0x35);
 
-pub const SURFACE_RAIL: Color32 = Color32::from_rgb(0x0A, 0x0C, 0x10);
-pub const SURFACE_SIDEBAR: Color32 = Color32::from_rgb(0x0F, 0x12, 0x18);
-pub const SURFACE_MAIN: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x12);
-pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x13, 0x17, 0x20);
-pub const SURFACE_ELEVATED: Color32 = Color32::from_rgb(0x1B, 0x20, 0x2C);
+pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(0xF2, 0xF3, 0xF5);
+pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xB5, 0xBA, 0xC1);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x80, 0x84, 0x8E);
+pub const TEXT_LINK: Color32 = Color32::from_rgb(0x00, 0xA8, 0xFC);
 
-pub const BORDER: Color32 = Color32::from_rgb(0x1A, 0x1E, 0x28);
-pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x1E, 0x23, 0x30);
-pub const FOCUS_BORDER: Color32 = Color32::from_rgb(0x4F, 0x52, 0xB8);
+pub const ACCENT: Color32 = Color32::from_rgb(0x58, 0x65, 0xF2); // Discord Blurple
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0x3B, 0x40, 0x69); // ~rgba(88,101,242,0.3) on #313338
+pub const DANGER: Color32 = Color32::from_rgb(0xF2, 0x3F, 0x42);
+pub const SUCCESS: Color32 = Color32::from_rgb(0x23, 0xA5, 0x59);
+pub const WARNING: Color32 = Color32::from_rgb(0xF0, 0xB2, 0x32);
 
-pub const ACCENT: Color32 = Color32::from_rgb(0x63, 0x66, 0xF1);
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0x1D, 0x21, 0x36);
-pub const CYAN_GLOW: Color32 = Color32::from_rgb(0x22, 0xD3, 0xEE);
+pub const INPUT_BG: Color32 = Color32::from_rgb(0x38, 0x3A, 0x40);
+pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x1E, 0x1F, 0x22);
+pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(0x3B, 0x3D, 0x44);
 
-pub const HOVER: Color32 = Color32::from_rgb(0x18, 0x1C, 0x26);
-pub const DANGER: Color32 = Color32::from_rgb(0xEF, 0x44, 0x44);
-pub const SUCCESS: Color32 = Color32::from_rgb(0x22, 0xC5, 0x5E);
-pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0x9E, 0x0B);
+// Backwards-compatible aliases used in auth screen
+pub const SECONDARY_TEXT: Color32 = TEXT_SECONDARY;
+pub const SURFACE_RAIL: Color32 = BG_TERTIARY;
+pub const SURFACE_CARD: Color32 = BG_SECONDARY;
+pub const CYAN_GLOW: Color32 = TEXT_LINK;
 
 pub fn border() -> Stroke {
-    Stroke::new(1.0_f32, BORDER)
+    Stroke::new(1.0_f32, BORDER_SUBTLE)
 }
 
 pub fn input_border() -> Stroke {
@@ -36,14 +41,15 @@ pub fn input_border() -> Stroke {
 }
 
 pub fn focus_border() -> Stroke {
-    Stroke::new(1.25_f32, FOCUS_BORDER)
+    Stroke::new(1.25_f32, ACCENT)
 }
 
 pub fn muted(text: impl Into<String>) -> RichText {
-    RichText::new(text).color(SECONDARY_TEXT)
+    RichText::new(text).color(TEXT_MUTED)
 }
 
-pub fn apply(ctx: &Context, dark_mode: bool) {
+pub fn apply(ctx: &Context, dark_mode: bool, font_size: f32) {
+    let base_font = font_size.clamp(12.0, 20.0);
     let mut visuals = if dark_mode {
         Visuals::dark()
     } else {
@@ -52,19 +58,19 @@ pub fn apply(ctx: &Context, dark_mode: bool) {
 
     let (primary, panel, window, card, hover) = if dark_mode {
         (
-            PRIMARY_TEXT,
-            SURFACE_SIDEBAR,
-            SURFACE_MAIN,
-            SURFACE_CARD,
-            HOVER,
+            TEXT_PRIMARY,
+            BG_SECONDARY,
+            BG_PRIMARY,
+            BG_SECONDARY,
+            BG_HOVER,
         )
     } else {
         (
-            Color32::from_rgb(0x11, 0x18, 0x27),
-            Color32::from_rgb(0xF3, 0xF4, 0xF6),
+            Color32::from_rgb(0x06, 0x06, 0x07),
+            Color32::from_rgb(0xF2, 0xF3, 0xF5),
             Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            Color32::from_rgb(0xE5, 0xE7, 0xEB),
-            Color32::from_rgb(0xD1, 0xD5, 0xDB),
+            Color32::from_rgb(0xEB, 0xED, 0xEF),
+            Color32::from_rgb(0xDF, 0xE1, 0xE5),
         )
     };
 
@@ -72,12 +78,12 @@ pub fn apply(ctx: &Context, dark_mode: bool) {
     visuals.panel_fill = panel;
     visuals.window_fill = window;
     visuals.window_stroke = border();
-    visuals.extreme_bg_color = SURFACE_RAIL;
+    visuals.extreme_bg_color = INPUT_BG;
     visuals.faint_bg_color = card;
-    visuals.code_bg_color = card;
+    visuals.code_bg_color = BG_TERTIARY;
     visuals.selection.bg_fill = ACCENT;
     visuals.selection.stroke.color = ACCENT;
-    visuals.hyperlink_color = ACCENT;
+    visuals.hyperlink_color = TEXT_LINK;
     visuals.widgets.hovered.bg_fill = hover;
     visuals.widgets.active.bg_fill = ACCENT;
     visuals.widgets.open.bg_fill = card;
@@ -93,7 +99,7 @@ pub fn apply(ctx: &Context, dark_mode: bool) {
         widget.weak_bg_fill = card;
         widget.bg_stroke = Stroke::NONE;
         widget.fg_stroke.color = primary;
-        widget.corner_radius = 10.0.into();
+        widget.corner_radius = 4.0.into();
     }
     visuals.widgets.hovered.bg_fill = hover;
     visuals.widgets.active.bg_fill = ACCENT;
@@ -102,20 +108,21 @@ pub fn apply(ctx: &Context, dark_mode: bool) {
     ctx.style_mut(|style| {
         style
             .text_styles
-            .insert(TextStyle::Small, FontId::proportional(12.5));
+            .insert(TextStyle::Small, FontId::proportional((base_font - 2.0).max(11.0)));
         style
             .text_styles
-            .insert(TextStyle::Body, FontId::proportional(14.0));
+            .insert(TextStyle::Body, FontId::proportional(base_font));
         style
             .text_styles
-            .insert(TextStyle::Button, FontId::proportional(13.5));
+            .insert(TextStyle::Button, FontId::proportional((base_font - 0.5).max(12.0)));
         style
             .text_styles
-            .insert(TextStyle::Heading, FontId::proportional(20.0));
+            .insert(TextStyle::Heading, FontId::proportional(base_font + 6.0));
         style
             .text_styles
-            .insert(TextStyle::Monospace, FontId::proportional(13.0));
-        style.spacing.item_spacing = eframe::egui::vec2(8.0, 6.0);
-        style.visuals.window_corner_radius = 12.0.into();
+            .insert(TextStyle::Monospace, FontId::monospace((base_font - 1.0).max(11.5)));
+        style.spacing.item_spacing = eframe::egui::vec2(8.0, 4.0);
+        style.spacing.scroll.bar_width = 4.0;
+        style.visuals.window_corner_radius = 8.0.into();
     });
 }

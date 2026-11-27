@@ -1,6 +1,8 @@
-//! Uniform Lucide-style vector icons (1.75px stroke, rounded geometry) painted via egui::Painter.
+//! Crisp Discord/Lucide-style vector icons + authentic Discord status dots (online, idle crescent, DND bar, offline ring).
 
-use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
+use crate::theme;
+use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
+use skypeline_shared::PresenceStatus;
 use std::f32::consts::PI;
 
 fn stroke(color: Color32) -> Stroke {
@@ -26,31 +28,46 @@ fn paint_arc(
     }
 }
 
-/// <MessageSquare />
-#[allow(dead_code)]
-pub fn paint_message_square(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    let s = stroke(color);
-    let w = size * 0.80;
-    let h = size * 0.68;
-    let r = egui::Rect::from_center_size(c - Vec2::new(0.0, size * 0.05), Vec2::new(w, h));
-    painter.rect_stroke(r, 3.0, s, egui::StrokeKind::Middle);
-    painter.line_segment(
-        [
-            Pos2::new(r.left() + 3.0, r.bottom()),
-            Pos2::new(r.left() + 1.0, r.bottom() + size * 0.18),
-        ],
-        s,
-    );
-    painter.line_segment(
-        [
-            Pos2::new(r.left() + 1.0, r.bottom() + size * 0.18),
-            Pos2::new(r.left() + size * 0.24, r.bottom()),
-        ],
-        s,
-    );
+/// Authentic Discord 10px status badge with 3px cutout ring in `ring_bg`.
+pub fn paint_status_dot(
+    painter: &egui::Painter,
+    center: Pos2,
+    status: PresenceStatus,
+    ring_bg: Color32,
+) {
+    painter.circle_filled(center, 7.0, ring_bg);
+    match status {
+        PresenceStatus::Online => {
+            painter.circle_filled(center, 5.0, theme::SUCCESS);
+        }
+        PresenceStatus::Away => {
+            painter.circle_filled(center, 5.0, theme::WARNING);
+            // Crescent cutout
+            painter.circle_filled(center - Vec2::new(2.0, 2.0), 3.3, ring_bg);
+        }
+        PresenceStatus::Dnd => {
+            painter.circle_filled(center, 5.0, theme::DANGER);
+            // Horizontal bar cutout
+            painter.rect_filled(
+                Rect::from_center_size(center, Vec2::new(6.0, 2.0)),
+                1.0,
+                ring_bg,
+            );
+        }
+        PresenceStatus::Offline => {
+            painter.circle_filled(center, 5.0, theme::TEXT_MUTED);
+            painter.circle_filled(center, 2.5, ring_bg);
+        }
+    }
 }
 
-/// <MessageCircle />
+pub fn paint_plus(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    let r = size * 0.34;
+    painter.line_segment([c - Vec2::new(r, 0.0), c + Vec2::new(r, 0.0)], s);
+    painter.line_segment([c - Vec2::new(0.0, r), c + Vec2::new(0.0, r)], s);
+}
+
 pub fn paint_message_circle(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let r = size * 0.38;
@@ -62,7 +79,6 @@ pub fn paint_message_circle(painter: &egui::Painter, c: Pos2, size: f32, color: 
     painter.line_segment([tail, p_start], s);
 }
 
-/// <Phone />
 pub fn paint_phone(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let pts = [
@@ -83,7 +99,6 @@ pub fn paint_phone(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) 
     painter.line_segment([pts[pts.len() - 1], pts[0]], s);
 }
 
-/// <PhoneOff />
 pub fn paint_phone_off(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     paint_phone(painter, c, size, color);
     painter.line_segment(
@@ -95,7 +110,46 @@ pub fn paint_phone_off(painter: &egui::Painter, c: Pos2, size: f32, color: Color
     );
 }
 
-/// <Users />
+pub fn paint_video(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    let body = Rect::from_center_size(
+        c - Vec2::new(size * 0.10, 0.0),
+        Vec2::new(size * 0.56, size * 0.44),
+    );
+    painter.rect_stroke(body, 2.5, s, egui::StrokeKind::Middle);
+    let p1 = Pos2::new(body.right(), c.y - size * 0.08);
+    let p2 = Pos2::new(body.right() + size * 0.22, c.y - size * 0.18);
+    let p3 = Pos2::new(body.right() + size * 0.22, c.y + size * 0.18);
+    let p4 = Pos2::new(body.right(), c.y + size * 0.08);
+    painter.line_segment([p1, p2], s);
+    painter.line_segment([p2, p3], s);
+    painter.line_segment([p3, p4], s);
+}
+
+pub fn paint_pin(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    painter.line_segment(
+        [c + Vec2::new(-size * 0.24, -size * 0.24), c + Vec2::new(size * 0.18, -size * 0.24)],
+        s,
+    );
+    painter.line_segment(
+        [c + Vec2::new(-size * 0.16, -size * 0.24), c + Vec2::new(-size * 0.24, size * 0.06)],
+        s,
+    );
+    painter.line_segment(
+        [c + Vec2::new(size * 0.10, -size * 0.24), c + Vec2::new(size * 0.18, size * 0.06)],
+        s,
+    );
+    painter.line_segment(
+        [c + Vec2::new(-size * 0.28, size * 0.06), c + Vec2::new(size * 0.22, size * 0.06)],
+        s,
+    );
+    painter.line_segment(
+        [c + Vec2::new(-size * 0.03, size * 0.06), c + Vec2::new(-size * 0.03, size * 0.34)],
+        s,
+    );
+}
+
 pub fn paint_users(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let h1 = c + Vec2::new(-size * 0.12, -size * 0.16);
@@ -122,48 +176,6 @@ pub fn paint_users(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) 
     );
 }
 
-/// <UserPlus />
-pub fn paint_user_plus(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    let s = stroke(color);
-    let h1 = c + Vec2::new(-size * 0.12, -size * 0.16);
-    painter.circle_stroke(h1, size * 0.16, s);
-    paint_arc(
-        painter,
-        c + Vec2::new(-size * 0.12, size * 0.36),
-        size * 0.28,
-        PI * 1.12,
-        PI * 1.88,
-        12,
-        s,
-    );
-    let plus_c = c + Vec2::new(size * 0.26, -size * 0.02);
-    let arm = size * 0.13;
-    painter.line_segment(
-        [plus_c - Vec2::new(arm, 0.0), plus_c + Vec2::new(arm, 0.0)],
-        s,
-    );
-    painter.line_segment(
-        [plus_c - Vec2::new(0.0, arm), plus_c + Vec2::new(0.0, arm)],
-        s,
-    );
-}
-
-/// <Compass />
-#[allow(dead_code)]
-pub fn paint_compass(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    let s = stroke(color);
-    painter.circle_stroke(c, size * 0.38, s);
-    let top = c + Vec2::new(size * 0.14, -size * 0.14);
-    let bot = c + Vec2::new(-size * 0.14, size * 0.14);
-    let l = c + Vec2::new(-size * 0.07, -size * 0.07);
-    let r = c + Vec2::new(size * 0.07, size * 0.07);
-    painter.line_segment([top, r], s);
-    painter.line_segment([r, bot], s);
-    painter.line_segment([bot, l], s);
-    painter.line_segment([l, top], s);
-}
-
-/// <Search />
 pub fn paint_search(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let cc = c - Vec2::new(size * 0.07, size * 0.07);
@@ -177,10 +189,9 @@ pub fn paint_search(painter: &egui::Painter, c: Pos2, size: f32, color: Color32)
     );
 }
 
-/// <Mic />
 pub fn paint_mic(painter: &egui::Painter, c: Pos2, size: f32, color: Color32, muted: bool) {
     let s = stroke(color);
-    let capsule = egui::Rect::from_center_size(
+    let capsule = Rect::from_center_size(
         c - Vec2::new(0.0, size * 0.10),
         Vec2::new(size * 0.26, size * 0.42),
     );
@@ -219,7 +230,6 @@ pub fn paint_mic(painter: &egui::Painter, c: Pos2, size: f32, color: Color32, mu
     }
 }
 
-/// <Headphones />
 pub fn paint_headphones(
     painter: &egui::Painter,
     c: Pos2,
@@ -237,11 +247,11 @@ pub fn paint_headphones(
         14,
         s,
     );
-    let left_cup = egui::Rect::from_center_size(
+    let left_cup = Rect::from_center_size(
         c + Vec2::new(-size * 0.30, size * 0.16),
         Vec2::new(size * 0.16, size * 0.28),
     );
-    let right_cup = egui::Rect::from_center_size(
+    let right_cup = Rect::from_center_size(
         c + Vec2::new(size * 0.30, size * 0.16),
         Vec2::new(size * 0.16, size * 0.28),
     );
@@ -258,7 +268,6 @@ pub fn paint_headphones(
     }
 }
 
-/// <Settings />
 pub fn paint_settings(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     painter.circle_stroke(c, size * 0.14, s);
@@ -271,57 +280,87 @@ pub fn paint_settings(painter: &egui::Painter, c: Pos2, size: f32, color: Color3
     }
 }
 
-/// <Inbox />
-pub fn paint_inbox(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+pub fn paint_smile(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
-    let r = egui::Rect::from_center_size(c, Vec2::new(size * 0.78, size * 0.64));
-    painter.rect_stroke(r, 3.0, s, egui::StrokeKind::Middle);
-    let mid_y = r.center().y + size * 0.04;
-    let p1 = Pos2::new(r.left(), mid_y);
-    let p2 = Pos2::new(r.center().x - size * 0.14, mid_y);
-    let p3 = Pos2::new(r.center().x - size * 0.07, mid_y + size * 0.12);
-    let p4 = Pos2::new(r.center().x + size * 0.07, mid_y + size * 0.12);
-    let p5 = Pos2::new(r.center().x + size * 0.14, mid_y);
-    let p6 = Pos2::new(r.right(), mid_y);
-    for w in [p1, p2, p3, p4, p5, p6].windows(2) {
-        painter.line_segment([w[0], w[1]], s);
-    }
-}
-
-/// <Download />
-pub fn paint_download(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    let s = stroke(color);
-    painter.line_segment(
-        [
-            c + Vec2::new(0.0, -size * 0.30),
-            c + Vec2::new(0.0, size * 0.14),
-        ],
-        s,
-    );
-    painter.line_segment(
-        [
-            c + Vec2::new(-size * 0.18, -size * 0.02),
-            c + Vec2::new(0.0, size * 0.16),
-        ],
-        s,
-    );
-    painter.line_segment(
-        [
-            c + Vec2::new(size * 0.18, -size * 0.02),
-            c + Vec2::new(0.0, size * 0.16),
-        ],
-        s,
-    );
-    painter.line_segment(
-        [
-            c + Vec2::new(-size * 0.28, size * 0.30),
-            c + Vec2::new(size * 0.28, size * 0.30),
-        ],
+    painter.circle_stroke(c, size * 0.38, s);
+    painter.circle_filled(c + Vec2::new(-size * 0.13, -size * 0.08), 1.4, color);
+    painter.circle_filled(c + Vec2::new(size * 0.13, -size * 0.08), 1.4, color);
+    paint_arc(
+        painter,
+        c + Vec2::new(0.0, size * 0.02),
+        size * 0.18,
+        PI * 0.18,
+        PI * 0.82,
+        10,
         s,
     );
 }
 
-/// <Check />
+pub fn paint_reply(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    let tip = c + Vec2::new(-size * 0.30, -size * 0.08);
+    painter.line_segment([tip, tip + Vec2::new(size * 0.18, -size * 0.18)], s);
+    painter.line_segment([tip, tip + Vec2::new(size * 0.18, size * 0.18)], s);
+    painter.line_segment([tip, c + Vec2::new(size * 0.14, -size * 0.08)], s);
+    paint_arc(
+        painter,
+        c + Vec2::new(size * 0.14, size * 0.12),
+        size * 0.20,
+        -PI * 0.5,
+        0.0,
+        8,
+        s,
+    );
+}
+
+pub fn paint_pencil(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    painter.line_segment(
+        [
+            c + Vec2::new(-size * 0.28, size * 0.28),
+            c + Vec2::new(size * 0.22, -size * 0.22),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c + Vec2::new(size * 0.08, -size * 0.32),
+            c + Vec2::new(size * 0.32, -size * 0.08),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c + Vec2::new(-size * 0.32, size * 0.32),
+            c + Vec2::new(-size * 0.12, size * 0.30),
+        ],
+        s,
+    );
+}
+
+pub fn paint_trash(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    painter.line_segment(
+        [
+            c + Vec2::new(-size * 0.30, -size * 0.20),
+            c + Vec2::new(size * 0.30, -size * 0.20),
+        ],
+        s,
+    );
+    painter.line_segment(
+        [
+            c + Vec2::new(-size * 0.12, -size * 0.32),
+            c + Vec2::new(size * 0.12, -size * 0.32),
+        ],
+        s,
+    );
+    let body = Rect::from_center_size(
+        c + Vec2::new(0.0, size * 0.08),
+        Vec2::new(size * 0.44, size * 0.50),
+    );
+    painter.rect_stroke(body, 2.0, s, egui::StrokeKind::Middle);
+}
+
 pub fn paint_check(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let p1 = c + Vec2::new(-size * 0.28, size * 0.02);
@@ -331,7 +370,6 @@ pub fn paint_check(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) 
     painter.line_segment([p2, p3], s);
 }
 
-/// <X />
 pub fn paint_x(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = stroke(color);
     let d = size * 0.24;
@@ -339,7 +377,6 @@ pub fn paint_x(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     painter.line_segment([c + Vec2::new(d, -d), c + Vec2::new(-d, d)], s);
 }
 
-/// <Signal />
 pub fn paint_signal(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     let s = Stroke::new(2.0_f32, color);
     let base_y = c.y + size * 0.30;
@@ -349,5 +386,23 @@ pub fn paint_signal(painter: &egui::Painter, c: Pos2, size: f32, color: Color32)
             [Pos2::new(x, base_y), Pos2::new(x, base_y - size * h_frac)],
             s,
         );
+    }
+}
+
+pub fn paint_inbox(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    let s = stroke(color);
+    let r = Rect::from_center_size(c, Vec2::new(size * 0.78, size * 0.64));
+    painter.rect_stroke(r, 3.0, s, egui::StrokeKind::Middle);
+    let mid_y = r.center().y + size * 0.04;
+    let pts = [
+        Pos2::new(r.left(), mid_y),
+        Pos2::new(r.center().x - size * 0.14, mid_y),
+        Pos2::new(r.center().x - size * 0.07, mid_y + size * 0.12),
+        Pos2::new(r.center().x + size * 0.07, mid_y + size * 0.12),
+        Pos2::new(r.center().x + size * 0.14, mid_y),
+        Pos2::new(r.right(), mid_y),
+    ];
+    for w in pts.windows(2) {
+        painter.line_segment([w[0], w[1]], s);
     }
 }

@@ -1,10 +1,11 @@
-//! egui application root: state, persistent session restore, event drain, and 3-pane layout.
+//! Wireline Discord-style DM desktop app root: state, WebSocket events, shortcuts, and layout.
 
 mod auth;
 mod call;
 mod chat;
 mod friends;
 mod icons;
+mod overlays;
 mod sidebar;
 
 use crate::api::ApiClient;
@@ -16,10 +17,10 @@ use crate::net;
 use crate::screen::ScreenShare;
 use crate::{native, theme};
 use eframe::egui;
-use egui::{Align2, Color32, Context, FontId, RichText, Sense, TextureOptions, Ui};
+use egui::{Color32, Context, Pos2, RichText, TextureOptions, Ui};
 use skypeline_shared::{
     AuthResponse, ChannelInfo, FriendInfo, FriendRequest, FriendRespondRequest, MessageDto,
-    OnlineUser, PresenceStatus, VoiceParticipant, WsClientMsg,
+    OnlineUser, PresenceStatus, ReactionDto, VoiceParticipant, WsClientMsg,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
@@ -55,6 +56,32 @@ pub(crate) enum FriendsTab {
     Online,
     All,
     Pending,
+    Blocked,
+    AddFriend,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SettingsTab {
+    MyAccount,
+    Appearance,
+    VoiceVideo,
+    Keybinds,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ToastItem {
+    pub channel_id: i64,
+    pub sender: String,
+    pub preview: String,
+    pub expires_at: f64,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProfilePopup {
+    pub user_id: i64,
+    pub username: String,
+    pub status: PresenceStatus,
+    pub anchor: Pos2,
 }
 
 pub struct SkyApp {
@@ -75,13 +102,16 @@ pub struct SkyApp {
     pub(crate) verify_code: String,
     pub(crate) busy: bool,
     pub(crate) notice: String,
+    pub(crate) connected: bool,
 
     pub(crate) token: Option<String>,
     pub(crate) me: Option<AuthResponse>,
     pub(crate) channels: Vec<ChannelInfo>,
+    pub(crate) last_messages: HashMap<i64, (String, i64)>,
     pub(crate) online: Vec<OnlineUser>,
     pub(crate) friends: Vec<FriendInfo>,
     pub(crate) friend_query: String,
+    pub(crate) friend_error: String,
     pub(crate) friend_busy: bool,
     pub(crate) avatars: AvatarCache,
     pub(crate) selected_channel: Option<i64>,
@@ -89,6 +119,8 @@ pub struct SkyApp {
     pub(crate) has_more_messages: bool,
     pub(crate) loading_older: bool,
     pub(crate) editing_message: Option<(i64, String)>,
+    pub(crate) reply_to: Option<(i64, String, String)>,
+    pub(crate) revealed_spoilers: HashSet<(i64, usize)>,
     pub(crate) draft: String,
     pub(crate) refocus_draft: bool,
     pub(crate) unread: HashMap<i64, usize>,
@@ -96,10 +128,18 @@ pub struct SkyApp {
     pub(crate) last_typing_sent: Option<(i64, f64)>,
     pub(crate) presence: PresenceStatus,
     pub(crate) friends_tab: FriendsTab,
+    pub(crate) settings_tab: SettingsTab,
     pub(crate) show_profile_popover: bool,
     pub(crate) show_inbox_popover: bool,
     pub(crate) show_settings_modal: bool,
+    pub(crate) profile_popup: Option<ProfilePopup>,
+    pub(crate) emoji_picker_target: Option<Option<i64>>,
+    pub(crate) emoji_search: String,
+    pub(crate) chat_search_open: bool,
+    pub(crate) chat_msg_search: String,
     pub(crate) incoming_call: Option<(i64, String)>,
+    pub(crate) call_expanded: bool,
+    pub(crate) toasts: Vec<ToastItem>,
     pub(crate) chat_search: String,
 
     pub(crate) voice_hint: String,
@@ -139,7 +179,7 @@ pub struct SkyApp {
 impl SkyApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let config = Config::load();
-        theme::apply(&cc.egui_ctx, config.dark_mode);
+        theme::apply(&cc.egui_ctx, config.dark_mode, config.font_size);
         let (events_tx, events_rx) = mpsc::channel();
         #[cfg(target_os = "windows")]
         let (tray, tray_show_id, tray_quit_id) = Self::init_tray();
@@ -160,12 +200,15 @@ impl SkyApp {
             verify_code: String::new(),
             busy: false,
             notice: String::new(),
+            connected: false,
             token: None,
             me: None,
             channels: Vec::new(),
+            last_messages: HashMap::new(),
             online: Vec::new(),
             friends: Vec::new(),
             friend_query: String::new(),
+            friend_error: String::new(),
             friend_busy: false,
             avatars: AvatarCache::new(),
             selected_channel: None,
@@ -173,6 +216,8 @@ impl SkyApp {
             has_more_messages: false,
             loading_older: false,
             editing_message: None,
+            reply_to: None,
+            revealed_spoilers: HashSet::new(),
             draft: String::new(),
             refocus_draft: false,
             unread: HashMap::new(),
@@ -180,10 +225,18 @@ impl SkyApp {
             last_typing_sent: None,
             presence: PresenceStatus::Online,
             friends_tab: FriendsTab::Online,
+            settings_tab: SettingsTab::MyAccount,
             show_profile_popover: false,
             show_inbox_popover: false,
             show_settings_modal: false,
+            profile_popup: None,
+            emoji_picker_target: None,
+            emoji_search: String::new(),
+            chat_search_open: false,
+            chat_msg_search: String::new(),
             incoming_call: None,
+            call_expanded: true,
+            toasts: Vec::new(),
             chat_search: String::new(),
             voice_hint: String::new(),
             voice_room: None,
@@ -252,32 +305,31 @@ impl SkyApp {
                 let i = (y * 32 + x) * 4;
                 let b = x < 2 || x > 29 || y < 2 || y > 29;
                 rgba[i..i + 4].copy_from_slice(if b {
-                    &[0x18, 0x18, 0x1B, 0xFF]
+                    &[0x1E, 0x1F, 0x22, 0xFF]
                 } else {
-                    &[0x63, 0x66, 0xF1, 0xFF]
+                    &[0x58, 0x65, 0xF2, 0xFF]
                 });
             }
         }
-        // Simple geometric 'W'
         for y in 10..22 {
             for x in [8, 9, 22, 23] {
                 let i = (y * 32 + x) * 4;
-                rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
+                rgba[i..i + 4].copy_from_slice(&[0xF2, 0xF3, 0xF5, 0xFF]);
             }
         }
         for y in 14..22 {
             for x in [15, 16] {
                 let i = (y * 32 + x) * 4;
-                rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
+                rgba[i..i + 4].copy_from_slice(&[0xF2, 0xF3, 0xF5, 0xFF]);
             }
         }
         for x in 10..15 {
             let i = (20 * 32 + x) * 4;
-            rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
+            rgba[i..i + 4].copy_from_slice(&[0xF2, 0xF3, 0xF5, 0xFF]);
         }
         for x in 17..22 {
             let i = (20 * 32 + x) * 4;
-            rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
+            rgba[i..i + 4].copy_from_slice(&[0xF2, 0xF3, 0xF5, 0xFF]);
         }
         rgba
     }
@@ -310,9 +362,6 @@ impl SkyApp {
         self.config.save();
     }
 
-    /// Immediately restores a saved session into the main workspace so the user
-    /// is never forced back to the login screen while the relay wakes up.
-    /// Only an explicit HTTP 401 invalidates the saved token.
     fn restore_session(&mut self) {
         let Some(session) = self.config.session.clone() else {
             return;
@@ -392,7 +441,7 @@ impl SkyApp {
     pub(crate) fn send_friend_request(&mut self) {
         let query = self.friend_query.trim().to_string();
         if query.is_empty() {
-            self.notice = "Enter a username or email to add a friend".into();
+            self.friend_error = "Enter a username or email to add a friend.".into();
             return;
         }
         let Some(token) = self.token.clone() else {
@@ -401,8 +450,8 @@ impl SkyApp {
         let api = self.api();
         let tx = self.events_tx.clone();
         self.friend_query.clear();
+        self.friend_error.clear();
         self.friend_busy = true;
-        self.notice = format!("Looking for {query}...");
         self.rt.spawn(async move {
             match api.friend_request(&token, &FriendRequest { query }).await {
                 Ok(response) => {
@@ -483,10 +532,11 @@ impl SkyApp {
         });
     }
 
-    pub(crate) fn open_dm(&self, user_id: i64, start_call: bool) {
+    pub(crate) fn open_dm(&mut self, user_id: i64, start_call: bool) {
         let Some(token) = self.token.clone() else {
             return;
         };
+        self.config.closed_dms.retain(|id| *id != user_id);
         let api = self.api();
         let tx = self.events_tx.clone();
         self.rt.spawn(async move {
@@ -505,6 +555,7 @@ impl SkyApp {
     }
 
     pub(crate) fn upsert_channel(&mut self, channel: ChannelInfo) {
+        self.config.closed_dms.retain(|id| *id != channel.id);
         if let Some(existing) = self.channels.iter_mut().find(|c| c.id == channel.id) {
             *existing = channel;
         } else {
@@ -522,6 +573,9 @@ impl SkyApp {
         self.has_more_messages = false;
         self.loading_older = false;
         self.editing_message = None;
+        self.reply_to = None;
+        self.chat_search_open = false;
+        self.chat_msg_search.clear();
         self.load_messages(channel_id, None);
     }
 
@@ -533,15 +587,27 @@ impl SkyApp {
         if content.is_empty() {
             return;
         }
+        let reply_to_id = self.reply_to.take().map(|(id, _, _)| id);
         if let Some(tx) = &self.ws_tx {
             let _ = tx.send(WsClientMsg::SendMessage {
                 channel_id,
                 content,
+                reply_to_id,
             });
             self.draft.clear();
             self.refocus_draft = true;
         } else {
             self.notice = "Not connected to the relay".to_string();
+        }
+    }
+
+    pub(crate) fn toggle_reaction(&mut self, channel_id: i64, message_id: i64, emoji: String) {
+        if let Some(tx) = &self.ws_tx {
+            let _ = tx.send(WsClientMsg::ToggleReaction {
+                channel_id,
+                message_id,
+                emoji,
+            });
         }
     }
 
@@ -589,12 +655,60 @@ impl SkyApp {
         });
     }
 
+    pub(crate) fn is_channel_muted(&self, channel_id: i64) -> bool {
+        self.config.muted_channels.contains(&channel_id)
+    }
+
+    pub(crate) fn toggle_mute_channel(&mut self, channel_id: i64) {
+        if let Some(pos) = self
+            .config
+            .muted_channels
+            .iter()
+            .position(|id| *id == channel_id)
+        {
+            self.config.muted_channels.remove(pos);
+        } else {
+            self.config.muted_channels.push(channel_id);
+        }
+        self.config.save();
+    }
+
+    pub(crate) fn close_dm(&mut self, channel_id: i64) {
+        if !self.config.closed_dms.contains(&channel_id) {
+            self.config.closed_dms.push(channel_id);
+            self.config.save();
+        }
+        if self.selected_channel == Some(channel_id) {
+            self.selected_channel = None;
+            self.messages.clear();
+        }
+    }
+
+    pub(crate) fn is_blocked(&self, user_id: i64) -> bool {
+        self.config.blocked_users.contains(&user_id)
+    }
+
+    pub(crate) fn toggle_block(&mut self, user_id: i64) {
+        if let Some(pos) = self
+            .config
+            .blocked_users
+            .iter()
+            .position(|id| *id == user_id)
+        {
+            self.config.blocked_users.remove(pos);
+        } else {
+            self.config.blocked_users.push(user_id);
+        }
+        self.config.save();
+    }
+
     pub(crate) fn start_call(&mut self, channel_id: i64) {
         let Some(channel) = self.channels.iter().find(|c| c.id == channel_id).cloned() else {
             return;
         };
         let room = Self::channel_room(channel_id);
         if self.in_voice && self.voice_room.as_deref() == Some(room.as_str()) {
+            self.call_expanded = true;
             return;
         }
         if self.in_voice {
@@ -611,6 +725,7 @@ impl SkyApp {
         match audio.start_capture(room.clone(), ws.clone()) {
             Ok(()) => {
                 self.in_voice = true;
+                self.call_expanded = true;
                 self.incoming_call = None;
                 self.voice_room = Some(room);
                 self.voice_hint.clear();
@@ -647,7 +762,6 @@ impl SkyApp {
         self.voice_participants_seen.clear();
         self.skip_join_chimes = false;
         self.call_started_at = None;
-        self.notice = "Left voice".into();
     }
 
     pub(crate) fn toggle_mute(&mut self) {
@@ -684,26 +798,21 @@ impl SkyApp {
         if let Some(share) = self.screen_share.take() {
             share.stop();
             self.sharing = false;
-            self.voice_hint = "Screen sharing stopped".into();
             return;
         }
         let room = self.voice_room.clone().unwrap_or_default();
         if room.is_empty() {
-            self.voice_hint = "Join a call before sharing your screen".into();
             return;
         }
         let Some(ws) = self.ws_tx.clone() else {
-            self.notice = "Not connected to the relay".into();
             return;
         };
         let Some(frames) = self.screen_frame_tx.clone() else {
-            self.notice = "Not connected to the relay".into();
             return;
         };
         let events = self.events_tx.clone();
         self.screen_share = Some(ScreenShare::start(room, ws, frames, events));
         self.sharing = true;
-        self.voice_hint = "You are sharing your screen through the relay".into();
     }
 
     pub(crate) fn set_presence(&mut self, status: PresenceStatus) {
@@ -721,6 +830,7 @@ impl SkyApp {
         self.ws_tx = None;
         self.token = None;
         self.me = None;
+        self.connected = false;
         self.config.session = None;
         self.config.save();
         self.page = Page::Login;
@@ -728,18 +838,28 @@ impl SkyApp {
         self.verify_email.clear();
         self.verify_code.clear();
         self.channels.clear();
+        self.last_messages.clear();
         self.messages.clear();
         self.has_more_messages = false;
         self.loading_older = false;
         self.editing_message = None;
+        self.reply_to = None;
         self.online.clear();
         self.friends.clear();
         self.friend_query.clear();
+        self.friend_error.clear();
         self.friend_busy = false;
-        self.friends_tab = FriendsTab::All;
+        self.friends_tab = FriendsTab::Online;
         self.avatars.clear();
         self.unread.clear();
         self.typing_users.clear();
+        self.toasts.clear();
+        self.profile_popup = None;
+        self.show_settings_modal = false;
+        self.show_profile_popover = false;
+        self.show_inbox_popover = false;
+        self.emoji_picker_target = None;
+        self.incoming_call = None;
         self.selected_channel = None;
         self.screen_fullscreen = false;
         self.voice_participants_seen.clear();
@@ -816,6 +936,10 @@ impl SkyApp {
                     channel_id,
                     messages,
                 } => {
+                    if let Some(last) = messages.last() {
+                        self.last_messages
+                            .insert(channel_id, (last.content.clone(), last.created_at));
+                    }
                     if self.selected_channel == Some(channel_id) {
                         self.has_more_messages = messages.len() as i64 >= MESSAGE_PAGE_SIZE;
                         self.messages = messages;
@@ -835,6 +959,9 @@ impl SkyApp {
                     }
                 }
                 UiEvent::NewMessage(message) => {
+                    self.config.closed_dms.retain(|id| *id != message.channel_id);
+                    self.last_messages
+                        .insert(message.channel_id, (message.content.clone(), message.created_at));
                     if let Some(ch_typing) = self.typing_users.get_mut(&message.channel_id) {
                         ch_typing.remove(&message.user_id);
                     }
@@ -846,22 +973,22 @@ impl SkyApp {
                             let excess = self.messages.len() - 300;
                             self.messages.drain(..excess);
                         }
-                    } else if !mine {
+                    } else if !mine && !self.is_blocked(message.user_id) {
                         *self.unread.entry(message.channel_id).or_insert(0) += 1;
-                        native::message_chime();
-                        let channel_name = self
-                            .channels
-                            .iter()
-                            .find(|c| c.id == message.channel_id)
-                            .map(|c| c.name.as_str())
-                            .unwrap_or("Wireline");
-                        let body = format!(
-                            "{} in {}: {}",
-                            message.username, channel_name, message.content
-                        );
-                        native::notify("Wireline", &body);
-                        if !self.window_visible {
-                            self.notice = body;
+                        if !self.is_channel_muted(message.channel_id) {
+                            native::message_chime();
+                            let body = format!("{}: {}", message.username, message.content);
+                            native::notify("Wireline", &body);
+                            // Push in-app Discord toast (stack up to 3)
+                            self.toasts.push(ToastItem {
+                                channel_id: message.channel_id,
+                                sender: message.username.clone(),
+                                preview: message.content.clone(),
+                                expires_at: Self::now_secs() + 4.0,
+                            });
+                            if self.toasts.len() > 3 {
+                                self.toasts.remove(0);
+                            }
                         }
                     }
                 }
@@ -884,6 +1011,39 @@ impl SkyApp {
                 } => {
                     if self.selected_channel == Some(channel_id) {
                         self.messages.retain(|m| m.id != message_id);
+                    }
+                }
+                UiEvent::ReactionUpdated {
+                    channel_id,
+                    message_id,
+                    emoji,
+                    user_id,
+                    added,
+                } => {
+                    if self.selected_channel == Some(channel_id) {
+                        if let Some(msg) = self.messages.iter_mut().find(|m| m.id == message_id) {
+                            if added {
+                                if let Some(r) =
+                                    msg.reactions.iter_mut().find(|r| r.emoji == emoji)
+                                {
+                                    if !r.user_ids.contains(&user_id) {
+                                        r.user_ids.push(user_id);
+                                    }
+                                } else {
+                                    msg.reactions.push(ReactionDto {
+                                        emoji,
+                                        user_ids: vec![user_id],
+                                    });
+                                }
+                            } else {
+                                if let Some(r) =
+                                    msg.reactions.iter_mut().find(|r| r.emoji == emoji)
+                                {
+                                    r.user_ids.retain(|u| *u != user_id);
+                                }
+                                msg.reactions.retain(|r| !r.user_ids.is_empty());
+                            }
+                        }
                     }
                 }
                 UiEvent::Typing {
@@ -1027,7 +1187,12 @@ impl SkyApp {
                 UiEvent::Status(status) => {
                     self.busy = false;
                     self.friend_busy = false;
-                    if status == "Connected" || status == "Connecting to relay..." {
+                    if status == "Connected" {
+                        self.connected = true;
+                        self.notice.clear();
+                    } else if status.starts_with("Connecting") || status.starts_with("Reconnecting")
+                    {
+                        self.connected = false;
                         self.notice.clear();
                     } else {
                         self.notice = status;
@@ -1041,34 +1206,21 @@ impl SkyApp {
                         self.sign_out();
                         self.notice = "Session expired. Please sign in.".into();
                     } else {
-                        let lower = error.to_ascii_lowercase();
-                        if self.page == Page::Login
-                            && (lower.contains("not verified")
-                                || lower.contains("confirm your email")
-                                || lower.contains("email is not verified"))
-                        {
-                            let candidate = if !self.login_email.trim().is_empty() {
-                                self.login_email.trim().to_string()
-                            } else {
-                                self.register_email.trim().to_string()
-                            };
-                            if !candidate.is_empty() {
-                                self.verify_email = candidate;
-                            }
-                            self.verify_code.clear();
-                            self.auth_step = AuthStep::VerifyCode;
+                        if self.friends_tab == FriendsTab::AddFriend && self.selected_channel.is_none() {
+                            self.friend_error = error.clone();
                         }
                         self.notice = error;
                     }
                 }
                 UiEvent::Disconnected => {
-                    self.notice = "Reconnecting to relay...".into();
+                    self.connected = false;
                     self.participants.clear();
                     self.screen_texture = None;
                     self.screen_owner = None;
                     self.screen_fullscreen = false;
                 }
                 UiEvent::Reconnected => {
+                    self.connected = true;
                     self.notice.clear();
                     if let Some(ws) = &self.ws_tx {
                         let _ = ws.send(WsClientMsg::SetPresence {
@@ -1134,18 +1286,57 @@ impl SkyApp {
     #[cfg(not(target_os = "windows"))]
     fn handle_tray(&mut self, _ctx: &Context) {}
 
+    fn handle_shortcuts(&mut self, ctx: &Context) {
+        ctx.input(|i| {
+            if i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::M) {
+                self.toggle_mute();
+            }
+            if i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::D) {
+                self.toggle_deafen();
+            }
+            if i.modifiers.command && i.key_pressed(egui::Key::Slash) {
+                self.show_settings_modal = true;
+                self.settings_tab = SettingsTab::Keybinds;
+            }
+            if i.key_pressed(egui::Key::Escape) {
+                if self.show_settings_modal {
+                    self.show_settings_modal = false;
+                } else if self.emoji_picker_target.is_some() {
+                    self.emoji_picker_target = None;
+                } else if self.profile_popup.is_some() {
+                    self.profile_popup = None;
+                } else if self.show_profile_popover {
+                    self.show_profile_popover = false;
+                } else if self.show_inbox_popover {
+                    self.show_inbox_popover = false;
+                } else if self.chat_search_open {
+                    self.chat_search_open = false;
+                    self.chat_msg_search.clear();
+                } else if self.reply_to.is_some() {
+                    self.reply_to = None;
+                } else if self.editing_message.is_some() {
+                    self.editing_message = None;
+                }
+            }
+        });
+    }
+
     fn ui_main(&mut self, ctx: &Context) {
+        self.handle_shortcuts(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
         self.ui_screen_fullscreen(ctx);
         self.ui_profile_popover(ctx);
+        self.ui_user_profile_popup(ctx);
+        self.ui_emoji_picker(ctx);
         self.ui_inbox_popover(ctx);
         self.ui_settings_modal(ctx);
+        self.ui_toasts(ctx);
     }
 
     fn ui_main_stage(&mut self, ctx: &Context) {
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::SURFACE_MAIN))
+            .frame(egui::Frame::new().fill(theme::BG_PRIMARY))
             .show(ctx, |ui| {
                 if self.selected_channel.is_none() {
                     self.ui_friends_home(ui);
@@ -1155,30 +1346,6 @@ impl SkyApp {
             });
     }
 
-    pub(crate) fn form_field(
-        ui: &mut Ui,
-        value: &mut String,
-        hint: &str,
-        password: bool,
-    ) -> egui::Response {
-        egui::Frame::new()
-            .fill(theme::SURFACE_CARD)
-            .stroke(theme::border())
-            .corner_radius(12.0)
-            .inner_margin(egui::Margin::symmetric(14, 10))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.add(
-                    egui::TextEdit::singleline(value)
-                        .frame(false)
-                        .password(password)
-                        .hint_text(hint)
-                        .desired_width(ui.available_width()),
-                )
-            })
-            .inner
-    }
-
     pub(crate) fn ui_notice(&self, ui: &mut Ui) {
         if self.notice.is_empty() {
             return;
@@ -1186,18 +1353,9 @@ impl SkyApp {
         let color = if self.notice.starts_with("HTTP") || self.notice.contains("failed") {
             theme::DANGER
         } else {
-            theme::SECONDARY_TEXT
+            theme::TEXT_SECONDARY
         };
         ui.label(RichText::new(&self.notice).color(color).small());
-    }
-}
-
-pub(crate) fn status_color(status: PresenceStatus) -> Color32 {
-    match status {
-        PresenceStatus::Online => theme::SUCCESS,
-        PresenceStatus::Away => theme::WARNING,
-        PresenceStatus::Dnd => theme::DANGER,
-        PresenceStatus::Offline => theme::MUTED_TEXT,
     }
 }
 
@@ -1211,32 +1369,13 @@ pub(crate) fn avatar_color(name: &str, mine: bool) -> Color32 {
         h = h.wrapping_mul(16777619);
     }
     let palette = [
-        Color32::from_rgb(0x63, 0x66, 0xF1),
-        Color32::from_rgb(0x10, 0xB9, 0x81),
-        Color32::from_rgb(0xF5, 0x9E, 0x0B),
-        Color32::from_rgb(0xEC, 0x48, 0x99),
-        Color32::from_rgb(0x06, 0xB6, 0xD4),
+        Color32::from_rgb(0x58, 0x65, 0xF2),
+        Color32::from_rgb(0x23, 0xA5, 0x59),
+        Color32::from_rgb(0xF0, 0xB2, 0x32),
+        Color32::from_rgb(0xEB, 0x45, 0x9E),
+        Color32::from_rgb(0x00, 0xA8, 0xFC),
     ];
     palette[(h as usize) % palette.len()]
-}
-
-pub(crate) fn ui_avatar(ui: &mut Ui, name: &str, mine: bool) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::hover());
-    ui.painter()
-        .circle_filled(rect.center(), 15.0, avatar_color(name, mine));
-    let initial = name
-        .chars()
-        .next()
-        .unwrap_or('?')
-        .to_ascii_uppercase()
-        .to_string();
-    ui.painter().text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        initial,
-        FontId::proportional(13.0),
-        Color32::WHITE,
-    );
 }
 
 pub(crate) fn format_hhmm(unix_secs: i64) -> String {
@@ -1244,6 +1383,42 @@ pub(crate) fn format_hhmm(unix_secs: i64) -> String {
     let hours = secs_in_day / 3_600;
     let mins = (secs_in_day % 3_600) / 60;
     format!("{hours:02}:{mins:02}")
+}
+
+pub(crate) fn day_index(unix_secs: i64) -> i64 {
+    unix_secs.div_euclid(86_400)
+}
+
+pub(crate) fn format_day_label(unix_secs: i64, now_secs: i64) -> String {
+    let d = day_index(unix_secs);
+    let today = day_index(now_secs);
+    if d == today {
+        "Today".to_string()
+    } else if d == today - 1 {
+        "Yesterday".to_string()
+    } else {
+        // Simple YYYY-MM-DD civil date from epoch days
+        let z = d + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = if month <= 2 { y + 1 } else { y };
+        format!("{month:02}/{day:02}/{year:04}")
+    }
+}
+
+pub(crate) fn format_discord_timestamp(unix_secs: i64, now_secs: i64) -> String {
+    let day = format_day_label(unix_secs, now_secs);
+    if day == "Today" || day == "Yesterday" {
+        format!("{day} at {}", format_hhmm(unix_secs))
+    } else {
+        format!("{day} {}", format_hhmm(unix_secs))
+    }
 }
 
 impl eframe::App for SkyApp {
@@ -1254,7 +1429,7 @@ impl eframe::App for SkyApp {
             Page::Login => self.ui_login(ctx),
             Page::Main => self.ui_main(ctx),
         }
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        ctx.request_repaint_after(std::time::Duration::from_millis(80));
     }
 }
 

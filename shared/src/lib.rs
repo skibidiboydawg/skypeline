@@ -149,6 +149,12 @@ pub struct AddGroupMemberRequest {
     pub user_id: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionDto {
+    pub emoji: String,
+    pub user_ids: Vec<i64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageDto {
     pub id: i64,
@@ -159,6 +165,10 @@ pub struct MessageDto {
     pub created_at: i64,
     #[serde(default)]
     pub edited_at: Option<i64>,
+    #[serde(default)]
+    pub reply_to_id: Option<i64>,
+    #[serde(default)]
+    pub reactions: Vec<ReactionDto>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,6 +200,13 @@ pub enum WsClientMsg {
     SendMessage {
         channel_id: i64,
         content: String,
+        #[serde(default)]
+        reply_to_id: Option<i64>,
+    },
+    ToggleReaction {
+        channel_id: i64,
+        message_id: i64,
+        emoji: String,
     },
     SetPresence {
         status: PresenceStatus,
@@ -244,6 +261,13 @@ pub enum WsServerMsg {
     MessageDeleted {
         channel_id: i64,
         message_id: i64,
+    },
+    ReactionUpdated {
+        channel_id: i64,
+        message_id: i64,
+        emoji: String,
+        user_id: i64,
+        added: bool,
     },
     Typing {
         channel_id: i64,

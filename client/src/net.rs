@@ -184,6 +184,21 @@ fn handle_server_msg(
                 message_id,
             });
         }
+        WsServerMsg::ReactionUpdated {
+            channel_id,
+            message_id,
+            emoji,
+            user_id,
+            added,
+        } => {
+            let _ = events.send(UiEvent::ReactionUpdated {
+                channel_id,
+                message_id,
+                emoji,
+                user_id,
+                added,
+            });
+        }
         WsServerMsg::Typing {
             channel_id,
             user_id,

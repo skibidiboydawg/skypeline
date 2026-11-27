@@ -36,6 +36,20 @@ pub struct Config {
     #[serde(default = "default_dark_mode")]
     pub dark_mode: bool,
     #[serde(default)]
+    pub compact_mode: bool,
+    #[serde(default = "default_font_size")]
+    pub font_size: f32,
+    #[serde(default)]
+    pub muted_channels: Vec<i64>,
+    #[serde(default)]
+    pub blocked_users: Vec<i64>,
+    #[serde(default)]
+    pub closed_dms: Vec<i64>,
+    #[serde(default)]
+    pub custom_status: String,
+    #[serde(default)]
+    pub bio: String,
+    #[serde(default)]
     pub session: Option<SavedSession>,
 }
 
@@ -43,10 +57,21 @@ fn default_dark_mode() -> bool {
     true
 }
 
+fn default_font_size() -> f32 {
+    15.0
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             dark_mode: default_dark_mode(),
+            compact_mode: false,
+            font_size: default_font_size(),
+            muted_channels: Vec::new(),
+            blocked_users: Vec::new(),
+            closed_dms: Vec::new(),
+            custom_status: String::new(),
+            bio: String::new(),
             session: None,
         }
     }
