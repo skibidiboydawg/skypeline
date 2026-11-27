@@ -184,7 +184,7 @@ impl SkyApp {
 
     pub(crate) fn ui_left_sidebar(&mut self, ctx: &Context) {
         egui::SidePanel::left("left_sidebar")
-            .exact_width(240.0)
+            .exact_width(256.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
@@ -193,10 +193,32 @@ impl SkyApp {
                     .inner_margin(egui::Margin::same(0)),
             )
             .show(ctx, |ui| {
-                // Top area (padded)
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::symmetric(12, 12))
-                    .show(ui, |ui| {
+                // Pin the Bottom User Dock (and active call banner) FIRST using
+                // TopBottomPanel::bottom::show_inside so it NEVER clips at any
+                // window size or DPI scale.
+                egui::TopBottomPanel::bottom("sidebar_user_dock")
+                    .show_separator_line(false)
+                    .frame(egui::Frame::new().inner_margin(egui::Margin::same(0)))
+                    .show_inside(ui, |ui| {
+                        if self.in_voice {
+                            egui::Frame::new()
+                                .fill(theme::SURFACE_SIDEBAR)
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    self.ui_active_call_banner(ui);
+                                });
+                        }
+                        self.ui_user_dock(ui);
+                    });
+
+                // Remaining area above the dock fills cleanly with a scrollable DM list.
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::new()
+                            .fill(theme::SURFACE_SIDEBAR)
+                            .inner_margin(egui::Margin::symmetric(12, 12)),
+                    )
+                    .show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Wireline").size(16.0).strong());
                         });
@@ -300,10 +322,8 @@ impl SkyApp {
                             .collect();
                         dms.sort_by(|a, b| b.id.cmp(&a.id));
 
-                        let dock_reserved = if self.in_voice { 126.0 } else { 66.0 };
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
-                            .max_height((ui.available_height() - dock_reserved).max(80.0))
                             .show(ui, |ui| {
                                 let visible_dms: Vec<ChannelInfo> = dms
                                     .into_iter()
@@ -339,18 +359,6 @@ impl SkyApp {
                                 }
                             });
                     });
-
-                // Bottom area: active call banner + User Dock
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    self.ui_user_dock(ui);
-                    if self.in_voice {
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(10, 6))
-                            .show(ui, |ui| {
-                                self.ui_active_call_banner(ui);
-                            });
-                    }
-                });
             });
     }
 
@@ -527,8 +535,9 @@ impl SkyApp {
                 ui.set_min_height(38.0);
                 ui.horizontal(|ui| {
                     // Clickable Avatar + Name/Status block -> opens Profile Popover Card
+                    let prof_w = (ui.available_width() - 98.0).max(100.0);
                     let (prof_rect, prof_resp) =
-                        ui.allocate_exact_size(egui::vec2(124.0, 38.0), Sense::click());
+                        ui.allocate_exact_size(egui::vec2(prof_w, 38.0), Sense::click());
                     if prof_resp.hovered() {
                         ui.painter().rect_filled(prof_rect, 8.0, theme::HOVER);
                     }
@@ -694,7 +703,11 @@ impl SkyApp {
             .unwrap_or_default();
 
         egui::Area::new(egui::Id::new("profile_popover_card"))
-            .fixed_pos(egui::pos2(74.0, ctx.screen_rect().bottom() - 252.0))
+            .constrain(true)
+            .fixed_pos(egui::pos2(
+                74.0,
+                (ctx.screen_rect().bottom() - 270.0).max(16.0),
+            ))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::new()
