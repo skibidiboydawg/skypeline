@@ -259,6 +259,32 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
     hub.broadcast_presence();
 }
 
+/// Resolves the relay `Scope` for a channel if `user_id` is authorized to
+/// access it (accepted friends for DMs, active member for groups).
+pub async fn channel_scope(state: &AppState, user_id: i64, channel_id: i64) -> Option<Scope> {
+    let channel = db::get_channel(&state.db, channel_id).await.ok()??;
+    match channel.kind.as_str() {
+        "dm" => {
+            let (a, b) = db::dm_members(&channel.name)?;
+            if a != user_id && b != user_id {
+                return None;
+            }
+            match db::are_friends(&state.db, a, b).await {
+                Ok(true) => Some(Scope::Users(vec![a, b])),
+                _ => None,
+            }
+        }
+        "group" => match db::is_channel_member(&state.db, channel.id, user_id).await {
+            Ok(true) => db::channel_member_ids(&state.db, channel.id)
+                .await
+                .ok()
+                .map(Scope::Users),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, msg: WsClientMsg) {
     let hub = &state.hub;
     match msg {
@@ -270,30 +296,27 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             if trimmed.is_empty() || trimmed.len() > 4000 {
                 return;
             }
-            let channel = match db::get_channel(&state.db, channel_id).await {
-                Ok(Some(c)) => c,
-                _ => return,
+            let Some(scope) = channel_scope(state, user_id, channel_id).await else {
+                return;
             };
-            let scope = match channel.kind.as_str() {
-                "text" => Scope::All,
-                "dm" => {
-                    let Some((a, b)) = db::dm_members(&channel.name) else {
-                        return;
-                    };
-                    if a != user_id && b != user_id {
-                        return;
-                    }
-                    match db::are_friends(&state.db, a, b).await {
-                        Ok(true) => Scope::Users(vec![a, b]),
-                        _ => return,
-                    }
-                }
-                _ => return,
-            };
-            match db::insert_message(&state.db, channel.id, user_id, username, trimmed).await {
+            match db::insert_message(&state.db, channel_id, user_id, username, trimmed).await {
                 Ok(saved) => hub.send(scope, None, &WsServerMsg::NewMessage { message: saved }),
                 Err(e) => tracing::warn!("message insert failed: {e}"),
             }
+        }
+        WsClientMsg::Typing { channel_id } => {
+            let Some(scope) = channel_scope(state, user_id, channel_id).await else {
+                return;
+            };
+            hub.send(
+                scope,
+                Some(user_id),
+                &WsServerMsg::Typing {
+                    channel_id,
+                    user_id,
+                    username: username.to_string(),
+                },
+            );
         }
         WsClientMsg::SetPresence { status } => {
             hub.online_users.insert(
@@ -307,30 +330,38 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             hub.broadcast_presence();
         }
         WsClientMsg::JoinVoice { room } => {
-            let dm_channel_id: Option<i64> = room
-                .strip_prefix("dm-channel:")
-                .and_then(|value| value.parse::<i64>().ok());
-            let room = if let Some(channel_id) = dm_channel_id {
+            let channel_id: Option<i64> = room
+                .strip_prefix("channel:")
+                .and_then(|value| value.parse::<i64>().ok())
+                .or_else(|| {
+                    room.strip_prefix("dm-channel:")
+                        .and_then(|value| value.parse::<i64>().ok())
+                });
+            let room = if let Some(channel_id) = channel_id {
                 let channel = match db::get_channel(&state.db, channel_id).await {
                     Ok(Some(channel)) => channel,
                     _ => return,
                 };
-                if channel.kind != "dm" {
-                    return;
-                }
-                let Some((a, b)) = db::dm_members(&channel.name) else {
-                    return;
-                };
-                if a != user_id && b != user_id {
-                    return;
-                }
-                match db::are_friends(&state.db, a, b).await {
-                    Ok(true) => {}
+                match channel.kind.as_str() {
+                    "dm" => {
+                        let Some((a, b)) = db::dm_members(&channel.name) else {
+                            return;
+                        };
+                        if a != user_id && b != user_id {
+                            return;
+                        }
+                        match db::are_friends(&state.db, a, b).await {
+                            Ok(true) => {}
+                            _ => return,
+                        }
+                    }
+                    "group" => match db::is_channel_member(&state.db, channel_id, user_id).await {
+                        Ok(true) => {}
+                        _ => return,
+                    },
                     _ => return,
                 }
-                format!("dm-channel:{channel_id}")
-            } else if hub.voice_rooms.contains_key(&room) {
-                room
+                format!("channel:{channel_id}")
             } else {
                 return;
             };
@@ -443,5 +474,57 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
         }
         // Keepalive only: intentional no-op so idle hosts stay awake.
         WsClientMsg::Ping => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use skypeline_shared::{MessageDto, WsClientMsg, WsServerMsg};
+
+    #[test]
+    fn message_dto_deserializes_without_edited_at() {
+        let json = r#"{
+            "id": 1,
+            "channel_id": 2,
+            "user_id": 3,
+            "username": "alice",
+            "content": "hello",
+            "created_at": 1700000000
+        }"#;
+        let dto: MessageDto = serde_json::from_str(json).expect("deserialize MessageDto");
+        assert_eq!(dto.edited_at, None);
+        assert_eq!(dto.content, "hello");
+    }
+
+    #[test]
+    fn ws_protocol_round_trip_new_variants() {
+        let client_msg = WsClientMsg::Typing { channel_id: 42 };
+        let raw = serde_json::to_string(&client_msg).expect("serialize WsClientMsg");
+        match serde_json::from_str::<WsClientMsg>(&raw).expect("deserialize WsClientMsg") {
+            WsClientMsg::Typing { channel_id } => assert_eq!(channel_id, 42),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+
+        let server_msg = WsServerMsg::MessageEdited {
+            channel_id: 42,
+            message_id: 99,
+            content: "updated".into(),
+            edited_at: 1700000100,
+        };
+        let raw = serde_json::to_string(&server_msg).expect("serialize WsServerMsg");
+        match serde_json::from_str::<WsServerMsg>(&raw).expect("deserialize WsServerMsg") {
+            WsServerMsg::MessageEdited {
+                channel_id,
+                message_id,
+                content,
+                edited_at,
+            } => {
+                assert_eq!(channel_id, 42);
+                assert_eq!(message_id, 99);
+                assert_eq!(content, "updated");
+                assert_eq!(edited_at, 1700000100);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
     }
 }

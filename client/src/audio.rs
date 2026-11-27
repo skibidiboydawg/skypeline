@@ -16,7 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use skypeline_shared::WsClientMsg;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc as smpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -89,7 +89,6 @@ pub struct AudioEngine {
     control_tx: smpsc::SyncSender<AudioCommand>,
     audio_thread: Option<JoinHandle<()>>,
     playback: Arc<Mutex<PlaybackState>>,
-    gain: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     deafened: Arc<AtomicBool>,
     capture_stop: Arc<AtomicBool>,
@@ -107,13 +106,11 @@ impl AudioEngine {
             out_rate: OPUS_RATE,
             ..PlaybackState::default()
         }));
-        let gain = Arc::new(AtomicU32::new(1.0f32.to_bits()));
 
         let thread_playback = Arc::clone(&playback);
-        let thread_gain = Arc::clone(&gain);
         let audio_thread = std::thread::Builder::new()
             .name("skypeline-audio".to_string())
-            .spawn(move || audio_thread_main(control_rx, thread_playback, thread_gain))
+            .spawn(move || audio_thread_main(control_rx, thread_playback))
             .map_err(|e| tracing::warn!("cannot start audio thread: {e}"))
             .ok();
 
@@ -121,7 +118,6 @@ impl AudioEngine {
             control_tx,
             audio_thread,
             playback,
-            gain,
             muted: Arc::new(AtomicBool::new(false)),
             deafened: Arc::new(AtomicBool::new(false)),
             capture_stop: Arc::new(AtomicBool::new(true)),
@@ -147,15 +143,6 @@ impl AudioEngine {
 
     pub fn set_deafened(&self, value: bool) {
         self.deafened.store(value, Ordering::Relaxed);
-    }
-
-    /// Playback gain, clamped to `0.0..=2.0` (NaN/infinite values are ignored).
-    pub fn set_volume(&self, gain: f32) {
-        if !gain.is_finite() {
-            return;
-        }
-        let gain = gain.clamp(0.0, 2.0);
-        self.gain.store(gain.to_bits(), Ordering::Relaxed);
     }
 
     pub fn start_capture(
@@ -370,13 +357,12 @@ impl Drop for AudioEngine {
 fn audio_thread_main(
     control_rx: smpsc::Receiver<AudioCommand>,
     playback: Arc<Mutex<PlaybackState>>,
-    gain: Arc<AtomicU32>,
 ) {
     let host = cpal::default_host();
 
     // No output device is not fatal: voice capture still works.
     if let Some((device, config)) = select_output(&host) {
-        match build_output(&device, &config, &playback, &gain) {
+        match build_output(&device, &config, &playback) {
             Ok(stream) => match stream.play() {
                 Ok(()) => {}
                 Err(e) => tracing::warn!("cannot start playback stream: {e}"),
@@ -530,7 +516,6 @@ fn build_output(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
     playback: &Arc<Mutex<PlaybackState>>,
-    gain: &Arc<AtomicU32>,
 ) -> Result<cpal::Stream, String> {
     let channels = config.channels().max(1) as usize;
     let rate = config.sample_rate().max(1);
@@ -543,13 +528,12 @@ fn build_output(
     let stream_config = config.config();
     // The callbacks outlive this function, so they need owned Arcs.
     let stream_playback = Arc::clone(playback);
-    let stream_gain = Arc::clone(gain);
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_output_stream(
             stream_config,
             move |data: &mut [f32], _| {
-                render_output(data, channels, &stream_playback, &stream_gain);
+                render_output(data, channels, &stream_playback);
             },
             audio_error,
             None,
@@ -557,7 +541,7 @@ fn build_output(
         cpal::SampleFormat::I16 => device.build_output_stream(
             stream_config,
             move |data: &mut [i16], _| {
-                render_output(data, channels, &stream_playback, &stream_gain);
+                render_output(data, channels, &stream_playback);
             },
             audio_error,
             None,
@@ -565,7 +549,7 @@ fn build_output(
         cpal::SampleFormat::U16 => device.build_output_stream(
             stream_config,
             move |data: &mut [u16], _| {
-                render_output(data, channels, &stream_playback, &stream_gain);
+                render_output(data, channels, &stream_playback);
             },
             audio_error,
             None,
@@ -577,18 +561,12 @@ fn build_output(
 
 /// Fill an output buffer, resampling 48 kHz mono to the device rate and
 /// duplicating the mono sample into every requested channel.
-fn render_output<T>(
-    data: &mut [T],
-    channels: usize,
-    playback: &Arc<Mutex<PlaybackState>>,
-    gain: &Arc<AtomicU32>,
-) where
+fn render_output<T>(data: &mut [T], channels: usize, playback: &Arc<Mutex<PlaybackState>>)
+where
     T: OutputSample,
 {
     let frames = data.len() / channels.max(1);
-    let gain_bits = gain.load(Ordering::Relaxed);
-    let gain = f32::from_bits(gain_bits);
-    let gain = if gain.is_finite() { gain } else { 1.0 };
+    let gain = 1.0f32;
 
     OUTPUT_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();

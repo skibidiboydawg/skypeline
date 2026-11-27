@@ -148,6 +148,7 @@ impl AvatarCache {
 /// Decode a picked image, reject GIF/animated WebP, resize to exactly 128x128,
 /// encode as JPEG quality 75 (reduce quality if needed) and require strictly
 /// < 15*1024 bytes. Returns (jpeg_bytes, "image/jpeg", hash).
+#[allow(dead_code)]
 pub fn process_avatar_bytes(
     bytes: &[u8],
     filename_hint: &str,
@@ -199,6 +200,7 @@ pub fn process_avatar_bytes(
 
 /// Opens a native file picker filtered to PNG/JPG/WebP. Returns (bytes, filename).
 /// On Linux this may use rfd; if rfd fails, return None.
+#[allow(dead_code)]
 pub fn pick_avatar_file() -> Option<(Vec<u8>, String)> {
     let path = rfd::FileDialog::new()
         .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
@@ -306,6 +308,7 @@ fn spawn_fetch(api: crate::api::ApiClient, token: String, user_id: i64, tx: mpsc
 
 /// A WebP file is a RIFF container with four-byte chunk ids; `ANIM`/`ANMF`
 /// mark an animated image which we cannot display as a still texture.
+#[allow(dead_code)]
 fn is_animated_webp(bytes: &[u8]) -> bool {
     if bytes.len() < 16 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
         return false;

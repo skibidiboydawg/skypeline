@@ -4,7 +4,7 @@ mod db;
 mod friends;
 mod hub;
 
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use sqlx::PgPool;
 use std::env;
@@ -84,7 +84,16 @@ async fn main() {
         .route("/api/login", post(auth::login))
         .route("/api/channels", get(auth::list_channels))
         .route("/api/messages/{channel_id}", get(auth::list_messages))
+        .route(
+            "/api/messages/{message_id}",
+            patch(auth::edit_message).delete(auth::delete_message),
+        )
         .route("/api/dm/{user_id}", post(auth::open_dm))
+        .route("/api/groups", post(auth::create_group))
+        .route(
+            "/api/groups/{channel_id}/members",
+            post(auth::add_group_member),
+        )
         .route("/api/friends/request", post(friends::request))
         .route("/api/friends/respond", post(friends::respond))
         .route("/api/friends", get(friends::list))

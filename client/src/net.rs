@@ -61,9 +61,11 @@ pub async fn run(
     token: String,
     events: mpsc::Sender<UiEvent>,
     mut outgoing: tmpsc::UnboundedReceiver<WsClientMsg>,
+    mut screen_frames: tmpsc::Receiver<WsClientMsg>,
 ) {
     let url = http_to_ws(&base, &token);
     let mut attempt: u32 = 0;
+    let mut screen_open = true;
 
     while !outgoing.is_closed() {
         let status = if attempt == 0 {
@@ -99,6 +101,16 @@ pub async fn run(
                         }
                         outgoing_msg = outgoing.recv() => {
                             let Some(msg) = outgoing_msg else { return };
+                            let Ok(json) = serde_json::to_string(&msg) else { continue };
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        screen_msg = screen_frames.recv(), if screen_open => {
+                            let Some(msg) = screen_msg else {
+                                screen_open = false;
+                                continue;
+                            };
                             let Ok(json) = serde_json::to_string(&msg) else { continue };
                             if socket.send(Message::Text(json.into())).await.is_err() {
                                 break;
@@ -149,6 +161,45 @@ fn handle_server_msg(
     match msg {
         WsServerMsg::NewMessage { message } => {
             let _ = events.send(UiEvent::NewMessage(message));
+        }
+        WsServerMsg::MessageEdited {
+            channel_id,
+            message_id,
+            content,
+            edited_at,
+        } => {
+            let _ = events.send(UiEvent::MessageEdited {
+                channel_id,
+                message_id,
+                content,
+                edited_at,
+            });
+        }
+        WsServerMsg::MessageDeleted {
+            channel_id,
+            message_id,
+        } => {
+            let _ = events.send(UiEvent::MessageDeleted {
+                channel_id,
+                message_id,
+            });
+        }
+        WsServerMsg::Typing {
+            channel_id,
+            user_id,
+            username,
+        } => {
+            let _ = events.send(UiEvent::Typing {
+                channel_id,
+                user_id,
+                username,
+            });
+        }
+        WsServerMsg::FriendsUpdated => {
+            let _ = events.send(UiEvent::ReloadFriends);
+        }
+        WsServerMsg::ChannelsUpdated => {
+            let _ = events.send(UiEvent::ReloadChannels);
         }
         WsServerMsg::PresenceSnapshot { users } => {
             let _ = events.send(UiEvent::Presence(users));

@@ -1,7 +1,7 @@
-use skypeline_shared::{ChannelInfo, MessageDto};
+use skypeline_shared::{ChannelInfo, ChannelMemberInfo, MessageDto};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Row};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::str::FromStr;
 
 /// Connects to Neon/Lakebase Postgres (honoring `?sslmode=require` via rustls
@@ -128,23 +128,42 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS channel_members (
+            channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+            user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (channel_id, user_id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_channel_members_user_id ON channel_members (user_id, channel_id)",
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_messages_channel_id ON messages (channel_id, id)")
         .execute(pool)
         .await?;
 
-    for (name, kind) in [
-        ("general", "text"),
-        ("random", "text"),
-        ("General Voice", "voice"),
-    ] {
-        sqlx::query(
-            "INSERT INTO channels (name, kind) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
-        )
-        .bind(name)
-        .bind(kind)
+    sqlx::query("ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ")
         .execute(pool)
         .await?;
-    }
+
+    // Allow multiple group chats to share a display name while keeping DM keys unique.
+    sqlx::query("ALTER TABLE channels DROP CONSTRAINT IF EXISTS channels_name_key")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_dm_name_unique
+         ON channels (name) WHERE kind = 'dm'",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -331,25 +350,155 @@ pub async fn get_or_create_dm(pool: &PgPool, a: i64, b: i64) -> Result<i64, sqlx
     .bind(dm_channel_name(a, b))
     .fetch_one(pool)
     .await?;
-    Ok(row.get("id"))
+    let id: i64 = row.get("id");
+    for uid in [a, b] {
+        sqlx::query(
+            "INSERT INTO channel_members (channel_id, user_id) VALUES ($1, $2)
+             ON CONFLICT (channel_id, user_id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(uid)
+        .execute(pool)
+        .await?;
+    }
+    Ok(id)
 }
 
-/// Lists public text/voice channels plus only the DM channels this user belongs to.
-/// DM channel names are replaced with the peer's username for display.
+pub async fn is_channel_member(
+    pool: &PgPool,
+    channel_id: i64,
+    user_id: i64,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT EXISTS(
+            SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2
+         ) AS is_member",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.get("is_member"))
+}
+
+pub async fn channel_member_ids(pool: &PgPool, channel_id: i64) -> Result<Vec<i64>, sqlx::Error> {
+    let rows = sqlx::query("SELECT user_id FROM channel_members WHERE channel_id = $1")
+        .bind(channel_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|r| r.get("user_id")).collect())
+}
+
+pub async fn channel_members(
+    pool: &PgPool,
+    channel_id: i64,
+) -> Result<Vec<ChannelMemberInfo>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT u.id, u.username, u.avatar_hash
+         FROM channel_members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.channel_id = $1
+         ORDER BY u.username ASC",
+    )
+    .bind(channel_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ChannelMemberInfo {
+            user_id: r.get("id"),
+            username: r.get("username"),
+            avatar_hash: r.get("avatar_hash"),
+        })
+        .collect())
+}
+
+pub async fn create_group(
+    pool: &PgPool,
+    creator_id: i64,
+    name: &str,
+    member_ids: &[i64],
+) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query("INSERT INTO channels (name, kind) VALUES ($1, 'group') RETURNING id")
+        .bind(name)
+        .fetch_one(pool)
+        .await?;
+    let id: i64 = row.get("id");
+    let mut ids: Vec<i64> = member_ids.to_vec();
+    if !ids.contains(&creator_id) {
+        ids.push(creator_id);
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    for uid in ids {
+        sqlx::query(
+            "INSERT INTO channel_members (channel_id, user_id) VALUES ($1, $2)
+             ON CONFLICT (channel_id, user_id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(uid)
+        .execute(pool)
+        .await?;
+    }
+    Ok(id)
+}
+
+pub async fn add_group_member(
+    pool: &PgPool,
+    channel_id: i64,
+    user_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO channel_members (channel_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (channel_id, user_id) DO NOTHING",
+    )
+    .bind(channel_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Lists DM and group channels visible to this user, batching member and peer
+/// username lookups to avoid N+1 database round-trips.
 pub async fn list_channels_for_user(
     pool: &PgPool,
     user_id: i64,
 ) -> Result<Vec<ChannelInfo>, sqlx::Error> {
-    let rows = sqlx::query("SELECT id, name, kind FROM channels ORDER BY id ASC")
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(
+        "SELECT c.id, c.name, c.kind
+         FROM channels c
+         WHERE c.kind = 'group' AND EXISTS (
+             SELECT 1 FROM channel_members m WHERE m.channel_id = c.id AND m.user_id = $1
+         )
+         OR c.kind = 'dm' AND (
+             c.name = $2 OR c.name LIKE $3 OR c.name LIKE $4
+         )
+         ORDER BY c.id ASC",
+    )
+    .bind(user_id)
+    .bind(dm_channel_name(user_id, user_id))
+    .bind(format!("dm:{user_id}:%"))
+    .bind(format!("dm:%:{user_id}"))
+    .fetch_all(pool)
+    .await?;
+
     let friends: HashSet<i64> = accepted_friend_ids(pool, user_id)
         .await?
         .into_iter()
         .collect();
 
-    let mut out = Vec::new();
-    let mut dm_peers: Vec<(usize, i64)> = Vec::new();
+    struct PendingChannel {
+        id: i64,
+        name: String,
+        kind: String,
+        peer_user_id: Option<i64>,
+    }
+
+    let mut pending = Vec::new();
+    let mut channel_ids = Vec::new();
+    let mut peer_ids = Vec::new();
+
     for r in rows {
         let id: i64 = r.get("id");
         let name: String = r.get("name");
@@ -365,15 +514,17 @@ pub async fn list_channels_for_user(
             if !friends.contains(&peer) {
                 continue;
             }
-            dm_peers.push((out.len(), peer));
-            out.push(ChannelInfo {
+            peer_ids.push(peer);
+            channel_ids.push(id);
+            pending.push(PendingChannel {
                 id,
                 name,
                 kind,
                 peer_user_id: Some(peer),
             });
-        } else {
-            out.push(ChannelInfo {
+        } else if kind == "group" {
+            channel_ids.push(id);
+            pending.push(PendingChannel {
                 id,
                 name,
                 kind,
@@ -382,22 +533,69 @@ pub async fn list_channels_for_user(
         }
     }
 
-    if !dm_peers.is_empty() {
-        let ids: Vec<i64> = dm_peers.iter().map(|(_, p)| *p).collect();
-        let rows = sqlx::query("SELECT id, username FROM users WHERE id = ANY($1)")
-            .bind(&ids)
+    if pending.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let member_rows = sqlx::query(
+        "SELECT m.channel_id, u.id AS user_id, u.username, u.avatar_hash
+         FROM channel_members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.channel_id = ANY($1)
+         ORDER BY lower(u.username) ASC",
+    )
+    .bind(&channel_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut members_by_channel: std::collections::HashMap<i64, Vec<ChannelMemberInfo>> =
+        std::collections::HashMap::new();
+    for r in member_rows {
+        let cid: i64 = r.get("channel_id");
+        members_by_channel
+            .entry(cid)
+            .or_default()
+            .push(ChannelMemberInfo {
+                user_id: r.get("user_id"),
+                username: r.get("username"),
+                avatar_hash: r.get("avatar_hash"),
+            });
+    }
+
+    let mut peer_names: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    if !peer_ids.is_empty() {
+        peer_ids.sort_unstable();
+        peer_ids.dedup();
+        let peer_rows = sqlx::query("SELECT id, username FROM users WHERE id = ANY($1)")
+            .bind(&peer_ids)
             .fetch_all(pool)
             .await?;
-        let names: HashMap<i64, String> = rows
-            .into_iter()
-            .map(|r| (r.get::<i64, _>("id"), r.get::<String, _>("username")))
-            .collect();
-        for (idx, peer) in dm_peers {
-            if let Some(n) = names.get(&peer) {
-                out[idx].name = n.clone();
-            }
+        for r in peer_rows {
+            peer_names.insert(r.get("id"), r.get("username"));
         }
     }
+
+    let out = pending
+        .into_iter()
+        .map(|p| {
+            let name = if let Some(peer) = p.peer_user_id {
+                peer_names
+                    .get(&peer)
+                    .cloned()
+                    .unwrap_or_else(|| format!("User {peer}"))
+            } else {
+                p.name
+            };
+            let members = members_by_channel.remove(&p.id).unwrap_or_default();
+            ChannelInfo {
+                id: p.id,
+                name,
+                kind: p.kind,
+                peer_user_id: p.peer_user_id,
+                members,
+            }
+        })
+        .collect();
     Ok(out)
 }
 
@@ -427,23 +625,28 @@ pub async fn insert_message(
         username: username.to_string(),
         content: content.to_string(),
         created_at: row.get("created_at"),
+        edited_at: None,
     })
 }
 
 pub async fn list_messages(
     pool: &PgPool,
     channel_id: i64,
+    before_id: Option<i64>,
     limit: i64,
 ) -> Result<Vec<MessageDto>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, channel_id, user_id, username, content,
-                EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at
+                EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at,
+                EXTRACT(EPOCH FROM edited_at)::BIGINT AS edited_at
          FROM messages
          WHERE channel_id = $1
+           AND ($2::BIGINT IS NULL OR id < $2)
          ORDER BY id DESC
-         LIMIT $2",
+         LIMIT $3",
     )
     .bind(channel_id)
+    .bind(before_id)
     .bind(limit)
     .fetch_all(pool)
     .await?;
@@ -457,8 +660,50 @@ pub async fn list_messages(
             username: r.get("username"),
             content: r.get("content"),
             created_at: r.get("created_at"),
+            edited_at: r.get("edited_at"),
         })
         .collect();
     msgs.reverse();
     Ok(msgs)
+}
+
+/// Edits a message owned by `user_id`, returning `(channel_id, edited_at)` on success.
+pub async fn edit_message(
+    pool: &PgPool,
+    message_id: i64,
+    user_id: i64,
+    content: &str,
+) -> Result<Option<(i64, i64)>, sqlx::Error> {
+    let row = sqlx::query(
+        "UPDATE messages
+         SET content = $3, edited_at = NOW()
+         WHERE id = $1 AND user_id = $2
+         RETURNING channel_id, EXTRACT(EPOCH FROM edited_at)::BIGINT AS edited_at",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .bind(content)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| (r.get("channel_id"), r.get("edited_at"))))
+}
+
+/// Deletes a message owned by `user_id`, returning `channel_id` on success.
+pub async fn delete_message(
+    pool: &PgPool,
+    message_id: i64,
+    user_id: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    let row = sqlx::query(
+        "DELETE FROM messages
+         WHERE id = $1 AND user_id = $2
+         RETURNING channel_id",
+    )
+    .bind(message_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| r.get("channel_id")))
 }

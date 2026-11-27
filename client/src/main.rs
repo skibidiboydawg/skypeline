@@ -3,7 +3,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod api;
-mod app;
 mod audio;
 mod avatar;
 mod config;
@@ -12,6 +11,7 @@ mod native;
 mod net;
 mod screen;
 mod theme;
+mod ui;
 
 use eframe::egui;
 
@@ -27,6 +27,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Skypeline",
         options,
-        Box::new(|cc| Ok(Box::new(app::SkyApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(ui::SkyApp::new(cc)))),
     )
 }

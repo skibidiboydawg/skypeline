@@ -10,7 +10,6 @@ pub const SURFACE_CARD: Color32 = Color32::from_rgb(0x1F, 0x29, 0x37);
 pub const BORDER: Color32 = Color32::from_rgb(0x1F, 0x29, 0x37);
 pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x37, 0x41, 0x51);
 pub const ACCENT: Color32 = Color32::from_rgb(0x3B, 0x82, 0xF6);
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0x1D, 0x3A, 0x63);
 pub const HOVER: Color32 = Color32::from_rgb(0x27, 0x35, 0x47);
 pub const DANGER: Color32 = Color32::from_rgb(0xEF, 0x44, 0x44);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x22, 0xC5, 0x5E);

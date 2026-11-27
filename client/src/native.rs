@@ -6,7 +6,6 @@ unsafe extern "C" {
     fn sp_audio_peak(samples: *const f32, count: i32) -> f32;
     fn sp_message_chime();
     fn sp_voice_join_chime();
-    fn sp_set_output_volume(gain: f32);
     fn sp_notify(title: *const std::ffi::c_char, body: *const std::ffi::c_char);
 }
 
@@ -29,9 +28,6 @@ pub fn voice_join_chime() {
 }
 
 /// Set the playback gain used by the voice stage volume slider.
-pub fn set_output_volume(gain: f32) {
-    unsafe { sp_set_output_volume(gain.clamp(0.0, 2.0)) }
-}
 
 /// Show a native desktop alert. Runs on its own thread because the C++
 /// implementation may use a modal message box on Windows.

@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use skypeline_shared::{
     FriendInfo, FriendRequest, FriendRespondRequest, FriendshipStatus, PresenceStatus,
-    StatusResponse,
+    StatusResponse, WsServerMsg,
 };
 use sqlx::Row;
 use std::collections::HashSet;
@@ -91,6 +91,12 @@ pub async fn request(
     .await
     .map_err(internal)?;
 
+    state.hub.send(
+        crate::hub::Scope::Users(vec![target_id]),
+        None,
+        &WsServerMsg::FriendsUpdated,
+    );
+
     Ok(Json(StatusResponse {
         ok: true,
         message: "Friend request sent.".to_string(),
@@ -155,6 +161,16 @@ pub async fn respond(
             state.hub.refresh_friends(user_id, ids);
         }
         state.hub.broadcast_presence();
+        state.hub.send(
+            crate::hub::Scope::Users(vec![req.requester_id]),
+            None,
+            &WsServerMsg::FriendsUpdated,
+        );
+        state.hub.send(
+            crate::hub::Scope::Users(vec![req.requester_id]),
+            None,
+            &WsServerMsg::ChannelsUpdated,
+        );
         Ok(Json(StatusResponse {
             ok: true,
             message: "Friend request accepted.".to_string(),

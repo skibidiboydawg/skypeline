@@ -1,13 +1,14 @@
-use crate::{db, AppState};
-use axum::extract::{Path, State};
+use crate::{db, hub, AppState};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use skypeline_shared::{
-    AuthResponse, ChannelInfo, LoginRequest, MessageDto, RegisterRequest, RegisterResponse,
-    ResendCodeRequest, StatusResponse, VerifyCodeRequest,
+    AddGroupMemberRequest, AuthResponse, ChannelInfo, CreateGroupRequest, EditMessageRequest,
+    LoginRequest, MessageDto, RegisterRequest, RegisterResponse, ResendCodeRequest, StatusResponse,
+    VerifyCodeRequest, WsServerMsg,
 };
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -420,13 +421,23 @@ pub async fn can_access_channel(
         };
         return Ok((a == user_id || b == user_id) && db::are_friends(&state.db, a, b).await?);
     }
-    Ok(ch.kind == "text")
+    if ch.kind == "group" {
+        return db::is_channel_member(&state.db, channel_id, user_id).await;
+    }
+    Ok(false)
+}
+
+#[derive(Deserialize)]
+pub struct MessagesQuery {
+    pub before: Option<i64>,
+    pub limit: Option<i64>,
 }
 
 pub async fn list_messages(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(channel_id): Path<i64>,
+    Query(query): Query<MessagesQuery>,
 ) -> Result<Json<Vec<MessageDto>>, ApiError> {
     let claims = bearer(&headers, &state.jwt_secret)?;
     if !can_access_channel(&state, claims.sub, channel_id)
@@ -435,10 +446,88 @@ pub async fn list_messages(
     {
         return Err((StatusCode::FORBIDDEN, "no access to channel".to_string()));
     }
-    let messages = db::list_messages(&state.db, channel_id, 100)
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    let messages = db::list_messages(&state.db, channel_id, query.before, limit)
         .await
         .map_err(internal)?;
     Ok(Json(messages))
+}
+
+pub async fn edit_message(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(message_id): Path<i64>,
+    Json(req): Json<EditMessageRequest>,
+) -> Result<Json<StatusResponse>, ApiError> {
+    let claims = bearer(&headers, &state.jwt_secret)?;
+    let trimmed = req.content.trim();
+    if trimmed.is_empty() || trimmed.len() > 4000 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "message must be 1-4000 characters".to_string(),
+        ));
+    }
+    let Some((channel_id, edited_at)) =
+        db::edit_message(&state.db, message_id, claims.sub, trimmed)
+            .await
+            .map_err(internal)?
+    else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "message not found or not owned by you".to_string(),
+        ));
+    };
+
+    if let Some(scope) = hub::channel_scope(&state, claims.sub, channel_id).await {
+        state.hub.send(
+            scope,
+            None,
+            &WsServerMsg::MessageEdited {
+                channel_id,
+                message_id,
+                content: trimmed.to_string(),
+                edited_at,
+            },
+        );
+    }
+
+    Ok(Json(StatusResponse {
+        ok: true,
+        message: "Message updated.".to_string(),
+    }))
+}
+
+pub async fn delete_message(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(message_id): Path<i64>,
+) -> Result<Json<StatusResponse>, ApiError> {
+    let claims = bearer(&headers, &state.jwt_secret)?;
+    let Some(channel_id) = db::delete_message(&state.db, message_id, claims.sub)
+        .await
+        .map_err(internal)?
+    else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "message not found or not owned by you".to_string(),
+        ));
+    };
+
+    if let Some(scope) = hub::channel_scope(&state, claims.sub, channel_id).await {
+        state.hub.send(
+            scope,
+            None,
+            &WsServerMsg::MessageDeleted {
+                channel_id,
+                message_id,
+            },
+        );
+    }
+
+    Ok(Json(StatusResponse {
+        ok: true,
+        message: "Message deleted.".to_string(),
+    }))
 }
 
 /// `POST /api/dm/{user_id}` — open (or create) a direct-message channel with another user.
@@ -467,11 +556,112 @@ pub async fn open_dm(
     let id = db::get_or_create_dm(&state.db, claims.sub, peer_id)
         .await
         .map_err(internal)?;
+    let members = db::channel_members(&state.db, id).await.map_err(internal)?;
     Ok(Json(ChannelInfo {
         id,
         name: peer_name,
         kind: "dm".to_string(),
         peer_user_id: Some(peer_id),
+        members,
+    }))
+}
+
+pub async fn create_group(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<CreateGroupRequest>,
+) -> Result<Json<ChannelInfo>, ApiError> {
+    let claims = bearer(&headers, &state.jwt_secret)?;
+    let name = req.name.trim();
+    if name.len() < 2 || name.len() > 64 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "group name must be 2-64 characters".to_string(),
+        ));
+    }
+    let mut member_ids = req.member_ids;
+    member_ids.retain(|id| *id != claims.sub);
+    member_ids.sort_unstable();
+    member_ids.dedup();
+    for id in &member_ids {
+        if !db::are_friends(&state.db, claims.sub, *id)
+            .await
+            .map_err(internal)?
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "you can only add friends to a group".to_string(),
+            ));
+        }
+    }
+    let id = db::create_group(&state.db, claims.sub, name, &member_ids)
+        .await
+        .map_err(internal)?;
+    if !member_ids.is_empty() {
+        state.hub.send(
+            hub::Scope::Users(member_ids),
+            None,
+            &WsServerMsg::ChannelsUpdated,
+        );
+    }
+    let members = db::channel_members(&state.db, id).await.map_err(internal)?;
+    Ok(Json(ChannelInfo {
+        id,
+        name: name.to_string(),
+        kind: "group".to_string(),
+        peer_user_id: None,
+        members,
+    }))
+}
+
+pub async fn add_group_member(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(channel_id): Path<i64>,
+    Json(req): Json<AddGroupMemberRequest>,
+) -> Result<Json<ChannelInfo>, ApiError> {
+    let claims = bearer(&headers, &state.jwt_secret)?;
+    let Some(ch) = db::get_channel(&state.db, channel_id)
+        .await
+        .map_err(internal)?
+    else {
+        return Err((StatusCode::NOT_FOUND, "group not found".to_string()));
+    };
+    if ch.kind != "group" {
+        return Err((StatusCode::BAD_REQUEST, "not a group chat".to_string()));
+    }
+    if !db::is_channel_member(&state.db, channel_id, claims.sub)
+        .await
+        .map_err(internal)?
+    {
+        return Err((StatusCode::FORBIDDEN, "no access to group".to_string()));
+    }
+    if !db::are_friends(&state.db, claims.sub, req.user_id)
+        .await
+        .map_err(internal)?
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "you can only add friends to a group".to_string(),
+        ));
+    }
+    db::add_group_member(&state.db, channel_id, req.user_id)
+        .await
+        .map_err(internal)?;
+    state.hub.send(
+        hub::Scope::Users(vec![req.user_id]),
+        None,
+        &WsServerMsg::ChannelsUpdated,
+    );
+    let members = db::channel_members(&state.db, channel_id)
+        .await
+        .map_err(internal)?;
+    Ok(Json(ChannelInfo {
+        id: channel_id,
+        name: ch.name,
+        kind: "group".to_string(),
+        peer_user_id: None,
+        members,
     }))
 }
 
@@ -480,4 +670,20 @@ pub fn unix_now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jwt_issue_and_verify_round_trip() {
+        let secret = "super_secret_test_key_123456";
+        let token = issue_jwt(secret, 7, "lukas", "lukas@example.com").expect("issue jwt");
+        let claims = verify_jwt(secret, &token).expect("verify jwt");
+        assert_eq!(claims.sub, 7);
+        assert_eq!(claims.username, "lukas");
+        assert_eq!(claims.email, "lukas@example.com");
+        assert!(verify_jwt("wrong_secret_1234567890", &token).is_err());
+    }
 }
