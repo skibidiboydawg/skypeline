@@ -1,4 +1,4 @@
-//! Skype-style voice & screen-share call stage and fullscreen screen viewer.
+//! Studio-dark Wireline call stage with speaking rings, screen-share viewport, and control dock.
 
 use super::{avatar_color, SkyApp};
 use crate::theme;
@@ -16,7 +16,7 @@ impl SkyApp {
             format!("Calling {}...", channel.name)
         } else {
             format!(
-                "In call ({} people) • {:02}:{:02}",
+                "In call · {} people · {:02}:{:02}",
                 self.participants.len(),
                 elapsed / 60,
                 elapsed % 60
@@ -26,14 +26,14 @@ impl SkyApp {
         let has_screen =
             self.screen_texture.is_some() && self.screen_size.0 > 0 && self.screen_size.1 > 0;
         let rect = ui.available_rect_before_wrap();
-        let max_h: f32 = if has_screen { 360.0 } else { 250.0 };
+        let max_h: f32 = if has_screen { 360.0 } else { 244.0 };
         let height = max_h.min(rect.height() * 0.52).max(180.0);
         let (stage_rect, _) =
             ui.allocate_exact_size(egui::vec2(rect.width(), height), Sense::hover());
         let painter = ui.painter_at(stage_rect);
 
-        let top = Color32::from_rgb(0x02, 0x84, 0xC7);
-        let bottom = Color32::from_rgb(0x08, 0x2F, 0x49);
+        let top = Color32::from_rgb(0x16, 0x16, 0x24);
+        let bottom = Color32::from_rgb(0x0B, 0x0B, 0x10);
         painter.rect_filled(stage_rect, 0.0, bottom);
         let mut mesh = egui::epaint::Mesh::default();
         let i0 = mesh.vertices.len() as u32;
@@ -49,15 +49,15 @@ impl SkyApp {
             stage_rect.left_top() + egui::vec2(20.0, 14.0),
             Align2::LEFT_TOP,
             status,
-            FontId::proportional(15.0),
-            Color32::WHITE,
+            FontId::proportional(14.0),
+            theme::PRIMARY_TEXT,
         );
 
         if let Some(texture) = self.screen_texture.clone() {
             let (sw, sh) = self.screen_size;
             if sw > 0 && sh > 0 {
-                let pad_top = 42.0;
-                let pad_bottom = 78.0;
+                let pad_top = 40.0;
+                let pad_bottom = 72.0;
                 let avail_w = (stage_rect.width() - 40.0).max(80.0);
                 let avail_h = (stage_rect.height() - pad_top - pad_bottom).max(60.0);
                 let aspect = sw as f32 / sh as f32;
@@ -70,7 +70,7 @@ impl SkyApp {
                     ),
                     egui::vec2(draw_w, draw_h),
                 );
-                painter.rect_filled(img_rect.expand(2.0), 8.0, Color32::BLACK);
+                painter.rect_filled(img_rect.expand(2.0), 10.0, Color32::BLACK);
                 painter.image(
                     texture.id(),
                     img_rect,
@@ -85,7 +85,11 @@ impl SkyApp {
                 painter.rect_filled(
                     fs_rect,
                     8.0,
-                    Color32::from_rgba_unmultiplied(0, 0, 0, 110),
+                    if fs_resp.hovered() {
+                        theme::ACCENT
+                    } else {
+                        theme::SURFACE_CARD
+                    },
                 );
                 painter.text(
                     fs_rect.center(),
@@ -129,14 +133,14 @@ impl SkyApp {
                 let x = center.x + (idx as f32 - (n as f32 - 1.0) / 2.0) * 120.0;
                 let c = egui::pos2(x, center.y);
                 let ring = if speaking {
-                    Color32::from_rgb(0xBA, 0xE6, 0xFD)
+                    theme::CYAN_GLOW
                 } else {
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 70)
+                    theme::BORDER
                 };
                 painter.circle_stroke(
                     c,
                     44.0,
-                    Stroke::new(if speaking { 4.0_f32 } else { 2.0_f32 }, ring),
+                    Stroke::new(if speaking { 3.5_f32 } else { 1.5_f32 }, ring),
                 );
                 let mut drew = false;
                 if let Some(hash) = hash.as_deref() {
@@ -186,12 +190,12 @@ impl SkyApp {
                     Align2::CENTER_TOP,
                     name,
                     FontId::proportional(13.0),
-                    Color32::WHITE,
+                    theme::PRIMARY_TEXT,
                 );
             }
         }
 
-        let controls_y = stage_rect.bottom() - 36.0;
+        let controls_y = stage_rect.bottom() - 34.0;
         let buttons = [
             ("Share", if self.sharing { "Stop" } else { "Screen" }),
             ("Mute", if self.muted { "Unmute" } else { "Mute" }),
@@ -203,10 +207,17 @@ impl SkyApp {
         let btn_w = 72.0;
         let gap = 10.0;
         let total_w = buttons.len() as f32 * btn_w + (buttons.len() - 1) as f32 * gap;
+        let dock_rect = Rect::from_center_size(
+            egui::pos2(stage_rect.center().x, controls_y),
+            egui::vec2(total_w + 16.0, 44.0),
+        );
+        painter.rect_filled(dock_rect, 22.0, theme::SURFACE_CARD);
+        painter.rect_stroke(dock_rect, 22.0, theme::border(), egui::StrokeKind::Inside);
+
         let mut x = stage_rect.center().x - total_w / 2.0 + btn_w * 0.5;
         for (i, (key, text)) in buttons.iter().enumerate() {
             let c = egui::pos2(x, controls_y);
-            let r = Rect::from_center_size(c, egui::vec2(btn_w, 34.0));
+            let r = Rect::from_center_size(c, egui::vec2(btn_w, 32.0));
             let resp = ui.interact(r, ui.id().with(("call_btn", i)), Sense::click());
             let fill = if *key == "End" {
                 theme::DANGER
@@ -216,16 +227,16 @@ impl SkyApp {
             {
                 theme::ACCENT
             } else if resp.hovered() {
-                Color32::from_rgba_unmultiplied(255, 255, 255, 60)
+                theme::HOVER
             } else {
-                Color32::from_rgba_unmultiplied(255, 255, 255, 35)
+                theme::SURFACE_ELEVATED
             };
-            painter.rect_filled(r, 17.0, fill);
+            painter.rect_filled(r, 16.0, fill);
             painter.text(
                 c,
                 Align2::CENTER_CENTER,
                 *text,
-                FontId::proportional(13.0),
+                FontId::proportional(12.5),
                 Color32::WHITE,
             );
             if resp.clicked() {

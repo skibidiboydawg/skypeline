@@ -1,4 +1,4 @@
-//! egui application root: state, event drain, tray handling, and shared helpers.
+//! egui application root: state, persistent session restore, event drain, and 3-pane layout.
 
 mod auth;
 mod call;
@@ -239,29 +239,32 @@ impl SkyApp {
                 let i = (y * 32 + x) * 4;
                 let b = x < 2 || x > 29 || y < 2 || y > 29;
                 rgba[i..i + 4].copy_from_slice(if b {
-                    &[0x1F, 0x29, 0x37, 0xFF]
+                    &[0x18, 0x18, 0x1B, 0xFF]
                 } else {
-                    &[0x3B, 0x82, 0xF6, 0xFF]
+                    &[0x63, 0x66, 0xF1, 0xFF]
                 });
             }
         }
-        for x in 9..23 {
-            for y in [9, 10, 15, 16, 21, 22] {
+        // Simple geometric 'W'
+        for y in 10..22 {
+            for x in [8, 9, 22, 23] {
                 let i = (y * 32 + x) * 4;
-                rgba[i..i + 4].copy_from_slice(&[0xF3, 0xF4, 0xF6, 0xFF]);
+                rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
             }
         }
-        for y in 9..16 {
-            for x in [9, 10] {
+        for y in 14..22 {
+            for x in [15, 16] {
                 let i = (y * 32 + x) * 4;
-                rgba[i..i + 4].copy_from_slice(&[0xF3, 0xF4, 0xF6, 0xFF]);
+                rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
             }
         }
-        for y in 16..23 {
-            for x in [21, 22] {
-                let i = (y * 32 + x) * 4;
-                rgba[i..i + 4].copy_from_slice(&[0xF3, 0xF4, 0xF6, 0xFF]);
-            }
+        for x in 10..15 {
+            let i = (20 * 32 + x) * 4;
+            rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
+        }
+        for x in 17..22 {
+            let i = (20 * 32 + x) * 4;
+            rgba[i..i + 4].copy_from_slice(&[0xFA, 0xFA, 0xFA, 0xFF]);
         }
         rgba
     }
@@ -294,6 +297,9 @@ impl SkyApp {
         self.config.save();
     }
 
+    /// Immediately restores a saved session into the main workspace so the user
+    /// is never forced back to the login screen while the relay wakes up.
+    /// Only an explicit HTTP 401 invalidates the saved token.
     fn restore_session(&mut self) {
         let Some(session) = self.config.session.clone() else {
             return;
@@ -303,27 +309,20 @@ impl SkyApp {
             self.config.save();
             return;
         }
-        self.busy = true;
-        self.notice = "Restoring session...".into();
-        let tx = self.events_tx.clone();
-        let api = self.api();
-        let token = session.token.clone();
-        self.rt.spawn(async move {
-            match api.channels(&token).await {
-                Ok(_) => {
-                    let _ = tx.send(UiEvent::SignedIn(AuthResponse {
-                        token,
-                        user_id: session.user_id,
-                        username: session.username,
-                        email: session.email,
-                        avatar_hash: session.avatar_hash,
-                    }));
-                }
-                Err(_) => {
-                    let _ = tx.send(UiEvent::Error("Session expired. Please sign in.".into()));
-                }
-            }
-        });
+        let auth = AuthResponse {
+            token: session.token.clone(),
+            user_id: session.user_id,
+            username: session.username,
+            email: session.email,
+            avatar_hash: session.avatar_hash,
+        };
+        self.me = Some(auth);
+        self.token = Some(session.token.clone());
+        self.page = Page::Main;
+        self.notice = "Connecting to relay...".into();
+        self.connect_ws(&session.token);
+        self.load_channels();
+        self.load_friends();
     }
 
     fn connect_ws(&mut self, token: &str) {
@@ -764,6 +763,8 @@ impl SkyApp {
         self.ws_tx = None;
         self.token = None;
         self.me = None;
+        self.config.session = None;
+        self.config.save();
         self.page = Page::Login;
         self.auth_step = AuthStep::Credentials;
         self.verify_email.clear();
@@ -791,13 +792,6 @@ impl SkyApp {
     pub(crate) fn current_channel(&self) -> Option<&ChannelInfo> {
         self.selected_channel
             .and_then(|id| self.channels.iter().find(|c| c.id == id))
-    }
-
-    pub(crate) fn channel_label(channel: &ChannelInfo) -> String {
-        match channel.kind.as_str() {
-            "group" => format!("Group · {}", channel.name),
-            _ => channel.name.clone(),
-        }
     }
 
     pub(crate) fn online_status_for(&self, user_id: i64) -> PresenceStatus {
@@ -1042,17 +1036,22 @@ impl SkyApp {
                     self.busy = false;
                     self.friend_busy = false;
                     self.loading_older = false;
-                    self.notice = error;
+                    if error.starts_with("HTTP 401") && self.page == Page::Main {
+                        self.sign_out();
+                        self.notice = "Session expired. Please sign in.".into();
+                    } else {
+                        self.notice = error;
+                    }
                 }
                 UiEvent::Disconnected => {
-                    self.notice = "Relay connection lost — reconnecting...".into();
+                    self.notice = "Reconnecting to relay...".into();
                     self.participants.clear();
                     self.screen_texture = None;
                     self.screen_owner = None;
                     self.screen_fullscreen = false;
                 }
                 UiEvent::Reconnected => {
-                    self.notice = "Reconnected to relay".into();
+                    self.notice.clear();
                     if let Some(ws) = &self.ws_tx {
                         let _ = ws.send(WsClientMsg::SetPresence {
                             status: self.presence,
@@ -1111,6 +1110,7 @@ impl SkyApp {
     }
 
     fn ui_main(&mut self, ctx: &Context) {
+        self.ui_app_rail(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
         self.ui_screen_fullscreen(ctx);
@@ -1137,8 +1137,8 @@ impl SkyApp {
         egui::Frame::new()
             .fill(theme::SURFACE_CARD)
             .stroke(theme::border())
-            .corner_radius(9.0)
-            .inner_margin(egui::Margin::symmetric(12, 10))
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::symmetric(14, 10))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.add(
@@ -1157,9 +1157,9 @@ impl SkyApp {
             return;
         }
         let color = if self.notice.starts_with("HTTP") || self.notice.contains("failed") {
-            Color32::from_rgb(0xFF, 0x7B, 0x7B)
+            theme::DANGER
         } else {
-            ui.visuals().weak_text_color()
+            theme::SECONDARY_TEXT
         };
         ui.label(RichText::new(&self.notice).color(color).small());
     }
@@ -1168,9 +1168,9 @@ impl SkyApp {
 pub(crate) fn status_color(status: PresenceStatus) -> Color32 {
     match status {
         PresenceStatus::Online => theme::SUCCESS,
-        PresenceStatus::Away => Color32::from_rgb(0xFF, 0xD6, 0x0A),
+        PresenceStatus::Away => theme::WARNING,
         PresenceStatus::Dnd => theme::DANGER,
-        PresenceStatus::Offline => Color32::from_gray(0x80),
+        PresenceStatus::Offline => theme::MUTED_TEXT,
     }
 }
 
@@ -1184,19 +1184,19 @@ pub(crate) fn avatar_color(name: &str, mine: bool) -> Color32 {
         h = h.wrapping_mul(16777619);
     }
     let palette = [
-        Color32::from_rgb(0x58, 0x65, 0xF2),
-        Color32::from_rgb(0x23, 0xA5, 0x5A),
-        Color32::from_rgb(0xF0, 0xB1, 0x32),
-        Color32::from_rgb(0xEB, 0x45, 0x93),
-        Color32::from_rgb(0xED, 0x42, 0x45),
+        Color32::from_rgb(0x63, 0x66, 0xF1),
+        Color32::from_rgb(0x10, 0xB9, 0x81),
+        Color32::from_rgb(0xF5, 0x9E, 0x0B),
+        Color32::from_rgb(0xEC, 0x48, 0x99),
+        Color32::from_rgb(0x06, 0xB6, 0xD4),
     ];
     palette[(h as usize) % palette.len()]
 }
 
 pub(crate) fn ui_avatar(ui: &mut Ui, name: &str, mine: bool) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::hover());
     ui.painter()
-        .circle_filled(rect.center(), 14.0, avatar_color(name, mine));
+        .circle_filled(rect.center(), 15.0, avatar_color(name, mine));
     let initial = name
         .chars()
         .next()
@@ -1212,7 +1212,6 @@ pub(crate) fn ui_avatar(ui: &mut Ui, name: &str, mine: bool) {
     );
 }
 
-/// Formats a Unix epoch timestamp into `HH:MM` UTC/local-style 24h clock.
 pub(crate) fn format_hhmm(unix_secs: i64) -> String {
     let secs_in_day = unix_secs.rem_euclid(86_400);
     let hours = secs_in_day / 3_600;

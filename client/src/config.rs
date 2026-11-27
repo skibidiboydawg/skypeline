@@ -1,13 +1,15 @@
-//! Local desktop preferences and session state. Stored in `config.json`,
-//! which is git-ignored. The saved auth token is a session credential and must
-//! never be committed or logged.
+//! Local desktop preferences and session state.
+//!
+//! Stored in the user's OS config directory (`%APPDATA%\Wireline\config.json`
+//! on Windows, `~/.config/wireline/config.json` on Linux) so shortcuts,
+//! installers, and upgrades always preserve your login session.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_SERVER_URL: &str = "https://skypeline-co.onrender.com";
-const CONFIG_PATH: &str = "config.json";
+const LEGACY_CONFIG_PATH: &str = "config.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct SavedSession {
@@ -50,27 +52,63 @@ impl Default for Config {
     }
 }
 
+pub fn config_file_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            return PathBuf::from(appdata).join("Wireline").join("config.json");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+            return PathBuf::from(xdg).join("wireline").join("config.json");
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join(".config")
+                .join("wireline")
+                .join("config.json");
+        }
+    }
+    PathBuf::from(LEGACY_CONFIG_PATH)
+}
+
 impl Config {
     pub fn load() -> Self {
-        if !Path::new(CONFIG_PATH).exists() {
-            return Self::default();
+        let path = config_file_path();
+        if path.exists() {
+            if let Some(cfg) = fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Config>(&s).ok())
+            {
+                return cfg;
+            }
         }
-
-        // Older config.json files may contain a server_url field; serde ignores
-        // it because this release is hosted-only.
-        fs::read_to_string(CONFIG_PATH)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Config>(&s).ok())
-            .unwrap_or_default()
+        // Migrate legacy relative config.json if present.
+        if Path::new(LEGACY_CONFIG_PATH).exists() {
+            if let Some(cfg) = fs::read_to_string(LEGACY_CONFIG_PATH)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Config>(&s).ok())
+            {
+                cfg.save();
+                return cfg;
+            }
+        }
+        Self::default()
     }
 
     pub fn save(&self) {
+        let path = config_file_path();
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(CONFIG_PATH, json);
+            let _ = fs::write(path, json);
         }
     }
 
-    /// The hosted relay is fixed. No local/Hugging Face server switching.
+    /// The hosted relay is fixed.
     pub fn base_url(&self) -> String {
         DEFAULT_SERVER_URL.trim_end_matches('/').to_string()
     }
