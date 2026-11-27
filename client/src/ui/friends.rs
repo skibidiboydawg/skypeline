@@ -112,7 +112,7 @@ impl SkyApp {
                             theme::SURFACE_CARD
                         },
                     );
-                    icons::paint_bell_icon(
+                    icons::paint_inbox(
                         ui.painter(),
                         bell_r.center(),
                         16.0,
@@ -156,10 +156,10 @@ impl SkyApp {
                     } else {
                         mint_text
                     };
-                    icons::paint_download_icon(
+                    icons::paint_download(
                         ui.painter(),
                         upd_r.left_center() + egui::vec2(16.0, 0.0),
-                        13.0,
+                        14.0,
                         fg,
                     );
                     ui.painter().text(
@@ -303,12 +303,12 @@ impl SkyApp {
                 ui.painter().circle_filled(
                     icon_r.center(),
                     24.0,
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 13),
+                    Color32::from_rgb(0x16, 0x1A, 0x24),
                 );
-                icons::paint_users_icon(
+                icons::paint_user_plus(
                     ui.painter(),
                     icon_r.center(),
-                    22.0,
+                    24.0,
                     theme::SECONDARY_TEXT,
                 );
                 ui.add_space(16.0);
@@ -431,27 +431,62 @@ impl SkyApp {
                             |ui| {
                                 if friend.status == FriendshipStatus::Pending {
                                     if friend.direction == "incoming" {
-                                        if ui
-                                            .add(
-                                                egui::Button::new(
-                                                    RichText::new("Accept").color(Color32::WHITE),
-                                                )
-                                                .fill(theme::ACCENT)
-                                                .corner_radius(8.0),
-                                            )
-                                            .clicked()
-                                        {
-                                            self.respond_friend(friend.user_id, true);
-                                        }
-                                        if ui
-                                            .add(
-                                                egui::Button::new("Decline")
-                                                    .fill(theme::SURFACE_ELEVATED)
-                                                    .corner_radius(8.0),
-                                            )
-                                            .clicked()
-                                        {
+                                        // Red <X /> Decline icon button
+                                        let (xr, xresp) = ui.allocate_exact_size(
+                                            egui::vec2(32.0, 32.0),
+                                            Sense::click(),
+                                        );
+                                        ui.painter().circle_filled(
+                                            xr.center(),
+                                            15.0,
+                                            if xresp.hovered() {
+                                                theme::DANGER
+                                            } else {
+                                                Color32::from_rgb(0x28, 0x16, 0x1B)
+                                            },
+                                        );
+                                        icons::paint_x(
+                                            ui.painter(),
+                                            xr.center(),
+                                            15.0,
+                                            if xresp.hovered() {
+                                                Color32::WHITE
+                                            } else {
+                                                theme::DANGER
+                                            },
+                                        );
+                                        if xresp.on_hover_text("Decline").clicked() {
                                             self.respond_friend(friend.user_id, false);
+                                        }
+
+                                        ui.add_space(6.0);
+
+                                        // Green <Check /> Accept icon button
+                                        let (cr, cresp) = ui.allocate_exact_size(
+                                            egui::vec2(32.0, 32.0),
+                                            Sense::click(),
+                                        );
+                                        ui.painter().circle_filled(
+                                            cr.center(),
+                                            15.0,
+                                            if cresp.hovered() {
+                                                theme::SUCCESS
+                                            } else {
+                                                Color32::from_rgb(0x10, 0x2A, 0x20)
+                                            },
+                                        );
+                                        icons::paint_check(
+                                            ui.painter(),
+                                            cr.center(),
+                                            15.0,
+                                            if cresp.hovered() {
+                                                Color32::WHITE
+                                            } else {
+                                                theme::SUCCESS
+                                            },
+                                        );
+                                        if cresp.on_hover_text("Accept").clicked() {
+                                            self.respond_friend(friend.user_id, true);
                                         }
                                     } else {
                                         ui.label(theme::muted("Pending").small());
