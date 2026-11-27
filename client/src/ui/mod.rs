@@ -214,6 +214,7 @@ impl SkyApp {
         app
     }
 
+    #[cfg(target_os = "windows")]
     fn init_tray() -> (
         Option<TrayIcon>,
         Option<tray_icon::menu::MenuId>,
@@ -239,6 +240,18 @@ impl SkyApp {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    fn init_tray() -> (
+        Option<TrayIcon>,
+        Option<tray_icon::menu::MenuId>,
+        Option<tray_icon::menu::MenuId>,
+    ) {
+        // On Linux, winit/eframe does not initialize GTK; calling tray-icon's
+        // GTK menu API without gtk::init() panics on startup.
+        (None, None, None)
+    }
+
+    #[cfg(target_os = "windows")]
     fn tray_icon_rgba() -> Vec<u8> {
         let mut rgba = vec![0u8; 32 * 32 * 4];
         for y in 0..32 {
@@ -1050,7 +1063,10 @@ impl SkyApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         }
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+        if self._tray.is_some()
+            && ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window_visible = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
