@@ -4,6 +4,7 @@ mod auth;
 mod call;
 mod chat;
 mod friends;
+mod icons;
 mod sidebar;
 
 use crate::api::ApiClient;
@@ -54,6 +55,13 @@ pub(crate) enum FriendsTab {
     Pending,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RailSection {
+    Friends,
+    Calls,
+    Groups,
+}
+
 pub struct SkyApp {
     pub(crate) rt: tokio::runtime::Runtime,
     pub(crate) config: Config,
@@ -93,6 +101,10 @@ pub struct SkyApp {
     pub(crate) last_typing_sent: Option<(i64, f64)>,
     pub(crate) presence: PresenceStatus,
     pub(crate) friends_tab: FriendsTab,
+    pub(crate) rail_section: RailSection,
+    pub(crate) show_profile_popover: bool,
+    pub(crate) show_inbox_popover: bool,
+    pub(crate) show_settings_modal: bool,
     pub(crate) chat_search: String,
 
     pub(crate) voice_hint: String,
@@ -168,6 +180,10 @@ impl SkyApp {
             last_typing_sent: None,
             presence: PresenceStatus::Online,
             friends_tab: FriendsTab::Online,
+            rail_section: RailSection::Friends,
+            show_profile_popover: false,
+            show_inbox_popover: false,
+            show_settings_modal: false,
             chat_search: String::new(),
             voice_hint: String::new(),
             voice_room: None,
@@ -1038,9 +1054,13 @@ impl SkyApp {
     }
 
     fn ui_main(&mut self, ctx: &Context) {
+        self.ui_app_rail(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
         self.ui_screen_fullscreen(ctx);
+        self.ui_profile_popover(ctx);
+        self.ui_inbox_popover(ctx);
+        self.ui_settings_modal(ctx);
     }
 
     fn ui_main_stage(&mut self, ctx: &Context) {
