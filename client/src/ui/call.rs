@@ -4,7 +4,7 @@ use super::{avatar_color, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, Ui};
-use skypeline_shared::{ChannelInfo, FriendshipStatus};
+use skypeline_shared::ChannelInfo;
 
 impl SkyApp {
     pub(crate) fn ui_call_stage(&mut self, ui: &mut Ui, channel: &ChannelInfo) {
@@ -200,11 +200,10 @@ impl SkyApp {
             ("Share", if self.sharing { "Stop" } else { "Screen" }),
             ("Mute", if self.muted { "Unmute" } else { "Mute" }),
             ("Deafen", if self.deafened { "Undeaf" } else { "Deafen" }),
-            ("Add", "+Add"),
             ("End", "End"),
         ];
-        let mut actions = [false; 5];
-        let btn_w = 72.0;
+        let mut actions = [false; 4];
+        let btn_w = 76.0;
         let gap = 10.0;
         let total_w = buttons.len() as f32 * btn_w + (buttons.len() - 1) as f32 * gap;
         let dock_rect = Rect::from_center_size(
@@ -254,40 +253,7 @@ impl SkyApp {
             self.toggle_deafen();
         }
         if actions[3] {
-            self.show_add_people = !self.show_add_people;
-        }
-        if actions[4] {
             self.leave_voice();
-        }
-
-        if self.show_add_people && channel.kind == "group" {
-            ui.add_space(8.0);
-            egui::Frame::new()
-                .fill(theme::SURFACE_CARD)
-                .stroke(theme::border())
-                .corner_radius(10.0)
-                .inner_margin(egui::Margin::same(10))
-                .show(ui, |ui| {
-                    ui.label(RichText::new("Add people to group").strong());
-                    Self::form_field(ui, &mut self.add_member_query, "Search friend name", false);
-                    let q = self.add_member_query.to_ascii_lowercase();
-                    for friend in self
-                        .friends
-                        .clone()
-                        .into_iter()
-                        .filter(|f| f.status == FriendshipStatus::Accepted)
-                    {
-                        if !q.is_empty() && !friend.username.to_ascii_lowercase().contains(&q) {
-                            continue;
-                        }
-                        if channel.members.iter().any(|m| m.user_id == friend.user_id) {
-                            continue;
-                        }
-                        if ui.button(format!("Add {}", friend.username)).clicked() {
-                            self.add_group_member(channel.id, friend.user_id);
-                        }
-                    }
-                });
         }
     }
 

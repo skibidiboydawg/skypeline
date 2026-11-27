@@ -4,7 +4,7 @@ use super::{format_hhmm, status_color, ui_avatar, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Color32, RichText, Sense, Ui};
-use skypeline_shared::{ChannelInfo, PresenceStatus};
+use skypeline_shared::ChannelInfo;
 
 impl SkyApp {
     pub(crate) fn ui_chat_stage(&mut self, ui: &mut Ui) {
@@ -23,20 +23,15 @@ impl SkyApp {
                     ui.add_space(4.0);
                     ui.vertical(|ui| {
                         ui.label(RichText::new(&channel.name).size(17.0).strong());
-                        ui.horizontal(|ui| {
-                            if channel.kind == "group" {
-                                ui.label(
-                                    theme::muted(format!("{} members", channel.members.len()))
-                                        .small(),
-                                );
-                            } else if let Some(peer) = channel.peer_user_id {
+                        if let Some(peer) = channel.peer_user_id {
+                            ui.horizontal(|ui| {
                                 let status = self.online_status_for(peer);
                                 let (r, _) =
                                     ui.allocate_exact_size(egui::vec2(8.0, 12.0), Sense::hover());
                                 ui.painter().circle_filled(r.center(), 3.5, status_color(status));
                                 ui.label(theme::muted(status.label()).small());
-                            }
-                        });
+                            });
+                        }
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let in_this_call = self.in_voice

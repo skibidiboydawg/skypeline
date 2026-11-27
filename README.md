@@ -2,7 +2,7 @@
 
 A lightweight desktop app for private messaging, voice calls, and 720p screen sharing.
 
-- **Messaging:** Direct messages, group chats, typing indicators, message editing/deletion, and friend requests.
+- **Messaging:** Direct messages, typing indicators, message editing/deletion, and friend requests.
 - **Voice & Screen Sharing:** Low-latency Opus voice calls and 720p30 screen sharing relayed through the server so user IP addresses are never exposed.
 - **Cross-Platform:** Native desktop client for Windows and Linux (Arch & Linux Mint/Ubuntu).
 

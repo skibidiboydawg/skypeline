@@ -17,9 +17,8 @@ use crate::{native, theme};
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, RichText, Sense, TextureOptions, Ui};
 use skypeline_shared::{
-    AddGroupMemberRequest, AuthResponse, ChannelInfo, CreateGroupRequest, FriendInfo,
-    FriendRequest, FriendRespondRequest, MessageDto, OnlineUser, PresenceStatus,
-    VoiceParticipant, WsClientMsg,
+    AuthResponse, ChannelInfo, FriendInfo, FriendRequest, FriendRespondRequest, MessageDto,
+    OnlineUser, PresenceStatus, VoiceParticipant, WsClientMsg,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
@@ -95,10 +94,6 @@ pub struct SkyApp {
     pub(crate) presence: PresenceStatus,
     pub(crate) friends_tab: FriendsTab,
     pub(crate) chat_search: String,
-    pub(crate) group_name: String,
-    pub(crate) add_member_query: String,
-    pub(crate) show_create_group: bool,
-    pub(crate) show_add_people: bool,
 
     pub(crate) voice_hint: String,
     pub(crate) voice_room: Option<String>,
@@ -174,10 +169,6 @@ impl SkyApp {
             presence: PresenceStatus::Online,
             friends_tab: FriendsTab::Online,
             chat_search: String::new(),
-            group_name: String::new(),
-            add_member_query: String::new(),
-            show_create_group: false,
-            show_add_people: false,
             voice_hint: String::new(),
             voice_room: None,
             participants: Vec::new(),
@@ -575,63 +566,6 @@ impl SkyApp {
         });
     }
 
-    pub(crate) fn create_group(&mut self) {
-        let name = self.group_name.trim().to_string();
-        if name.len() < 2 || name.len() > 64 {
-            self.notice = "Group name must be 2-64 characters".into();
-            return;
-        }
-        let Some(token) = self.token.clone() else {
-            return;
-        };
-        let api = self.api();
-        let tx = self.events_tx.clone();
-        self.busy = true;
-        self.rt.spawn(async move {
-            match api
-                .create_group(
-                    &token,
-                    &CreateGroupRequest {
-                        name,
-                        member_ids: Vec::new(),
-                    },
-                )
-                .await
-            {
-                Ok(channel) => {
-                    let _ = tx.send(UiEvent::GroupCreated(channel));
-                }
-                Err(e) => {
-                    let _ = tx.send(UiEvent::Error(e));
-                }
-            }
-        });
-    }
-
-    pub(crate) fn add_group_member(&mut self, channel_id: i64, user_id: i64) {
-        let Some(token) = self.token.clone() else {
-            return;
-        };
-        let api = self.api();
-        let tx = self.events_tx.clone();
-        self.rt.spawn(async move {
-            match api
-                .add_group_member(&token, channel_id, &AddGroupMemberRequest { user_id })
-                .await
-            {
-                Ok(channel) => {
-                    let _ = tx.send(UiEvent::DmOpened {
-                        channel,
-                        start_call: false,
-                    });
-                }
-                Err(e) => {
-                    let _ = tx.send(UiEvent::Error(e));
-                }
-            }
-        });
-    }
-
     pub(crate) fn start_call(&mut self, channel_id: i64) {
         let Some(channel) = self.channels.iter().find(|c| c.id == channel_id).cloned() else {
             return;
@@ -844,13 +778,7 @@ impl SkyApp {
                         self.start_call(channel.id);
                     }
                 }
-                UiEvent::GroupCreated(channel) => {
-                    self.upsert_channel(channel.clone());
-                    self.show_create_group = false;
-                    self.group_name.clear();
-                    self.busy = false;
-                    self.select_channel(channel.id);
-                }
+                UiEvent::GroupCreated(_) => {}
                 UiEvent::Messages {
                     channel_id,
                     messages,
@@ -1110,7 +1038,6 @@ impl SkyApp {
     }
 
     fn ui_main(&mut self, ctx: &Context) {
-        self.ui_app_rail(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
         self.ui_screen_fullscreen(ctx);
