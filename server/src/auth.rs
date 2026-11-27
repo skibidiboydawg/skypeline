@@ -252,10 +252,23 @@ pub async fn register(
         .await
         .map_err(db_error)?;
 
+    if !user.email_verified {
+        if let Err((status, msg)) = neon_post(
+            &state,
+            "/email-otp/send-verification-otp",
+            json!({ "email": email, "type": "email-verification" }),
+        )
+        .await
+        {
+            tracing::warn!("send-verification-otp on register ({status}): {msg}");
+        }
+    }
+
     Ok(Json(RegisterResponse {
         email,
         verification_required: true,
-        message: "Account created. Enter the confirmation code sent to your email.".to_string(),
+        message: "Account created. Enter the 6-digit code sent to your email (check spam too)."
+            .to_string(),
     }))
 }
 
@@ -288,7 +301,7 @@ pub async fn verify_code(
         .map_err(internal)?
         .ok_or((
             StatusCode::FORBIDDEN,
-            "no Skypeline account exists for this email".to_string(),
+            "no Wireline account exists for this email".to_string(),
         ))?;
     let token =
         issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email).map_err(internal)?;
@@ -336,17 +349,43 @@ pub async fn login(
         return Err((StatusCode::UNAUTHORIZED, "invalid credentials".to_string()));
     }
 
-    let response = neon_post(
+    let response = match neon_post(
         &state,
         "/sign-in/email",
         json!({ "email": email, "password": req.password }),
     )
-    .await?;
+    .await
+    {
+        Ok(resp) => resp,
+        Err((status, msg)) => {
+            let lower = msg.to_ascii_lowercase();
+            if lower.contains("verif") {
+                let _ = neon_post(
+                    &state,
+                    "/email-otp/send-verification-otp",
+                    json!({ "email": email, "type": "email-verification" }),
+                )
+                .await;
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    "Email not verified. We sent a new 6-digit code — enter it to continue."
+                        .to_string(),
+                ));
+            }
+            return Err((status, msg));
+        }
+    };
     let neon_user = parse_neon_user(&response)?;
     if !neon_user.email_verified {
+        let _ = neon_post(
+            &state,
+            "/email-otp/send-verification-otp",
+            json!({ "email": email, "type": "email-verification" }),
+        )
+        .await;
         return Err((
             StatusCode::FORBIDDEN,
-            "confirm your email before signing in".to_string(),
+            "Email not verified. We sent a new 6-digit code — enter it to continue.".to_string(),
         ));
     }
 

@@ -165,6 +165,19 @@ impl SkyApp {
                                     {
                                         self.submit_login();
                                     }
+                                    ui.add_space(8.0);
+                                    ui.vertical_centered(|ui| {
+                                        if Self::auth_link(ui, "Need to verify your email / resend code?")
+                                            && !self.busy
+                                        {
+                                            if !self.login_email.trim().is_empty() {
+                                                self.verify_email =
+                                                    self.login_email.trim().to_string();
+                                            }
+                                            self.auth_step = AuthStep::VerifyCode;
+                                            self.notice.clear();
+                                        }
+                                    });
                                 }
                                 AuthTab::Register => {
                                     ui.label(
@@ -219,11 +232,19 @@ impl SkyApp {
                             },
                             AuthStep::VerifyCode => {
                                 ui.label(RichText::new("Confirm your email").size(24.0).strong());
-                                ui.label(theme::muted(format!(
-                                    "Enter the 6-digit code sent to {}",
-                                    self.verify_email
-                                )));
+                                ui.label(theme::muted(
+                                    "Enter your email and the 6-digit code we sent you.",
+                                ));
                                 ui.add_space(10.0);
+                                ui.label(theme::muted("Email").small());
+                                Self::auth_field(
+                                    ui,
+                                    &mut self.verify_email,
+                                    "you@example.com",
+                                    false,
+                                );
+                                ui.add_space(6.0);
+                                ui.label(theme::muted("6-digit code").small());
                                 let code_field = Self::auth_field(
                                     ui,
                                     &mut self.verify_code,

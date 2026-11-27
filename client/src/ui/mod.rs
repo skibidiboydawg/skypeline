@@ -1001,6 +1001,23 @@ impl SkyApp {
                         self.sign_out();
                         self.notice = "Session expired. Please sign in.".into();
                     } else {
+                        let lower = error.to_ascii_lowercase();
+                        if self.page == Page::Login
+                            && (lower.contains("not verified")
+                                || lower.contains("confirm your email")
+                                || lower.contains("email is not verified"))
+                        {
+                            let candidate = if !self.login_email.trim().is_empty() {
+                                self.login_email.trim().to_string()
+                            } else {
+                                self.register_email.trim().to_string()
+                            };
+                            if !candidate.is_empty() {
+                                self.verify_email = candidate;
+                            }
+                            self.verify_code.clear();
+                            self.auth_step = AuthStep::VerifyCode;
+                        }
                         self.notice = error;
                     }
                 }
