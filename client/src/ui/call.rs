@@ -65,9 +65,12 @@ impl SkyApp {
             let owner_label = if self.sharing
                 && self.screen_owner == self.me.as_ref().map(|m| m.user_id)
             {
-                "You are sharing your screen"
+                format!(
+                    "Sharing · {}p {} FPS",
+                    self.config.screen_max_height, self.config.screen_fps
+                )
             } else {
-                "Screen Share Active"
+                format!("Live · {}x{}", self.screen_size.0, self.screen_size.1)
             };
             painter.text(
                 live_r.right_center() + egui::vec2(8.0, 0.0),
@@ -76,6 +79,78 @@ impl SkyApp {
                 FontId::proportional(11.5),
                 theme::TEXT_SECONDARY,
             );
+        }
+
+        // Top-right quick quality/FPS controls (live switch 480p/720p/1080p & 15/30/60 FPS) + Hide
+        let mut new_fps: Option<u32> = None;
+        let mut new_res: Option<u32> = None;
+        if self.sharing {
+            let mut rx = stage_rect.right() - 188.0;
+            // FPS pills: 60 | 30 | 15
+            for &fps_val in &[60u32, 30u32, 15u32] {
+                let w = 44.0;
+                rx -= w + 4.0;
+                let r = Rect::from_min_size(egui::pos2(rx, stage_rect.top() + 12.0), egui::vec2(w, 24.0));
+                let resp = ui.interact(r, ui.id().with(("live_fps", fps_val)), Sense::click());
+                let active = self.config.screen_fps == fps_val;
+                painter.rect_filled(
+                    r,
+                    4.0,
+                    if active {
+                        theme::ACCENT
+                    } else if resp.hovered() {
+                        theme::BG_ACTIVE
+                    } else {
+                        theme::BG_SECONDARY
+                    },
+                );
+                painter.text(
+                    r.center(),
+                    Align2::CENTER_CENTER,
+                    format!("{fps_val}fps"),
+                    FontId::new(11.0, theme::semibold_family()),
+                    if active { Color32::WHITE } else { theme::TEXT_SECONDARY },
+                );
+                if resp.clicked() {
+                    new_fps = Some(fps_val);
+                }
+            }
+            rx -= 6.0;
+            // Resolution pills: 1080p | 720p
+            for &res_val in &[1080u32, 720u32] {
+                let w = if res_val == 1080 { 46.0 } else { 40.0 };
+                rx -= w + 4.0;
+                let r = Rect::from_min_size(egui::pos2(rx, stage_rect.top() + 12.0), egui::vec2(w, 24.0));
+                let resp = ui.interact(r, ui.id().with(("live_res", res_val)), Sense::click());
+                let active = self.config.screen_max_height == res_val;
+                painter.rect_filled(
+                    r,
+                    4.0,
+                    if active {
+                        theme::ACCENT
+                    } else if resp.hovered() {
+                        theme::BG_ACTIVE
+                    } else {
+                        theme::BG_SECONDARY
+                    },
+                );
+                painter.text(
+                    r.center(),
+                    Align2::CENTER_CENTER,
+                    format!("{res_val}p"),
+                    FontId::new(11.0, theme::semibold_family()),
+                    if active { Color32::WHITE } else { theme::TEXT_SECONDARY },
+                );
+                if resp.clicked() {
+                    new_res = Some(res_val);
+                }
+            }
+        }
+        if let Some(f) = new_fps {
+            self.set_screen_fps(f);
+        }
+        if let Some(h) = new_res {
+            self.set_screen_resolution(h);
         }
 
         // Top-right Minimize button

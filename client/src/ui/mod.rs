@@ -24,7 +24,8 @@ use skypeline_shared::{
     OnlineUser, PresenceStatus, ReactionDto, VoiceParticipant, WsClientMsg,
 };
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{mpsc, Arc};
 use tokio::sync::mpsc as tmpsc;
 use tokio::task::JoinHandle;
 #[cfg(target_os = "windows")]
@@ -168,6 +169,8 @@ pub struct SkyApp {
     pub(crate) sharing: bool,
     pub(crate) audio: Option<AudioEngine>,
     pub(crate) screen_share: Option<ScreenShare>,
+    pub(crate) screen_fps: Arc<AtomicU32>,
+    pub(crate) screen_max_height: Arc<AtomicU32>,
 
     pub(crate) ws_tx: Option<tmpsc::UnboundedSender<WsClientMsg>>,
     pub(crate) screen_frame_tx: Option<tmpsc::Sender<WsClientMsg>>,
@@ -201,6 +204,8 @@ impl SkyApp {
         let (events_tx, events_rx) = mpsc::channel();
         #[cfg(target_os = "windows")]
         let (tray, tray_show_id, tray_quit_id) = Self::init_tray();
+        let init_fps = config.screen_fps;
+        let init_max_h = config.screen_max_height;
         let mut app = Self {
             rt: tokio::runtime::Runtime::new().expect("create tokio runtime"),
             config,
@@ -277,6 +282,8 @@ impl SkyApp {
             sharing: false,
             audio: None,
             screen_share: None,
+            screen_fps: Arc::new(AtomicU32::new(init_fps)),
+            screen_max_height: Arc::new(AtomicU32::new(init_max_h)),
             ws_tx: None,
             screen_frame_tx: None,
             ws_task: None,
@@ -866,9 +873,40 @@ impl SkyApp {
             return;
         };
         let events = self.events_tx.clone();
-        self.screen_share = Some(ScreenShare::start(room, me_id, me_name, ws, frames, events));
+        self.screen_share = Some(ScreenShare::start(
+            room,
+            me_id,
+            me_name,
+            Arc::clone(&self.screen_fps),
+            Arc::clone(&self.screen_max_height),
+            ws,
+            frames,
+            events,
+        ));
         self.sharing = true;
         self.call_expanded = true;
+    }
+
+    pub(crate) fn set_screen_fps(&mut self, fps: u32) {
+        let clamped = match fps {
+            15 => 15,
+            60 => 60,
+            _ => 30,
+        };
+        self.config.screen_fps = clamped;
+        self.screen_fps.store(clamped, Ordering::Relaxed);
+        self.config.save();
+    }
+
+    pub(crate) fn set_screen_resolution(&mut self, max_height: u32) {
+        let clamped = match max_height {
+            480 => 480,
+            720 => 720,
+            _ => 1080,
+        };
+        self.config.screen_max_height = clamped;
+        self.screen_max_height.store(clamped, Ordering::Relaxed);
+        self.config.save();
     }
 
     pub(crate) fn set_presence(&mut self, status: PresenceStatus) {
@@ -937,6 +975,7 @@ impl SkyApp {
     }
 
     fn drain_events(&mut self, ctx: &Context) {
+        let mut latest_screen_frame: Option<(i64, String, u32, u32, Vec<u8>)> = None;
         while let Ok(event) = self.events_rx.try_recv() {
             match event {
                 UiEvent::SignedIn(response) => {
@@ -1218,27 +1257,17 @@ impl SkyApp {
                     height,
                     rgba,
                 } => {
-                    if rgba.len() != (width as usize) * (height as usize) * 4 {
-                        continue;
+                    if rgba.len() == (width as usize) * (height as usize) * 4 {
+                        latest_screen_frame = Some((from, username, width, height, rgba));
                     }
-                    let image = egui::ColorImage::from_rgba_unmultiplied(
-                        [width as usize, height as usize],
-                        &rgba,
-                    );
-                    match &mut self.screen_texture {
-                        Some(texture) => texture.set(image, TextureOptions::LINEAR),
-                        None => {
-                            self.screen_texture = Some(ctx.load_texture(
-                                format!("screen-{from}-{username}"),
-                                image,
-                                TextureOptions::LINEAR,
-                            ));
-                        }
-                    }
-                    self.screen_owner = Some(from);
-                    self.screen_size = (width, height);
                 }
                 UiEvent::ScreenStopped { from } => {
+                    if latest_screen_frame
+                        .as_ref()
+                        .is_some_and(|(f, _, _, _, _)| *f == from)
+                    {
+                        latest_screen_frame = None;
+                    }
                     if self.screen_owner == Some(from) {
                         self.screen_texture = None;
                         self.screen_owner = None;
@@ -1329,6 +1358,25 @@ impl SkyApp {
                     }
                 }
             }
+        }
+        if let Some((from, username, width, height, rgba)) = latest_screen_frame {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [width as usize, height as usize],
+                &rgba,
+            );
+            match &mut self.screen_texture {
+                Some(texture) => texture.set(image, TextureOptions::LINEAR),
+                None => {
+                    self.screen_texture = Some(ctx.load_texture(
+                        format!("screen-{from}-{username}"),
+                        image,
+                        TextureOptions::LINEAR,
+                    ));
+                }
+            }
+            self.screen_owner = Some(from);
+            self.screen_size = (width, height);
+            self.animating = true;
         }
     }
 
@@ -1567,7 +1615,7 @@ impl eframe::App for SkyApp {
             Page::Login => self.ui_login(ctx),
             Page::Main => self.ui_main(ctx),
         }
-        if self.animating {
+        if self.animating || self.sharing || self.screen_texture.is_some() {
             ctx.request_repaint();
         } else if !self.config.reduced_motion && self.page == Page::Main {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));

@@ -1454,6 +1454,98 @@ impl SkyApp {
                     );
                 }
             });
+
+        ui.add_space(18.0);
+        ui.label(theme::semibold("SCREEN SHARE", 12.0).color(theme::TEXT_MUTED));
+        ui.add_space(8.0);
+
+        egui::Frame::new()
+            .fill(theme::BG_SECONDARY)
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::same(14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.label(theme::semibold("RESOLUTION (MAX 1080P)", 11.0).color(theme::TEXT_MUTED));
+                ui.add_space(6.0);
+                let mut picked_res: Option<u32> = None;
+                ui.horizontal(|ui| {
+                    for (h, label) in [(480u32, "480p"), (720u32, "720p"), (1080u32, "1080p")] {
+                        let active = self.config.screen_max_height == h;
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    theme::semibold(label, 13.0).color(if active {
+                                        Color32::WHITE
+                                    } else {
+                                        theme::TEXT_SECONDARY
+                                    }),
+                                )
+                                .fill(if active {
+                                    theme::ACCENT
+                                } else {
+                                    theme::BG_TERTIARY
+                                })
+                                .corner_radius(4.0)
+                                .min_size(egui::vec2(88.0, 32.0)),
+                            )
+                            .clicked()
+                        {
+                            picked_res = Some(h);
+                        }
+                    }
+                });
+                if let Some(h) = picked_res {
+                    self.set_screen_resolution(h);
+                }
+
+                ui.add_space(14.0);
+                ui.label(theme::semibold("FRAME RATE", 11.0).color(theme::TEXT_MUTED));
+                ui.add_space(6.0);
+                let mut picked_fps: Option<u32> = None;
+                ui.horizontal(|ui| {
+                    for (fps, label) in [
+                        (15u32, "15 FPS"),
+                        (30u32, "30 FPS"),
+                        (60u32, "60 FPS"),
+                    ] {
+                        let active = self.config.screen_fps == fps;
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    theme::semibold(label, 13.0).color(if active {
+                                        Color32::WHITE
+                                    } else {
+                                        theme::TEXT_SECONDARY
+                                    }),
+                                )
+                                .fill(if active {
+                                    theme::ACCENT
+                                } else {
+                                    theme::BG_TERTIARY
+                                })
+                                .corner_radius(4.0)
+                                .min_size(egui::vec2(88.0, 32.0)),
+                            )
+                            .clicked()
+                        {
+                            picked_fps = Some(fps);
+                        }
+                    }
+                });
+                if let Some(fps) = picked_fps {
+                    self.set_screen_fps(fps);
+                }
+
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(
+                        "Changes apply live even while sharing. Use 720p 60 FPS for fastest motion or 1080p for sharp text.",
+                    )
+                    .small()
+                    .color(theme::TEXT_MUTED),
+                );
+            });
     }
 
     fn ui_settings_keybinds(&mut self, ui: &mut egui::Ui) {

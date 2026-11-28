@@ -41,6 +41,10 @@ pub struct Config {
     pub reduced_motion: bool,
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
+    #[serde(default = "default_screen_fps")]
+    pub screen_fps: u32,
+    #[serde(default = "default_screen_max_height")]
+    pub screen_max_height: u32,
     #[serde(default)]
     pub last_installed_update: Option<String>,
     #[serde(default = "default_font_size")]
@@ -67,6 +71,14 @@ fn default_auto_update() -> bool {
     true
 }
 
+fn default_screen_fps() -> u32 {
+    30
+}
+
+fn default_screen_max_height() -> u32 {
+    1080
+}
+
 fn default_font_size() -> f32 {
     15.0
 }
@@ -78,6 +90,8 @@ impl Default for Config {
             compact_mode: false,
             reduced_motion: false,
             auto_update: default_auto_update(),
+            screen_fps: default_screen_fps(),
+            screen_max_height: default_screen_max_height(),
             last_installed_update: None,
             font_size: default_font_size(),
             muted_channels: Vec::new(),
