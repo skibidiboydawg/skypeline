@@ -312,7 +312,8 @@ button { cursor: pointer; border: none; background: transparent; }
   padding: 4px 16px; gap: 14px; overflow: hidden;
 }
 .screen-view {
-  max-width: 100%; max-height: 100%; border-radius: 8px; object-fit: contain; background: #000;
+  max-width: 100%; max-height: 100%; border-radius: 10px; object-fit: contain; background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 .p-tile {
   width: 164px; height: 108px; border-radius: 12px; background: #171b26;
@@ -326,9 +327,10 @@ button { cursor: pointer; border: none; background: transparent; }
 }
 .call-circle {
   width: 42px; height: 42px; border-radius: 50%; background: #1e2332; color: #fff;
-  display: inline-flex; align-items: center; justify-content: center; transition: background 140ms;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 140ms, transform 140ms;
 }
-.call-circle:hover { background: #2b3247; }
+.call-circle:hover { background: #2b3247; transform: scale(1.05); }
 .call-circle.on-white { background: #fff; color: #0a0c12; }
 .call-circle.on-green { background: var(--success); color: #fff; }
 .call-circle.on-red { background: var(--danger); color: #fff; }
@@ -359,25 +361,32 @@ button { cursor: pointer; border: none; background: transparent; }
 }
 .msg-row.mine { align-items: flex-end; }
 .msg-row.theirs { align-items: flex-start; }
-.msg-inner { display: flex; align-items: flex-start; gap: 11px; max-width: 74%; }
+.msg-inner { display: flex; align-items: flex-start; gap: 11px; max-width: min(72%, 680px); }
 .msg-row.mine .msg-inner { flex-direction: row-reverse; }
 .bubble {
-  padding: 9px 14px; border-radius: 16px; line-height: 1.46; word-break: break-word;
-  font-size: var(--chat-font-size, 15.5px);
+  padding: 9px 14px; border-radius: 18px; line-height: 1.46; word-break: break-word;
+  overflow-wrap: anywhere; font-size: var(--chat-font-size, 15.5px);
 }
 .msg-row.mine .bubble {
-  background: var(--own-bubble); color: var(--own-text); border-bottom-right-radius: 5px;
+  background: linear-gradient(135deg, #5d56f6 0%, #4f46e5 100%);
+  color: var(--own-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 3px rgba(0, 0, 0, 0.22);
+  border-bottom-right-radius: 5px;
 }
 .msg-row.mine.grouped .bubble { border-top-right-radius: 6px; }
+.msg-row.mine.has-next .bubble { border-bottom-right-radius: 6px; }
 .msg-row.theirs .bubble {
   background: var(--peer-bubble); color: var(--text-primary);
   border: 1px solid var(--border); border-top-left-radius: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .msg-row.theirs.grouped .bubble { border-top-left-radius: 6px; }
+.msg-row.theirs.has-next .bubble { border-bottom-left-radius: 6px; }
 .msg-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 6px; align-items: center; }
 .reply-chip {
-  font-size: 11.5px; color: var(--text-muted); background: var(--surface);
-  padding: 3px 10px; border-radius: 8px; margin-bottom: 4px; max-width: 360px;
+  font-size: 12px; color: var(--text-secondary); background: var(--surface);
+  border-left: 2.5px solid var(--accent);
+  padding: 4px 10px; border-radius: 6px 10px 10px 6px; margin-bottom: 4px; max-width: min(380px, 100%);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .reply-chip b { color: var(--accent); }
@@ -455,7 +464,7 @@ button { cursor: pointer; border: none; background: transparent; }
 .friend-card:hover { background: var(--hover); }
 .friend-actions { display: flex; gap: 6px; }
 .friend-card.hover-slide .friend-actions {
-  opacity: 0; transform: translateX(8px); transition: opacity 150ms ease, transform 150ms ease;
+  opacity: 0.65; transform: translateX(3px); transition: opacity 150ms ease, transform 150ms ease;
 }
 .friend-card.hover-slide:hover .friend-actions { opacity: 1; transform: translateX(0); }
 .circle-act {
@@ -469,11 +478,12 @@ button { cursor: pointer; border: none; background: transparent; }
 
 /* Popovers, Modals, Toasts */
 .backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40;
+  position: fixed; inset: 0; background: rgba(0,0,0,0.58); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px); z-index: 40;
   display: flex; align-items: center; justify-content: center;
 }
 .settings-modal {
-  width: min(860px, calc(100vw - 40px)); height: min(620px, calc(100vh - 40px));
+  width: min(860px, calc(100vw - 32px)); height: min(620px, calc(100vh - 32px));
   background: var(--canvas); border: 1px solid var(--border); border-radius: 16px;
   display: flex; overflow: hidden; box-shadow: var(--shadow);
 }
@@ -485,8 +495,9 @@ button { cursor: pointer; border: none; background: transparent; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .opt-btn {
   padding: 8px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
-  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  font-size: 13px; font-weight: 600; color: var(--text-primary); transition: background 140ms, border-color 140ms;
 }
+.opt-btn:hover:not(.active) { background: var(--hover); }
 .opt-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .popover {
@@ -497,14 +508,36 @@ button { cursor: pointer; border: none; background: transparent; }
 .emoji-grid button { font-size: 20px; height: 36px; border-radius: 8px; }
 .emoji-grid button:hover { background: var(--hover); }
 
-.toast-stack { position: fixed; top: 64px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: 300px; }
+.toast-stack { position: fixed; top: 64px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: min(300px, calc(100vw - 32px)); }
 .toast-item {
   background: var(--floating); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: var(--shadow); padding: 12px 12px 8px; cursor: pointer; overflow: hidden;
 }
 
-@media (max-width: 720px) {
-  .sidebar { width: 220px; }
+.mobile-menu-btn { display: none; }
+.mobile-drawer-bg { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-menu-btn { display: inline-flex; }
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; width: min(86vw, 310px); z-index: 35;
+    transform: translateX(-105%); transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow);
+  }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .mobile-drawer-bg {
+    display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.52);
+    backdrop-filter: blur(4px); z-index: 30;
+  }
+  .main { width: 100%; }
+  .topbar { padding: 0 12px !important; }
+  .msg-scroll { padding: 12px 14px; }
+  .composer-dock { padding: 6px 12px 12px; }
+  .msg-inner { max-width: 88%; }
+  .settings-modal { flex-direction: column; width: calc(100vw - 20px); height: calc(100vh - 24px); }
+  .settings-nav { width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--hairline); padding: 10px 12px; }
+  .settings-content { padding: 18px 16px; }
+  .friend-card.hover-slide .friend-actions { opacity: 1; transform: none; }
 }
 </style>
 </head>
@@ -538,6 +571,7 @@ button { cursor: pointer; border: none; background: transparent; }
     trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
     check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
     x: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    menu: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
   };
 
   // Studio Web Audio synthesizer matching the desktop app
@@ -609,6 +643,8 @@ button { cursor: pointer; border: none; background: transparent; }
     typing: {},
     activeCalls: {},
     streamMinimized: false,
+    mobileSidebarOpen: false,
+    showAttachMenu: false,
     chatSearch: '',
     msgSearchOpen: false,
     msgSearch: '',
@@ -859,6 +895,7 @@ button { cursor: pointer; border: none; background: transparent; }
   async function selectChannel(id) {
     state.selectedChannel = id;
     state.draft = '';
+    state.mobileSidebarOpen = false;
     delete state.unread[id];
     state.replyTo = null; state.editingId = null; state.msgSearchOpen = false; state.msgSearch = '';
     SFX.click();
@@ -984,10 +1021,13 @@ button { cursor: pointer; border: none; background: transparent; }
     const inp = document.getElementById('draft-input');
     const text = (inp ? inp.value : state.draft).trim();
     if (!text || !state.selectedChannel) return;
-    wsSend({ type: 'send_message', channel_id: state.selectedChannel, content: text, reply_to_id: state.replyTo?.id || null });
+    const replyId = state.replyTo?.id || null;
+    // Clear draft BEFORE wsSend so fast/synchronous echoes can never restore stale draft text!
     state.draft = '';
     if (inp) inp.value = '';
     state.replyTo = null;
+    state.showAttachMenu = false;
+    wsSend({ type: 'send_message', channel_id: state.selectedChannel, content: text, reply_to_id: replyId });
     SFX.send();
     render();
     setTimeout(() => { const el = document.getElementById('draft-input'); if (el) el.focus(); }, 10);
@@ -1175,7 +1215,8 @@ button { cursor: pointer; border: none; background: transparent; }
 
     root.innerHTML = `
       <div class="shell">
-        <aside class="sidebar">
+        ${state.mobileSidebarOpen ? '<div class="mobile-drawer-bg" id="mobile-drawer-bg"></div>' : ''}
+        <aside class="sidebar ${state.mobileSidebarOpen ? 'mobile-open' : ''}">
           <div class="profile-top">
             <div class="profile-chip" id="btn-profile-pop">
               ${avatarHtml(me.user_id, me.username, 38, true, `<span class="status-dot dot-${state.prefs.status}"></span>`)}
@@ -1290,8 +1331,11 @@ button { cursor: pointer; border: none; background: transparent; }
       }
       const mine = m.user_id === me.user_id;
       const prev = msgs[i - 1];
+      const next = msgs[i + 1];
       const prevWasCall = prev && prev.content.startsWith('[[call:') && prev.content.endsWith(']]');
+      const nextIsCall = next && next.content.startsWith('[[call:') && next.content.endsWith(']]');
       const grouped = !sep && !prevWasCall && !m.reply_to_id && prev && prev.user_id === m.user_id && Math.abs(m.created_at - prev.created_at) < 300;
+      const hasNextInGroup = !nextIsCall && next && !next.reply_to_id && next.user_id === m.user_id && fmtDay(next.created_at) === day && Math.abs(next.created_at - m.created_at) < 300;
       const refMsg = m.reply_to_id ? state.messages.find(x => x.id === m.reply_to_id) : null;
       const newCls = m._isNew ? 'msg-new' : '';
       if (m._isNew) m._isNew = false;
@@ -1300,7 +1344,7 @@ button { cursor: pointer; border: none; background: transparent; }
         `<button class="react-pill ${r.user_ids.includes(me.user_id) ? 'mine' : ''}" data-react-msg="${m.id}" data-react-em="${esc(r.emoji)}">${esc(r.emoji)} ${r.user_ids.length}</button>`
       ).join('')}</div>` : '';
 
-      return `${sep}<div class="msg-row ${mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${newCls}" style="${!grouped && i > 0 ? 'margin-top:9px' : ''}">
+      return `${sep}<div class="msg-row ${mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${hasNextInGroup ? 'has-next' : ''} ${newCls}" style="${!grouped && i > 0 ? 'margin-top:9px' : ''}">
         <div class="hover-bar">
           <button data-open-em="${m.id}" title="React">${SVG.smile}</button>
           <button data-reply="${m.id}" title="Reply">${SVG.reply}</button>
@@ -1310,16 +1354,16 @@ button { cursor: pointer; border: none; background: transparent; }
           ${!mine ? (grouped ? '<div style="width:38px;flex-shrink:0"></div>' : avatarHtml(m.user_id, m.username, 38, false)) : ''}
           <div style="display:flex;flex-direction:column;align-items:${mine ? 'flex-end' : 'flex-start'};min-width:0">
             ${!mine && !grouped ? `<div class="msg-meta" style="margin-bottom:3px"><strong style="color:var(--text-primary);font-size:14px">${esc(m.username)}</strong><span>${fmtTime(m.created_at)}</span></div>` : ''}
-            ${m.reply_to_id ? `<div class="reply-chip">${refMsg ? `<b>${esc(refMsg.username)}</b> ${esc(refMsg.content.slice(0, 48))}` : 'Original message deleted'}</div>` : ''}
+            ${m.reply_to_id ? `<div class="reply-chip">${refMsg ? `<b>${esc(refMsg.username)}</b> ${esc(refMsg.content.length > 52 ? refMsg.content.slice(0, 52).trimEnd() + '…' : refMsg.content)}` : 'Original message deleted'}</div>` : ''}
             ${state.editingId === m.id ? `
               <div style="display:flex;gap:6px;align-items:center">
                 <input class="text-input" id="edit-input" style="width:280px;padding:6px 10px" value="${esc(state.editDraft)}" />
                 <button id="save-edit" class="opt-btn active" style="padding:6px 10px">Save</button>
                 <button id="cancel-edit" class="opt-btn" style="padding:6px 10px">Cancel</button>
               </div>` : `<div class="bubble">${renderMd(m.content)}</div>`}
-            ${mine && (!grouped || m.edited_at) ? `<div class="msg-meta">${m.edited_at ? '<span>(edited)</span>' : ''}<span>${fmtTime(m.created_at)}</span></div>` : ''}
-            ${!mine && m.edited_at ? `<div class="msg-meta">(edited)</div>` : ''}
             ${reacts}
+            ${mine && (!hasNextInGroup || m.edited_at) ? `<div class="msg-meta">${m.edited_at ? '<span>(edited)</span>' : ''}<span>${fmtTime(m.created_at)}</span></div>` : ''}
+            ${!mine && m.edited_at ? `<div class="msg-meta">(edited)</div>` : ''}
           </div>
         </div>
       </div>`;
@@ -1335,9 +1379,10 @@ button { cursor: pointer; border: none; background: transparent; }
     return `
       <header class="topbar" style="padding:0 24px">
         <div class="topbar-left">
+          <button class="icon-btn mobile-menu-btn" id="btn-mobile-menu" title="Conversations">${SVG.menu}</button>
           ${avatarHtml(ch.peer_user_id, ch.name, 38, false, `<span class="status-dot dot-${peerSt}" style="border-color:var(--canvas)"></span>`)}
-          <div>
-            <div style="font-weight:600;font-size:16px">${esc(ch.name)}</div>
+          <div style="min-width:0">
+            <div style="font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(ch.name)}</div>
             <div style="font-size:12.5px;color:${peerSt === 'online' ? 'var(--success)' : 'var(--text-muted)'};text-transform:capitalize">${esc(peerSt)}</div>
           </div>
         </div>
@@ -1424,10 +1469,17 @@ button { cursor: pointer; border: none; background: transparent; }
         <div class="composer-inner">
           <div class="typing-row" id="typing-row"></div>
           ${state.replyTo ? `<div class="reply-banner"><span>Replying to <b>${esc(state.replyTo.user)}</b>: ${esc(state.replyTo.text.slice(0,50))}</span><button id="cancel-reply">${SVG.x}</button></div>` : ''}
-          <div class="composer-pill ${state.replyTo ? 'has-reply' : ''}">
+          <div class="composer-pill ${state.replyTo ? 'has-reply' : ''}" style="position:relative">
+            <button class="icon-btn" id="btn-composer-plus" style="width:32px;height:32px;border-radius:50%" title="Insert formatting / code block">${SVG.plus}</button>
+            ${state.showAttachMenu ? `
+              <div class="popover modal-enter" style="position:absolute;left:0;bottom:48px;width:190px;padding:6px" onclick="event.stopPropagation()">
+                <button class="opt-btn" data-insert-fmt="code" style="width:100%;text-align:left;border:none;background:transparent">Insert Code Block</button>
+                <button class="opt-btn" data-insert-fmt="spoiler" style="width:100%;text-align:left;border:none;background:transparent">Insert Spoiler ||...||</button>
+                <button class="opt-btn" data-insert-fmt="bold" style="width:100%;text-align:left;border:none;background:transparent">Insert Bold **...**</button>
+              </div>` : ''}
             <input id="draft-input" value="${esc(state.draft)}" placeholder="Write to ${esc(ch.name)}..." autocomplete="off" />
             <button class="icon-btn" id="btn-composer-emoji" style="width:32px;height:32px" title="Emoji">${SVG.smile}</button>
-            <button class="send-circle" id="btn-send" title="Send">${SVG.send}</button>
+            <button class="send-circle" id="btn-send" ${state.draft.trim() ? '' : 'disabled'} title="Send">${SVG.send}</button>
           </div>
         </div>
       </div>`;
@@ -1445,6 +1497,7 @@ button { cursor: pointer; border: none; background: transparent; }
     return `
       <header class="topbar">
         <div class="tabs-bar" id="people-tabs">
+          <button class="icon-btn mobile-menu-btn" id="btn-mobile-menu" title="Menu">${SVG.menu}</button>
           <strong style="font-size:16px;margin-right:8px">People</strong>
           <button class="tab-btn ${state.peopleTab==='online'?'active':''}" data-ptab="online">Online</button>
           <button class="tab-btn ${state.peopleTab==='all'?'active':''}" data-ptab="all">All</button>
@@ -1589,9 +1642,11 @@ button { cursor: pointer; border: none; background: transparent; }
       }
     };
     if (q('btn-profile-pop')) q('btn-profile-pop').onclick = (e) => { e.stopPropagation(); state.showProfilePop = !state.showProfilePop; SFX.click(); render(); };
-    if (q('nav-people')) q('nav-people').onclick = () => { state.selectedChannel = null; SFX.click(); render(); };
-    if (q('nav-chats')) q('nav-chats').onclick = () => { if (!state.selectedChannel && state.channels.length) selectChannel(state.channels[0].id); };
-    if (q('btn-new-dm')) q('btn-new-dm').onclick = () => { state.selectedChannel = null; state.peopleTab = 'all'; SFX.click(); render(); };
+    if (q('btn-mobile-menu')) q('btn-mobile-menu').onclick = (e) => { e.stopPropagation(); state.mobileSidebarOpen = !state.mobileSidebarOpen; render(); };
+    if (q('mobile-drawer-bg')) q('mobile-drawer-bg').onclick = () => { state.mobileSidebarOpen = false; render(); };
+    if (q('nav-people')) q('nav-people').onclick = () => { state.selectedChannel = null; state.mobileSidebarOpen = false; SFX.click(); render(); };
+    if (q('nav-chats')) q('nav-chats').onclick = () => { state.mobileSidebarOpen = false; if (!state.selectedChannel && state.channels.length) selectChannel(state.channels[0].id); else render(); };
+    if (q('btn-new-dm')) q('btn-new-dm').onclick = () => { state.selectedChannel = null; state.peopleTab = 'all'; state.mobileSidebarOpen = false; SFX.click(); render(); };
     if (q('side-search')) q('side-search').oninput = e => { state.chatSearch = e.target.value; render(); q('side-search')?.focus(); };
 
     document.querySelectorAll('[data-ch]').forEach(el => el.onclick = () => selectChannel(Number(el.dataset.ch)));
@@ -1637,7 +1692,18 @@ button { cursor: pointer; border: none; background: transparent; }
       document.querySelectorAll('[data-csz]').forEach(b => b.onclick = () => { state.prefs.callHeight = Number(b.dataset.csz); savePrefs(); SFX.click(); render(); });
 
       if (q('btn-send')) q('btn-send').onclick = sendDraft;
-      if (q('btn-composer-emoji')) q('btn-composer-emoji').onclick = (e) => { e.stopPropagation(); state.emojiTarget = state.emojiTarget === null ? undefined : null; render(); };
+      if (q('btn-composer-plus')) q('btn-composer-plus').onclick = (e) => { e.stopPropagation(); state.showAttachMenu = !state.showAttachMenu; state.emojiTarget = undefined; SFX.click(); render(); };
+      document.querySelectorAll('[data-insert-fmt]').forEach(b => b.onclick = (e) => {
+        e.stopPropagation();
+        const kind = b.dataset.insertFmt;
+        const snippet = kind === 'code' ? '```\n\n```' : kind === 'spoiler' ? '||spoiler||' : '**bold**';
+        state.draft = (state.draft || '') + (state.draft && !state.draft.endsWith(' ') ? ' ' : '') + snippet;
+        state.showAttachMenu = false;
+        SFX.click();
+        render();
+        const el = q('draft-input'); if (el) el.focus();
+      });
+      if (q('btn-composer-emoji')) q('btn-composer-emoji').onclick = (e) => { e.stopPropagation(); state.showAttachMenu = false; state.emojiTarget = state.emojiTarget === null ? undefined : null; render(); };
       if (q('cancel-reply')) q('cancel-reply').onclick = () => { state.replyTo = null; render(); };
       const draft = q('draft-input');
       if (draft) {
@@ -1650,6 +1716,8 @@ button { cursor: pointer; border: none; background: transparent; }
         };
         draft.oninput = () => {
           state.draft = draft.value;
+          const sendBtn = q('btn-send');
+          if (sendBtn) sendBtn.disabled = !draft.value.trim();
           if (Date.now() - lastTypingSent > 2500) { lastTypingSent = Date.now(); wsSend({ type: 'typing', channel_id: activeCh.id }); }
         };
       }
@@ -1738,6 +1806,7 @@ button { cursor: pointer; border: none; background: transparent; }
   document.addEventListener('click', () => {
     let changed = false;
     if (state.showProfilePop) { state.showProfilePop = false; changed = true; }
+    if (state.showAttachMenu) { state.showAttachMenu = false; changed = true; }
     if (state.emojiTarget !== undefined) { state.emojiTarget = undefined; changed = true; }
     if (changed) render();
   });
