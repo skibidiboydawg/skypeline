@@ -29,12 +29,41 @@ fn paint_arc(
 }
 
 /// Authentic Discord 10px status badge with 3px cutout ring in `ring_bg`.
+/// For `Online` users (when `!reduced_motion`), draws the 2.5s ease-out green pulse halo.
 pub fn paint_status_dot(
     painter: &egui::Painter,
     center: Pos2,
     status: PresenceStatus,
     ring_bg: Color32,
 ) {
+    paint_status_dot_pulse(painter, center, status, ring_bg, None);
+}
+
+/// Online status dot with optional 2.5s `onlinePulse` ring (`Some(time_secs)`).
+pub fn paint_status_dot_pulse(
+    painter: &egui::Painter,
+    center: Pos2,
+    status: PresenceStatus,
+    ring_bg: Color32,
+    pulse_time_secs: Option<f64>,
+) {
+    if status == PresenceStatus::Online {
+        if let Some(t) = pulse_time_secs {
+            let phase = (t.rem_euclid(2.5) / 2.5) as f32;
+            if phase < 0.70 {
+                let p = 1.0 - (1.0 - phase / 0.70).powi(3); // ease-out
+                let spread = 5.0 * p;
+                let alpha = ((1.0 - p) * 0.5 * 255.0).round().clamp(0.0, 255.0) as u8;
+                if alpha > 0 {
+                    painter.circle_filled(
+                        center,
+                        5.0 + spread,
+                        Color32::from_rgba_unmultiplied(0x23, 0xA5, 0x59, alpha),
+                    );
+                }
+            }
+        }
+    }
     painter.circle_filled(center, 7.0, ring_bg);
     match status {
         PresenceStatus::Online => {

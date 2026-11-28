@@ -1,7 +1,7 @@
 //! Discord-faithful overlays: Status Popover, 300px User Profile Popup,
 //! 360px Emoji Picker, Notifications Inbox, Full-Screen Settings Modal, and Toast Notifications.
 
-use super::{avatar_color, icons, ProfilePopup, SettingsTab, SkyApp};
+use super::{anim, avatar_color, icons, ProfilePopup, SettingsTab, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Pos2, Rect, RichText, Sense, Stroke};
@@ -202,7 +202,7 @@ impl SkyApp {
                             .clicked()
                         {
                             self.show_profile_popover = false;
-                            self.show_settings_modal = true;
+                            self.open_settings_modal(self.settings_tab);
                         }
                         if ui
                             .add(
@@ -229,19 +229,37 @@ impl SkyApp {
         }
     }
 
-    /// 300px floating Discord User Profile Card shown when clicking any user's avatar.
+    /// 300px floating Discord User Profile Card with #8 scale-in (180ms) & reverse exit (150ms).
     pub(crate) fn ui_user_profile_popup(&mut self, ctx: &Context) {
         let Some(popup) = self.profile_popup.clone() else {
             return;
         };
+        let now = Self::now_secs();
+        let (alpha, scale, _, done_exit) = anim::modal_transition(
+            (now - self.profile_popup_opened_at) as f32,
+            self.profile_popup_closing_at.map(|c| (now - c) as f32),
+            self.config.reduced_motion,
+        );
+        if done_exit {
+            self.profile_popup = None;
+            self.profile_popup_closing_at = None;
+            return;
+        }
+        if alpha < 0.999 || self.profile_popup_closing_at.is_some() {
+            self.animating = true;
+        }
+
         let screen = ctx.screen_rect();
-        let card_w = 300.0;
-        let card_h = 310.0;
-        let x = (popup.anchor.x + 12.0).clamp(12.0, (screen.right() - card_w - 12.0).max(12.0));
-        let y = (popup.anchor.y - 20.0).clamp(12.0, (screen.bottom() - card_h - 12.0).max(12.0));
+        let card_w = 300.0 * scale;
+        let card_h = 310.0 * scale;
+        let base_x = (popup.anchor.x + 12.0).clamp(12.0, (screen.right() - 312.0).max(12.0));
+        let base_y = (popup.anchor.y - 20.0).clamp(12.0, (screen.bottom() - 322.0).max(12.0));
+        let x = base_x + (300.0 - card_w) * 0.5;
+        let y = base_y + (310.0 - card_h) * 0.5;
 
         let is_me = self.me.as_ref().is_some_and(|m| m.user_id == popup.user_id);
         let is_blocked = self.is_blocked(popup.user_id);
+        let pulse = self.pulse_time(ctx);
         let avatar_hash = if is_me {
             self.me.as_ref().and_then(|m| m.avatar_hash.clone())
         } else {
@@ -259,6 +277,9 @@ impl SkyApp {
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(x, y))
             .show(ctx, |ui| {
+                if alpha < 0.999 {
+                    ui.multiply_opacity(alpha);
+                }
                 egui::Frame::new()
                     .fill(theme::BG_FLOATING)
                     .stroke(theme::border())
@@ -267,7 +288,7 @@ impl SkyApp {
                         offset: [0, 8],
                         blur: 24,
                         spread: 0,
-                        color: Color32::from_black_alpha(150),
+                        color: Color32::from_black_alpha((150.0 * alpha) as u8),
                     })
                     .inner_margin(egui::Margin::same(0))
                     .show(ui, |ui| {
@@ -334,11 +355,12 @@ impl SkyApp {
                                 Color32::WHITE,
                             );
                         }
-                        icons::paint_status_dot(
+                        icons::paint_status_dot_pulse(
                             ui.painter(),
                             av_center + egui::vec2(28.0, 28.0),
                             popup.status,
                             theme::BG_FLOATING,
+                            pulse,
                         );
 
                         egui::Frame::new()
@@ -452,13 +474,13 @@ impl SkyApp {
             self.toggle_block(uid);
         }
         if close_popup {
-            self.profile_popup = None;
+            self.close_profile_popup();
             return;
         }
         if ctx.input(|i| i.pointer.any_click()) {
             if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
                 if !resp.response.rect.contains(pos) && pos.distance(popup.anchor) > 26.0 {
-                    self.profile_popup = None;
+                    self.close_profile_popup();
                 }
             }
         }
@@ -709,24 +731,57 @@ impl SkyApp {
         }
     }
 
-    /// Full-Screen Discord Settings Modal (220px left nav + content panel).
+    /// Full-Screen Discord Settings Modal with #8 scale-in (180ms) & reverse exit (150ms).
     pub(crate) fn ui_settings_modal(&mut self, ctx: &Context) {
         if !self.show_settings_modal {
             return;
         }
+        let now = Self::now_secs();
+        let (alpha, scale, backdrop_alpha, done_exit) = anim::modal_transition(
+            (now - self.settings_opened_at) as f32,
+            self.settings_closing_at.map(|c| (now - c) as f32),
+            self.config.reduced_motion,
+        );
+        if done_exit {
+            self.show_settings_modal = false;
+            self.settings_closing_at = None;
+            return;
+        }
+        if alpha < 0.999 || self.settings_closing_at.is_some() {
+            self.animating = true;
+        }
+
         let screen = ctx.screen_rect();
         egui::Area::new(egui::Id::new("discord_settings_modal"))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
-                // Full-screen dim backdrop
-                let (bg_rect, _) = ui.allocate_exact_size(screen.size(), Sense::click());
-                ui.painter()
-                    .rect_filled(bg_rect, 0.0, Color32::from_black_alpha(215));
+                // Full-screen dim backdrop (180ms linear opacity fade)
+                let (bg_rect, bg_resp) = ui.allocate_exact_size(screen.size(), Sense::click());
+                ui.painter().rect_filled(
+                    bg_rect,
+                    0.0,
+                    Color32::from_black_alpha((215.0 * backdrop_alpha) as u8),
+                );
 
-                let modal_w = (screen.width() - 80.0).clamp(560.0, 920.0);
-                let modal_h = (screen.height() - 80.0).clamp(420.0, 660.0);
-                let modal_rect = Rect::from_center_size(screen.center(), egui::vec2(modal_w, modal_h));
+                let base_w = (screen.width() - 80.0).clamp(560.0, 920.0);
+                let base_h = (screen.height() - 80.0).clamp(420.0, 660.0);
+                let modal_w = base_w * scale;
+                let modal_h = base_h * scale;
+                let modal_rect =
+                    Rect::from_center_size(screen.center(), egui::vec2(modal_w, modal_h));
+
+                if bg_resp.clicked() {
+                    if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !modal_rect.contains(p) {
+                            self.close_settings_modal();
+                        }
+                    }
+                }
+
+                if alpha < 0.999 {
+                    ui.multiply_opacity(alpha);
+                }
 
                 ui.painter().rect_filled(modal_rect, 8.0, theme::BG_PRIMARY);
                 ui.painter().rect_stroke(
@@ -885,10 +940,11 @@ impl SkyApp {
                 );
 
                 if close_clicked {
-                    self.show_settings_modal = false;
+                    self.close_settings_modal();
                 }
                 if logout_clicked {
                     self.show_settings_modal = false;
+                    self.settings_closing_at = None;
                     self.sign_out();
                 }
             });
@@ -1228,6 +1284,40 @@ impl SkyApp {
             self.config.save();
             theme::apply(ctx, self.config.dark_mode, self.config.font_size);
         }
+
+        ui.add_space(18.0);
+        ui.label(
+            RichText::new("ACCESSIBILITY — REDUCE MOTION")
+                .size(11.5)
+                .strong()
+                .color(theme::TEXT_MUTED),
+        );
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            for (rm, label) in [(false, "Full Animations"), (true, "Reduce Motion")] {
+                let active = self.config.reduced_motion == rm;
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(label).color(if active {
+                            Color32::WHITE
+                        } else {
+                            theme::TEXT_SECONDARY
+                        }))
+                        .fill(if active {
+                            theme::ACCENT
+                        } else {
+                            theme::BG_SECONDARY
+                        })
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(124.0, 34.0)),
+                    )
+                    .clicked()
+                {
+                    self.config.reduced_motion = rm;
+                    self.config.save();
+                }
+            }
+        });
     }
 
     fn ui_settings_voice(&mut self, ui: &mut egui::Ui) {
@@ -1370,30 +1460,59 @@ impl SkyApp {
         }
     }
 
-    /// Top-right Discord Toast Notifications (stack up to 3, 4s auto-dismiss, click jumps to DM).
+    /// #9 Top-right Discord Toast Notifications:
+    /// 250ms slide-in (-16px, scale 0.97 -> 1), 2px #5865f2 4s progress bar (pauses on hover),
+    /// and 200ms slide-out (-8px, fade out).
     pub(crate) fn ui_toasts(&mut self, ctx: &Context) {
-        let now = Self::now_secs();
-        self.toasts.retain(|t| t.expires_at > now);
         if self.toasts.is_empty() {
             return;
         }
+        let now = Self::now_secs();
+        let dt = ctx.input(|i| i.unstable_dt).clamp(0.001, 0.1);
+        let reduced = self.config.reduced_motion;
         let screen = ctx.screen_rect();
-        let w = 300.0;
+        let base_w = 300.0;
+        let base_h = 68.0;
         let mut jump_to: Option<i64> = None;
-        let mut dismiss_idx: Option<usize> = None;
+        let mut remove_indices: Vec<usize> = Vec::new();
 
         for (idx, toast) in self.toasts.iter_mut().enumerate() {
-            let y = 58.0 + (idx as f32) * 76.0;
-            let pos = egui::pos2((screen.right() - w - 16.0).max(16.0), y);
+            let open_elapsed = (now - toast.created_at) as f32;
+            let close_elapsed = toast.closing_at.map(|c| (now - c) as f32);
+            let (alpha, y_off, scale, done_exit) =
+                anim::toast_transition(open_elapsed, close_elapsed, reduced);
+            if done_exit {
+                remove_indices.push(idx);
+                continue;
+            }
+            self.animating = true;
+
+            let w = base_w * scale;
+            let h = base_h * scale;
+            let base_y = 58.0 + (idx as f32) * 78.0;
+            let pos = egui::pos2(
+                (screen.right() - base_w - 16.0).max(16.0) + (base_w - w) * 0.5,
+                base_y + y_off + (base_h - h) * 0.5,
+            );
+
             egui::Area::new(egui::Id::new(("discord_toast", idx, toast.channel_id)))
                 .order(egui::Order::Tooltip)
                 .fixed_pos(pos)
                 .show(ctx, |ui| {
-                    let (rect, resp) =
-                        ui.allocate_exact_size(egui::vec2(w, 66.0), Sense::click());
-                    if resp.hovered() {
-                        toast.expires_at = now + 1.5;
+                    if alpha < 0.999 {
+                        ui.multiply_opacity(alpha);
                     }
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::vec2(w, h), Sense::click());
+
+                    // Hover pauses the 4s progress countdown (animation-play-state: paused)
+                    if !resp.hovered() && toast.closing_at.is_none() {
+                        toast.remaining_secs = (toast.remaining_secs - dt).max(0.0);
+                        if toast.remaining_secs <= 0.0 {
+                            toast.closing_at = Some(now);
+                        }
+                    }
+
                     ui.painter().rect_filled(rect, 8.0, theme::BG_FLOATING);
                     ui.painter().rect_stroke(
                         rect,
@@ -1405,13 +1524,13 @@ impl SkyApp {
                     ui.painter().rect_filled(
                         Rect::from_min_max(
                             rect.left_top() + egui::vec2(0.0, 6.0),
-                            rect.left_bottom() + egui::vec2(3.0, -6.0),
+                            rect.left_bottom() + egui::vec2(3.0, -8.0),
                         ),
                         1.5,
                         theme::ACCENT,
                     );
 
-                    let av_c = rect.left_center() + egui::vec2(26.0, 0.0);
+                    let av_c = rect.left_center() + egui::vec2(26.0, -1.0);
                     ui.painter()
                         .circle_filled(av_c, 16.0, avatar_color(&toast.sender, false));
                     let init = toast
@@ -1430,7 +1549,7 @@ impl SkyApp {
                     );
 
                     ui.painter().text(
-                        rect.left_top() + egui::vec2(52.0, 13.0),
+                        rect.left_top() + egui::vec2(52.0, 12.0),
                         Align2::LEFT_TOP,
                         &toast.sender,
                         FontId::proportional(13.5),
@@ -1445,23 +1564,34 @@ impl SkyApp {
                         toast.preview.clone()
                     };
                     ui.painter().text(
-                        rect.left_top() + egui::vec2(52.0, 34.0),
+                        rect.left_top() + egui::vec2(52.0, 33.0),
                         Align2::LEFT_TOP,
                         snippet,
                         FontId::proportional(12.5),
                         theme::TEXT_SECONDARY,
                     );
 
-                    if resp.clicked() {
+                    // 2px #5865f2 progress bar shrinking 100% -> 0% over 4s
+                    let frac = (toast.remaining_secs / 4.0).clamp(0.0, 1.0);
+                    let bar_w = (rect.width() - 8.0) * frac;
+                    if bar_w > 0.5 {
+                        let pbar = Rect::from_min_max(
+                            egui::pos2(rect.left() + 4.0, rect.bottom() - 3.0),
+                            egui::pos2(rect.left() + 4.0 + bar_w, rect.bottom() - 1.0),
+                        );
+                        ui.painter().rect_filled(pbar, 1.0, theme::ACCENT);
+                    }
+
+                    if resp.clicked() && toast.closing_at.is_none() {
                         jump_to = Some(toast.channel_id);
-                        dismiss_idx = Some(idx);
+                        toast.closing_at = Some(now);
                     }
                 });
         }
 
-        if let Some(i) = dismiss_idx {
-            if i < self.toasts.len() {
-                self.toasts.remove(i);
+        for idx in remove_indices.into_iter().rev() {
+            if idx < self.toasts.len() {
+                self.toasts.remove(idx);
             }
         }
         if let Some(ch_id) = jump_to {
@@ -1480,6 +1610,8 @@ impl SkyApp {
         } else {
             self.online_status_for(user_id)
         };
+        self.profile_popup_opened_at = Self::now_secs();
+        self.profile_popup_closing_at = None;
         self.profile_popup = Some(ProfilePopup {
             user_id,
             username,

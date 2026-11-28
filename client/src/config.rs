@@ -37,6 +37,8 @@ pub struct Config {
     pub dark_mode: bool,
     #[serde(default)]
     pub compact_mode: bool,
+    #[serde(default)]
+    pub reduced_motion: bool,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
     #[serde(default)]
@@ -66,6 +68,7 @@ impl Default for Config {
         Self {
             dark_mode: default_dark_mode(),
             compact_mode: false,
+            reduced_motion: false,
             font_size: default_font_size(),
             muted_channels: Vec::new(),
             blocked_users: Vec::new(),

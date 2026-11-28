@@ -121,13 +121,14 @@ impl SkyApp {
                                     },
                                 );
                                 if pending_count > 0 {
+                                    let scale = self.pending_badge_scale(pending_count);
                                     let badge_c = fr_r.right_center() - egui::vec2(16.0, 0.0);
-                                    ui.painter().circle_filled(badge_c, 8.5, theme::DANGER);
+                                    ui.painter().circle_filled(badge_c, 8.5 * scale, theme::DANGER);
                                     ui.painter().text(
                                         badge_c,
                                         Align2::CENTER_CENTER,
                                         pending_count.min(99).to_string(),
-                                        FontId::proportional(11.0),
+                                        FontId::proportional((11.0 * scale).max(7.0)),
                                         Color32::WHITE,
                                     );
                                 }
@@ -585,7 +586,8 @@ impl SkyApp {
             );
         }
         let dot = rect.right_bottom() - egui::vec2(3.0, 3.0);
-        icons::paint_status_dot(ui.painter(), dot, presence, ring_bg);
+        let pulse = self.pulse_time(ui.ctx());
+        icons::paint_status_dot_pulse(ui.painter(), dot, presence, ring_bg, pulse);
     }
 
     /// Strict 52px Discord Bottom User Panel (--bg-tertiary #1e1f22).
@@ -658,7 +660,8 @@ impl SkyApp {
             );
         }
         let dot = avatar_rect.right_bottom() - egui::vec2(3.0, 3.0);
-        icons::paint_status_dot(ui.painter(), dot, self.presence, theme::BG_TERTIARY);
+        let pulse = self.pulse_time(ui.ctx());
+        icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, theme::BG_TERTIARY, pulse);
 
         let text_x = avatar_rect.right() + 8.0;
         ui.painter().text(
@@ -708,7 +711,7 @@ impl SkyApp {
             },
         );
         if gresp.on_hover_text("User Settings").clicked() {
-            self.show_settings_modal = true;
+            self.open_settings_modal(self.settings_tab);
         }
 
         let dr = Rect::from_center_size(

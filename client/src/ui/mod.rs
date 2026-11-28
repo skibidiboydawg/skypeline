@@ -1,5 +1,6 @@
 //! Wireline Discord-style DM desktop app root: state, WebSocket events, shortcuts, and layout.
 
+pub(crate) mod anim;
 mod auth;
 mod call;
 mod chat;
@@ -73,7 +74,9 @@ pub(crate) struct ToastItem {
     pub channel_id: i64,
     pub sender: String,
     pub preview: String,
-    pub expires_at: f64,
+    pub created_at: f64,
+    pub remaining_secs: f32,
+    pub closing_at: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -141,6 +144,19 @@ pub struct SkyApp {
     pub(crate) call_expanded: bool,
     pub(crate) toasts: Vec<ToastItem>,
     pub(crate) chat_search: String,
+
+    // Animation state (all respect config.reduced_motion)
+    pub(crate) new_message_anims: HashMap<i64, f64>,
+    pub(crate) typing_fade: f32,
+    pub(crate) last_typing_text: String,
+    pub(crate) removing_friends: HashMap<i64, (f64, bool)>,
+    pub(crate) last_pending_count: usize,
+    pub(crate) pending_badge_pop_at: Option<f64>,
+    pub(crate) settings_opened_at: f64,
+    pub(crate) settings_closing_at: Option<f64>,
+    pub(crate) profile_popup_opened_at: f64,
+    pub(crate) profile_popup_closing_at: Option<f64>,
+    pub(crate) animating: bool,
 
     pub(crate) voice_hint: String,
     pub(crate) voice_room: Option<String>,
@@ -238,6 +254,17 @@ impl SkyApp {
             call_expanded: true,
             toasts: Vec::new(),
             chat_search: String::new(),
+            new_message_anims: HashMap::new(),
+            typing_fade: 0.0,
+            last_typing_text: String::new(),
+            removing_friends: HashMap::new(),
+            last_pending_count: 0,
+            pending_badge_pop_at: None,
+            settings_opened_at: 0.0,
+            settings_closing_at: None,
+            profile_popup_opened_at: 0.0,
+            profile_popup_closing_at: None,
+            animating: false,
             voice_hint: String::new(),
             voice_room: None,
             participants: Vec::new(),
@@ -576,6 +603,9 @@ impl SkyApp {
         self.reply_to = None;
         self.chat_search_open = false;
         self.chat_msg_search.clear();
+        self.new_message_anims.clear();
+        self.typing_fade = 0.0;
+        self.last_typing_text.clear();
         self.refocus_draft = true;
         self.load_messages(channel_id, None);
     }
@@ -969,6 +999,9 @@ impl SkyApp {
                     let selected = self.selected_channel == Some(message.channel_id);
                     let mine = message.user_id == self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
                     if selected {
+                        if !self.config.reduced_motion {
+                            self.new_message_anims.insert(message.id, Self::now_secs());
+                        }
                         self.messages.push(message);
                         if self.messages.len() > 300 {
                             let excess = self.messages.len() - 300;
@@ -980,12 +1013,14 @@ impl SkyApp {
                             native::message_chime();
                             let body = format!("{}: {}", message.username, message.content);
                             native::notify("Wireline", &body);
-                            // Push in-app Discord toast (stack up to 3)
+                            // Push in-app Discord toast (stack up to 3, 4s progress bar)
                             self.toasts.push(ToastItem {
                                 channel_id: message.channel_id,
                                 sender: message.username.clone(),
                                 preview: message.content.clone(),
-                                expires_at: Self::now_secs() + 4.0,
+                                created_at: Self::now_secs(),
+                                remaining_secs: 4.0,
+                                closing_at: None,
                             });
                             if self.toasts.len() > 3 {
                                 self.toasts.remove(0);
@@ -1296,16 +1331,15 @@ impl SkyApp {
                 self.toggle_deafen();
             }
             if i.modifiers.command && i.key_pressed(egui::Key::Slash) {
-                self.show_settings_modal = true;
-                self.settings_tab = SettingsTab::Keybinds;
+                self.open_settings_modal(SettingsTab::Keybinds);
             }
             if i.key_pressed(egui::Key::Escape) {
                 if self.show_settings_modal {
-                    self.show_settings_modal = false;
+                    self.close_settings_modal();
                 } else if self.emoji_picker_target.is_some() {
                     self.emoji_picker_target = None;
                 } else if self.profile_popup.is_some() {
-                    self.profile_popup = None;
+                    self.close_profile_popup();
                 } else if self.show_profile_popover {
                     self.show_profile_popover = false;
                 } else if self.show_inbox_popover {
@@ -1322,7 +1356,65 @@ impl SkyApp {
         });
     }
 
+    pub(crate) fn open_settings_modal(&mut self, tab: SettingsTab) {
+        self.settings_tab = tab;
+        if !self.show_settings_modal || self.settings_closing_at.is_some() {
+            self.show_settings_modal = true;
+            self.settings_opened_at = Self::now_secs();
+            self.settings_closing_at = None;
+        }
+    }
+
+    pub(crate) fn close_settings_modal(&mut self) {
+        if self.config.reduced_motion {
+            self.show_settings_modal = false;
+            self.settings_closing_at = None;
+        } else if self.show_settings_modal && self.settings_closing_at.is_none() {
+            self.settings_closing_at = Some(Self::now_secs());
+        }
+    }
+
+    pub(crate) fn close_profile_popup(&mut self) {
+        if self.config.reduced_motion {
+            self.profile_popup = None;
+            self.profile_popup_closing_at = None;
+        } else if self.profile_popup.is_some() && self.profile_popup_closing_at.is_none() {
+            self.profile_popup_closing_at = Some(Self::now_secs());
+        }
+    }
+
+    pub(crate) fn pulse_time(&self, ctx: &Context) -> Option<f64> {
+        if self.config.reduced_motion {
+            None
+        } else {
+            Some(ctx.input(|i| i.time))
+        }
+    }
+
+    pub(crate) fn pending_badge_scale(&mut self, current_count: usize) -> f32 {
+        let now = Self::now_secs();
+        if current_count != self.last_pending_count {
+            self.last_pending_count = current_count;
+            if current_count > 0 && !self.config.reduced_motion {
+                self.pending_badge_pop_at = Some(now);
+            }
+        }
+        if let Some(started) = self.pending_badge_pop_at {
+            let (scale, done) =
+                anim::badge_pop_scale((now - started) as f32, self.config.reduced_motion);
+            if done {
+                self.pending_badge_pop_at = None;
+            } else {
+                self.animating = true;
+            }
+            scale
+        } else {
+            1.0
+        }
+    }
+
     fn ui_main(&mut self, ctx: &Context) {
+        self.animating = false;
         self.handle_shortcuts(ctx);
         self.ui_left_sidebar(ctx);
         self.ui_main_stage(ctx);
@@ -1430,7 +1522,13 @@ impl eframe::App for SkyApp {
             Page::Login => self.ui_login(ctx),
             Page::Main => self.ui_main(ctx),
         }
-        ctx.request_repaint_after(std::time::Duration::from_millis(80));
+        if self.animating {
+            ctx.request_repaint();
+        } else if !self.config.reduced_motion && self.page == Page::Main {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(80));
+        }
     }
 }
 

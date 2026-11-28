@@ -1,9 +1,8 @@
-//! Pixel-faithful Discord Friends Page:
-//! 48px top bar (Friends | Online | All | Pending + badge | Blocked | green Add Friend),
-//! centered Add Friend tab (max-w 480px), 62px friend rows with Message/Call/Accept/Decline/Unblock,
-//! and Discord-style empty state.
+//! Pixel-faithful Discord Friends Page with smooth animations:
+//! #1 Sliding #5865f2 tab underline (150ms), #3 online pulse dot, #5 friend request 250ms slide-out,
+//! #6 Pending badge pop (300ms spring), and #7 hover slide-in action buttons (150ms).
 
-use super::{avatar_color, icons, FriendsTab, SkyApp};
+use super::{anim, avatar_color, icons, FriendsTab, SkyApp};
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, FontId, Rect, RichText, Sense, Stroke, Ui};
@@ -21,6 +20,8 @@ impl SkyApp {
             .iter()
             .filter(|f| f.status == FriendshipStatus::Pending && f.direction == "incoming")
             .count();
+        let badge_scale = self.pending_badge_scale(pending_count);
+        let reduced = self.config.reduced_motion;
 
         // 1. 48px Top Header Bar (--bg-primary, border-bottom 1px subtle)
         let (header_rect, _) =
@@ -32,6 +33,7 @@ impl SkyApp {
             theme::border(),
         );
 
+        let mut active_tab_rect: Option<Rect> = None;
         let header_inner = header_rect.shrink2(egui::vec2(16.0, 6.0));
         ui.allocate_new_ui(
             egui::UiBuilder::new()
@@ -70,6 +72,9 @@ impl SkyApp {
                     };
                     let (tr, tresp) =
                         ui.allocate_exact_size(egui::vec2(btn_w, 28.0), Sense::click());
+                    if active {
+                        active_tab_rect = Some(tr);
+                    }
                     ui.painter().rect_filled(
                         tr,
                         4.0,
@@ -101,14 +106,16 @@ impl SkyApp {
                             theme::TEXT_SECONDARY
                         },
                     );
+                    // #6 Pending Badge Pop (green pill scaling 0.5 -> 1.15 -> 1.0)
                     if show_badge {
                         let badge_c = tr.right_center() - egui::vec2(14.0, 0.0);
-                        ui.painter().circle_filled(badge_c, 8.0, theme::DANGER);
+                        ui.painter()
+                            .circle_filled(badge_c, 8.0 * badge_scale, theme::SUCCESS);
                         ui.painter().text(
                             badge_c,
                             Align2::CENTER_CENTER,
                             pending_count.min(99).to_string(),
-                            FontId::proportional(10.0),
+                            FontId::proportional((10.0 * badge_scale).max(6.5)),
                             Color32::WHITE,
                         );
                     }
@@ -121,6 +128,9 @@ impl SkyApp {
                 // Green "Add Friend" Discord tab button
                 let add_active = self.friends_tab == FriendsTab::AddFriend;
                 let (ar, aresp) = ui.allocate_exact_size(egui::vec2(92.0, 28.0), Sense::click());
+                if add_active {
+                    active_tab_rect = Some(ar);
+                }
                 ui.painter().rect_filled(
                     ar,
                     4.0,
@@ -146,7 +156,7 @@ impl SkyApp {
                     self.friend_error.clear();
                 }
 
-                // Right: Inbox icon + Latest release shortcut
+                // Right: Inbox icon
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (bell_r, bell_resp) =
                         ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::click());
@@ -176,6 +186,31 @@ impl SkyApp {
                 });
             },
         );
+
+        // #1 Sliding Tab Underline: 2px #5865f2 rounded bar gliding over 150ms
+        if let Some(target_r) = active_tab_rect {
+            let dur = if reduced { 0.001 } else { 0.15 };
+            let anim_left = ui.ctx().animate_value_with_time(
+                egui::Id::new("friends_tab_underline_x"),
+                target_r.left(),
+                dur,
+            );
+            let anim_w = ui.ctx().animate_value_with_time(
+                egui::Id::new("friends_tab_underline_w"),
+                target_r.width(),
+                dur,
+            );
+            if (anim_left - target_r.left()).abs() > 0.5
+                || (anim_w - target_r.width()).abs() > 0.5
+            {
+                self.animating = true;
+            }
+            let bar = Rect::from_min_max(
+                egui::pos2(anim_left, header_rect.bottom() - 2.5),
+                egui::pos2(anim_left + anim_w, header_rect.bottom() - 0.5),
+            );
+            ui.painter().rect_filled(bar, 2.0, theme::ACCENT);
+        }
 
         // 2. Main Tab Body
         egui::ScrollArea::vertical()
@@ -282,6 +317,28 @@ impl SkyApp {
     }
 
     fn ui_friends_list(&mut self, ui: &mut Ui) {
+        let now = Self::now_secs();
+        let reduced = self.config.reduced_motion;
+
+        // #5 Flush any completed 250ms friend-request slide-out animations
+        let finished_removals: Vec<(i64, bool)> = self
+            .removing_friends
+            .iter()
+            .filter_map(|(&uid, &(started, accept))| {
+                if reduced || (now - started) >= 0.25 {
+                    Some((uid, accept))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (uid, accept) in finished_removals {
+            self.removing_friends.remove(&uid);
+            self.friends
+                .retain(|f| !(f.user_id == uid && f.status == FriendshipStatus::Pending));
+            self.respond_friend(uid, accept);
+        }
+
         let mut friends = self.friends.clone();
         friends.sort_by(|a, b| {
             b.online.cmp(&a.online).then_with(|| {
@@ -325,6 +382,7 @@ impl SkyApp {
             FriendsTab::Blocked => format!("BLOCKED — {}", filtered.len()),
             FriendsTab::AddFriend => String::new(),
         };
+        let pulse = self.pulse_time(ui.ctx());
 
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(24, 16))
@@ -403,26 +461,56 @@ impl SkyApp {
                 ui.add_space(8.0);
 
                 for friend in filtered {
-                    let (div, _) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), 1.0),
-                        Sense::hover(),
-                    );
-                    ui.painter().rect_filled(div, 0.0, theme::BORDER_SUBTLE);
-
-                    let (row_rect, row_resp) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), 62.0),
-                        Sense::hover(),
-                    );
-                    let row_hovered = ui.ctx().input(|i| {
-                        i.pointer
-                            .hover_pos()
-                            .is_some_and(|p| row_rect.contains(p))
-                    });
-                    if row_hovered {
-                        ui.painter()
-                            .rect_filled(row_rect.shrink2(egui::vec2(0.0, 2.0)), 8.0, theme::BG_HOVER);
+                    // #5 Friend Request 250ms slideOutRight animation state
+                    let removing_state = self
+                        .removing_friends
+                        .get(&friend.user_id)
+                        .copied()
+                        .map(|(started, _)| {
+                            let raw = ((now - started) / 0.25).clamp(0.0, 1.0) as f32;
+                            anim::ease_in(raw)
+                        });
+                    let is_removing = removing_state.is_some();
+                    if is_removing {
+                        self.animating = true;
                     }
-                    let _ = row_resp;
+                    let rem_p = removing_state.unwrap_or(0.0);
+                    let row_alpha = (1.0 - rem_p).clamp(0.0, 1.0);
+                    let slide_x = 40.0 * rem_p;
+                    let row_h = (62.0 * (1.0 - rem_p)).max(0.5);
+
+                    if !is_removing {
+                        let (div, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 1.0),
+                            Sense::hover(),
+                        );
+                        ui.painter().rect_filled(div, 0.0, theme::BORDER_SUBTLE);
+                    }
+
+                    let (row_rect, _row_resp) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), row_h),
+                        Sense::hover(),
+                    );
+                    if row_h < 8.0 {
+                        continue;
+                    }
+
+                    let row_hovered = !is_removing
+                        && ui.ctx().input(|i| {
+                            i.pointer
+                                .hover_pos()
+                                .is_some_and(|p| row_rect.contains(p))
+                        });
+                    let shifted_rect = row_rect.translate(egui::vec2(slide_x, 0.0));
+                    let row_painter = ui.painter_at(row_rect);
+
+                    if row_hovered {
+                        row_painter.rect_filled(
+                            row_rect.shrink2(egui::vec2(0.0, 2.0)),
+                            8.0,
+                            theme::BG_HOVER,
+                        );
+                    }
 
                     let ring_bg = if row_hovered {
                         theme::BG_HOVER
@@ -430,15 +518,19 @@ impl SkyApp {
                         theme::BG_PRIMARY
                     };
 
-                    // 32px clickable avatar + Discord status dot
+                    // 34px clickable avatar + Discord status dot (#3 pulse on online)
                     let av_rect = Rect::from_center_size(
-                        egui::pos2(row_rect.left() + 26.0, row_rect.center().y),
+                        egui::pos2(shifted_rect.left() + 26.0, shifted_rect.center().y),
                         egui::vec2(34.0, 34.0),
                     );
                     let av_resp = ui.interact(
                         av_rect,
                         ui.id().with(("friend_av", friend.user_id)),
-                        Sense::click(),
+                        if is_removing {
+                            Sense::hover()
+                        } else {
+                            Sense::click()
+                        },
                     );
                     let mut drew = false;
                     if let Some(h) = friend.avatar_hash.as_deref() {
@@ -451,20 +543,20 @@ impl SkyApp {
                             &self.events_tx,
                         );
                         if let Some(t) = tex {
-                            ui.painter().image(
+                            row_painter.image(
                                 t.id(),
                                 av_rect,
                                 Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                Color32::WHITE,
+                                Color32::WHITE.gamma_multiply(row_alpha),
                             );
                             drew = true;
                         }
                     }
                     if !drew {
-                        ui.painter().circle_filled(
+                        row_painter.circle_filled(
                             av_rect.center(),
                             17.0,
-                            avatar_color(&friend.username, false),
+                            avatar_color(&friend.username, false).gamma_multiply(row_alpha),
                         );
                         let initial = friend
                             .username
@@ -473,25 +565,26 @@ impl SkyApp {
                             .unwrap_or('?')
                             .to_ascii_uppercase()
                             .to_string();
-                        ui.painter().text(
+                        row_painter.text(
                             av_rect.center(),
                             Align2::CENTER_CENTER,
                             initial,
                             FontId::proportional(14.0),
-                            Color32::WHITE,
+                            Color32::WHITE.gamma_multiply(row_alpha),
                         );
                     }
                     if friend.status == FriendshipStatus::Accepted
                         && !self.is_blocked(friend.user_id)
                     {
-                        icons::paint_status_dot(
-                            ui.painter(),
+                        icons::paint_status_dot_pulse(
+                            &row_painter,
                             av_rect.right_bottom() - egui::vec2(3.0, 3.0),
                             friend.presence,
                             ring_bg,
+                            pulse,
                         );
                     }
-                    if av_resp.clicked() {
+                    if !is_removing && av_resp.clicked() {
                         self.open_profile_popup(
                             friend.user_id,
                             friend.username.clone(),
@@ -501,12 +594,12 @@ impl SkyApp {
 
                     // Name + Status label
                     let tx = av_rect.right() + 12.0;
-                    ui.painter().text(
-                        egui::pos2(tx, row_rect.center().y - 2.0),
+                    row_painter.text(
+                        egui::pos2(tx, shifted_rect.center().y - 2.0),
                         Align2::LEFT_BOTTOM,
                         &friend.username,
                         FontId::proportional(15.0),
-                        theme::TEXT_PRIMARY,
+                        theme::TEXT_PRIMARY.gamma_multiply(row_alpha),
                     );
                     let sub_text = if self.is_blocked(friend.user_id) {
                         "Blocked".to_string()
@@ -525,17 +618,17 @@ impl SkyApp {
                         }
                         .to_string()
                     };
-                    ui.painter().text(
-                        egui::pos2(tx, row_rect.center().y + 2.0),
+                    row_painter.text(
+                        egui::pos2(tx, shifted_rect.center().y + 2.0),
                         Align2::LEFT_TOP,
                         sub_text,
                         FontId::proportional(12.5),
-                        theme::TEXT_MUTED,
+                        theme::TEXT_MUTED.gamma_multiply(row_alpha),
                     );
 
                     // Right-side circular Discord action buttons (36px)
-                    let cy = row_rect.center().y;
-                    let right_x = row_rect.right() - 28.0;
+                    let cy = shifted_rect.center().y;
+                    let right_x = shifted_rect.right() - 28.0;
 
                     if self.friends_tab == FriendsTab::Blocked {
                         let ur = Rect::from_center_size(
@@ -547,7 +640,7 @@ impl SkyApp {
                             ui.id().with(("unblock", friend.user_id)),
                             Sense::click(),
                         );
-                        ui.painter().rect_filled(
+                        row_painter.rect_filled(
                             ur,
                             4.0,
                             if uresp.hovered() {
@@ -556,7 +649,7 @@ impl SkyApp {
                                 theme::BG_SECONDARY
                             },
                         );
-                        ui.painter().text(
+                        row_painter.text(
                             ur.center(),
                             Align2::CENTER_CENTER,
                             "Unblock",
@@ -568,7 +661,7 @@ impl SkyApp {
                         }
                     } else if friend.status == FriendshipStatus::Pending {
                         if friend.direction == "incoming" {
-                            // Decline X
+                            // Decline X (triggers #5 250ms slideOutRight)
                             let xr = Rect::from_center_size(
                                 egui::pos2(right_x, cy),
                                 egui::vec2(36.0, 36.0),
@@ -576,32 +669,43 @@ impl SkyApp {
                             let xresp = ui.interact(
                                 xr,
                                 ui.id().with(("decline", friend.user_id)),
-                                Sense::click(),
+                                if is_removing {
+                                    Sense::hover()
+                                } else {
+                                    Sense::click()
+                                },
                             );
-                            ui.painter().circle_filled(
+                            row_painter.circle_filled(
                                 xr.center(),
                                 18.0,
-                                if xresp.hovered() {
+                                (if !is_removing && xresp.hovered() {
                                     theme::DANGER
                                 } else {
                                     theme::BG_SECONDARY
-                                },
+                                })
+                                .gamma_multiply(row_alpha),
                             );
                             icons::paint_x(
-                                ui.painter(),
+                                &row_painter,
                                 xr.center(),
                                 16.0,
-                                if xresp.hovered() {
+                                (if !is_removing && xresp.hovered() {
                                     Color32::WHITE
                                 } else {
                                     theme::TEXT_SECONDARY
-                                },
+                                })
+                                .gamma_multiply(row_alpha),
                             );
-                            if xresp.on_hover_text("Decline").clicked() {
-                                self.respond_friend(friend.user_id, false);
+                            if !is_removing && xresp.on_hover_text("Decline").clicked() {
+                                if reduced {
+                                    self.respond_friend(friend.user_id, false);
+                                } else {
+                                    self.removing_friends.insert(friend.user_id, (now, false));
+                                    self.animating = true;
+                                }
                             }
 
-                            // Accept Check
+                            // Accept Check (triggers #5 250ms slideOutRight)
                             let cr = Rect::from_center_size(
                                 egui::pos2(right_x - 46.0, cy),
                                 egui::vec2(36.0, 36.0),
@@ -609,104 +713,133 @@ impl SkyApp {
                             let cresp = ui.interact(
                                 cr,
                                 ui.id().with(("accept", friend.user_id)),
-                                Sense::click(),
+                                if is_removing {
+                                    Sense::hover()
+                                } else {
+                                    Sense::click()
+                                },
                             );
-                            ui.painter().circle_filled(
+                            row_painter.circle_filled(
                                 cr.center(),
                                 18.0,
-                                if cresp.hovered() {
+                                (if !is_removing && cresp.hovered() {
                                     theme::SUCCESS
                                 } else {
                                     theme::BG_SECONDARY
-                                },
+                                })
+                                .gamma_multiply(row_alpha),
                             );
                             icons::paint_check(
-                                ui.painter(),
+                                &row_painter,
                                 cr.center(),
                                 16.0,
-                                if cresp.hovered() {
+                                (if !is_removing && cresp.hovered() {
                                     Color32::WHITE
                                 } else {
                                     theme::TEXT_SECONDARY
-                                },
+                                })
+                                .gamma_multiply(row_alpha),
                             );
-                            if cresp.on_hover_text("Accept").clicked() {
-                                self.respond_friend(friend.user_id, true);
+                            if !is_removing && cresp.on_hover_text("Accept").clicked() {
+                                if reduced {
+                                    self.respond_friend(friend.user_id, true);
+                                } else {
+                                    self.removing_friends.insert(friend.user_id, (now, true));
+                                    self.animating = true;
+                                }
                             }
                         } else {
-                            ui.painter().text(
-                                egui::pos2(row_rect.right() - 12.0, cy),
+                            row_painter.text(
+                                egui::pos2(shifted_rect.right() - 12.0, cy),
                                 Align2::RIGHT_CENTER,
                                 "Pending",
                                 FontId::proportional(12.5),
-                                theme::TEXT_MUTED,
+                                theme::TEXT_MUTED.gamma_multiply(row_alpha),
                             );
                         }
                     } else {
-                        // Call button
-                        let cr = Rect::from_center_size(
-                            egui::pos2(right_x, cy),
-                            egui::vec2(36.0, 36.0),
+                        // #7 Hover: Action buttons slide in from right (+8px -> 0, opacity 0 -> 1, 150ms)
+                        let hover_t = ui.ctx().animate_bool_with_time(
+                            ui.id().with(("friend_actions_hover", friend.user_id)),
+                            row_hovered,
+                            if reduced { 0.001 } else { 0.15 },
                         );
-                        let cresp = ui.interact(
-                            cr,
-                            ui.id().with(("call_f", friend.user_id)),
-                            Sense::click(),
-                        );
-                        ui.painter().circle_filled(
-                            cr.center(),
-                            18.0,
-                            if cresp.hovered() {
-                                theme::BG_TERTIARY
-                            } else {
-                                theme::BG_SECONDARY
-                            },
-                        );
-                        icons::paint_phone(
-                            ui.painter(),
-                            cr.center(),
-                            16.0,
-                            if cresp.hovered() {
-                                theme::TEXT_PRIMARY
-                            } else {
-                                theme::TEXT_SECONDARY
-                            },
-                        );
-                        if cresp.on_hover_text("Start Voice Call").clicked() {
-                            self.open_dm(friend.user_id, true);
+                        if hover_t > 0.01 && hover_t < 0.99 {
+                            self.animating = true;
                         }
+                        if hover_t > 0.02 {
+                            let slide_off = (1.0 - hover_t) * 8.0;
+                            let act_x = right_x + slide_off;
 
-                        // Message button
-                        let mr = Rect::from_center_size(
-                            egui::pos2(right_x - 46.0, cy),
-                            egui::vec2(36.0, 36.0),
-                        );
-                        let mresp = ui.interact(
-                            mr,
-                            ui.id().with(("msg_f", friend.user_id)),
-                            Sense::click(),
-                        );
-                        ui.painter().circle_filled(
-                            mr.center(),
-                            18.0,
-                            if mresp.hovered() {
-                                theme::BG_TERTIARY
-                            } else {
-                                theme::BG_SECONDARY
-                            },
-                        );
-                        icons::paint_message_circle(
-                            ui.painter(),
-                            mr.center(),
-                            16.0,
-                            if mresp.hovered() {
-                                theme::TEXT_PRIMARY
-                            } else {
-                                theme::TEXT_SECONDARY
-                            },
-                        );
-                        if mresp.on_hover_text("Message").clicked() {
-                            self.open_dm(friend.user_id, false);
+                            // Call button
+                            let cr = Rect::from_center_size(
+                                egui::pos2(act_x, cy),
+                                egui::vec2(36.0, 36.0),
+                            );
+                            let cresp = ui.interact(
+                                cr,
+                                ui.id().with(("call_f", friend.user_id)),
+                                Sense::click(),
+                            );
+                            row_painter.circle_filled(
+                                cr.center(),
+                                18.0,
+                                (if cresp.hovered() {
+                                    theme::BG_TERTIARY
+                                } else {
+                                    theme::BG_SECONDARY
+                                })
+                                .gamma_multiply(hover_t),
+                            );
+                            icons::paint_phone(
+                                &row_painter,
+                                cr.center(),
+                                16.0,
+                                (if cresp.hovered() {
+                                    theme::TEXT_PRIMARY
+                                } else {
+                                    theme::TEXT_SECONDARY
+                                })
+                                .gamma_multiply(hover_t),
+                            );
+                            if cresp.on_hover_text("Start Voice Call").clicked() {
+                                self.open_dm(friend.user_id, true);
+                            }
+
+                            // Message button
+                            let mr = Rect::from_center_size(
+                                egui::pos2(act_x - 46.0, cy),
+                                egui::vec2(36.0, 36.0),
+                            );
+                            let mresp = ui.interact(
+                                mr,
+                                ui.id().with(("msg_f", friend.user_id)),
+                                Sense::click(),
+                            );
+                            row_painter.circle_filled(
+                                mr.center(),
+                                18.0,
+                                (if mresp.hovered() {
+                                    theme::BG_TERTIARY
+                                } else {
+                                    theme::BG_SECONDARY
+                                })
+                                .gamma_multiply(hover_t),
+                            );
+                            icons::paint_message_circle(
+                                &row_painter,
+                                mr.center(),
+                                16.0,
+                                (if mresp.hovered() {
+                                    theme::TEXT_PRIMARY
+                                } else {
+                                    theme::TEXT_SECONDARY
+                                })
+                                .gamma_multiply(hover_t),
+                            );
+                            if mresp.on_hover_text("Message").clicked() {
+                                self.open_dm(friend.user_id, false);
+                            }
                         }
                     }
                 }

@@ -6,7 +6,7 @@
 //! and Discord #383a40 composer with Emoji Picker + Arrow-Up edit last message.
 
 use super::{
-    avatar_color, day_index, format_day_label, format_discord_timestamp, format_hhmm, icons,
+    anim, avatar_color, day_index, format_day_label, format_discord_timestamp, format_hhmm, icons,
     SkyApp,
 };
 use crate::theme;
@@ -65,7 +65,14 @@ impl SkyApp {
                 }
                 ui.add_space(4.0);
                 let (dot_r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), Sense::hover());
-                icons::paint_status_dot(ui.painter(), dot_r.center(), peer_status, theme::BG_PRIMARY);
+                let pulse = self.pulse_time(ui.ctx());
+                icons::paint_status_dot_pulse(
+                    ui.painter(),
+                    dot_r.center(),
+                    peer_status,
+                    theme::BG_PRIMARY,
+                    pulse,
+                );
 
                 // Right side: inline Search OR icon buttons (Phone, Video/Share, Pin, Search)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -476,31 +483,50 @@ impl SkyApp {
                         });
                     });
 
-                // Animated 3-dot Typing Indicator below composer (22px height)
+                // Animated 3-dot Typing Indicator below composer (200ms fade in/out + staggered 1.2s bounce)
                 let (typ_r, _) =
                     ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), Sense::hover());
-                if !active_typers.is_empty() {
-                    let t = ui.ctx().input(|i| i.time) as f32;
-                    for dot in 0..3 {
-                        let phase = t * 7.0 - (dot as f32) * 1.1;
-                        let bounce = (phase.sin().max(0.0)) * 3.0;
-                        let c = egui::pos2(
-                            typ_r.left() + 8.0 + (dot as f32) * 7.0,
-                            typ_r.center().y + 1.0 - bounce,
-                        );
-                        ui.painter().circle_filled(c, 2.3, theme::TEXT_SECONDARY);
-                    }
-                    let text = if active_typers.len() == 1 {
+                let is_typing = !active_typers.is_empty();
+                if is_typing {
+                    self.last_typing_text = if active_typers.len() == 1 {
                         format!("{} is typing...", active_typers[0])
                     } else {
                         format!("{} are typing...", active_typers.join(", "))
                     };
+                }
+                let dt = ui.ctx().input(|i| i.unstable_dt).clamp(0.001, 0.1);
+                let fade_step = if self.config.reduced_motion {
+                    1.0
+                } else {
+                    dt / 0.20
+                };
+                if is_typing {
+                    self.typing_fade = (self.typing_fade + fade_step).min(1.0);
+                } else {
+                    self.typing_fade = (self.typing_fade - fade_step).max(0.0);
+                }
+                if self.typing_fade > 0.005 {
+                    if is_typing || self.typing_fade < 1.0 {
+                        self.animating = true;
+                    }
+                    let t = ui.ctx().input(|i| i.time);
+                    let dot_alpha = (self.typing_fade * 255.0).round().clamp(0.0, 255.0) as u8;
+                    let dot_color = Color32::from_rgba_unmultiplied(0xB5, 0xBA, 0xC1, dot_alpha);
+                    for (dot, delay) in [0.0_f64, 0.15, 0.30].iter().enumerate() {
+                        let y_off =
+                            anim::typing_dot_offset(t, *delay, self.config.reduced_motion);
+                        let c = egui::pos2(
+                            typ_r.left() + 8.0 + (dot as f32) * 9.0,
+                            typ_r.center().y + 1.0 + y_off,
+                        );
+                        ui.painter().circle_filled(c, 3.0, dot_color);
+                    }
                     ui.painter().text(
-                        egui::pos2(typ_r.left() + 30.0, typ_r.center().y),
+                        egui::pos2(typ_r.left() + 36.0, typ_r.center().y),
                         Align2::LEFT_CENTER,
-                        text,
+                        &self.last_typing_text,
                         FontId::proportional(12.0),
-                        theme::TEXT_SECONDARY,
+                        dot_color,
                     );
                 }
             });
@@ -514,6 +540,7 @@ impl SkyApp {
         let mut pending_open_emoji_for: Option<i64> = None;
         let mut pending_reply: Option<(i64, String, String)> = None;
         let mut pending_profile: Option<(i64, String, Pos2)> = None;
+        let mut finished_msg_anims: Vec<i64> = Vec::new();
 
         let search_filter = if self.chat_search_open {
             self.chat_msg_search.trim().to_ascii_lowercase()
@@ -681,6 +708,24 @@ impl SkyApp {
                                 .as_ref()
                                 .is_some_and(|(id, _)| *id == message.id);
 
+                            // #2 Message send/receive spring bounce (freshly appended messages only)
+                            let (msg_alpha, msg_y_off) =
+                                if let Some(&started_at) = self.new_message_anims.get(&message.id) {
+                                    let (alpha, y_off, _scale, done) = anim::message_in(
+                                        (now - started_at) as f32,
+                                        self.config.reduced_motion,
+                                    );
+                                    if done {
+                                        finished_msg_anims.push(message.id);
+                                        (1.0, 0.0)
+                                    } else {
+                                        self.animating = true;
+                                        (alpha, y_off)
+                                    }
+                                } else {
+                                    (1.0, 0.0)
+                                };
+
                             // Measure row hover by pre-allocating a background shape placeholder
                             let bg_shape = ui.painter().add(egui::Shape::Noop);
                             let row_start = ui.cursor().min;
@@ -689,11 +734,14 @@ impl SkyApp {
                                 .allocate_new_ui(
                                     egui::UiBuilder::new()
                                         .max_rect(Rect::from_min_size(
-                                            row_start,
+                                            row_start + egui::vec2(0.0, msg_y_off),
                                             egui::vec2(ui.available_width(), 10_000.0),
                                         ))
                                         .layout(egui::Layout::top_down(egui::Align::LEFT)),
                                     |ui| {
+                                        if msg_alpha < 0.999 {
+                                            ui.multiply_opacity(msg_alpha);
+                                        }
                                         egui::Frame::new()
                                             .inner_margin(egui::Margin {
                                                 left: 16,
@@ -1228,6 +1276,9 @@ impl SkyApp {
         if let Some(r) = pending_reply {
             self.reply_to = Some(r);
             self.refocus_draft = true;
+        }
+        for id in finished_msg_anims {
+            self.new_message_anims.remove(&id);
         }
         if let Some((uid, uname, pos)) = pending_profile {
             self.open_profile_popup(uid, uname, pos);
