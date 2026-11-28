@@ -4,6 +4,7 @@ mod db;
 mod friends;
 mod hub;
 
+use axum::response::Html;
 use axum::routing::{get, post};
 use axum::Router;
 use sqlx::PgPool;
@@ -104,7 +105,7 @@ async fn main() {
     }
 
     let app = Router::new()
-        .route("/", get(|| async { "Wireline relay server is running" }))
+        .route("/", get(|| async { Html(include_str!("../web/index.html")) }))
         .route("/health", get(|| async { "ok" }))
         .route("/api/register", post(auth::register))
         .route("/api/verify-code", post(auth::verify_code))

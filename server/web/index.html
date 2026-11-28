@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wireline</title>
+<style>
+:root, [data-theme="dark"] {
+  --canvas: #0e1016;
+  --sidebar: #141720;
+  --surface: #1b1f2c;
+  --surface-alt: #232838;
+  --floating: #141722;
+  --hover: #1f2434;
+  --active: #272d42;
+  --input-bg: #191d29;
+  --border: #262c3e;
+  --hairline: #1e2331;
+  --text-primary: #f3f5fa;
+  --text-secondary: #a6b0c6;
+  --text-muted: #6e7891;
+  --text-link: #60a5fa;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-soft: #242852;
+  --own-bubble: #4f46e5;
+  --own-text: #ffffff;
+  --peer-bubble: #1b1f2c;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+[data-theme="light"] {
+  --canvas: #ffffff;
+  --sidebar: #f4f6fa;
+  --surface: #eef1f7;
+  --surface-alt: #e3e8f2;
+  --floating: #ffffff;
+  --hover: #e9edf5;
+  --active: #dfe5f7;
+  --input-bg: #f1f4f9;
+  --border: #dce2ee;
+  --hairline: #e5eaf2;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-link: #2563eb;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #e0e7ff;
+  --own-bubble: #4f46e5;
+  --own-text: #ffffff;
+  --peer-bubble: #f1f5f9;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; width: 100%; overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  background: var(--canvas); color: var(--text-primary);
+  font-size: var(--chat-font-size, 15px);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea { font-family: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: transparent; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* Animations */
+@keyframes messageIn {
+  0% { opacity: 0; transform: translateY(8px) scale(0.97); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.msg-new { animation: messageIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+@keyframes onlinePulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
+  70% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.dot-online { background: var(--success); animation: onlinePulse 2.5s ease-out infinite; }
+.dot-away { background: var(--warning); }
+.dot-dnd { background: var(--danger); }
+.dot-offline { background: var(--text-muted); }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
+}
+.typing-dots span {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-secondary); margin-right: 3px;
+  animation: typingBounce 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.30s; }
+
+@keyframes slideOutRight {
+  0% { opacity: 1; transform: translateX(0); max-height: 76px; }
+  100% { opacity: 0; transform: translateX(40px); max-height: 0; padding: 0; margin: 0; border-width: 0; }
+}
+.removing { animation: slideOutRight 250ms ease-in forwards; overflow: hidden; pointer-events: none; }
+
+@keyframes badgePop {
+  0% { transform: scale(0.5); }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.badge-pop { animation: badgePop 300ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+@keyframes modalIn {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes modalOut {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.95); }
+}
+.modal-enter { animation: modalIn 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.modal-exit { animation: modalOut 150ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+@keyframes toastIn {
+  0% { opacity: 0; transform: translateY(-16px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes toastProgress {
+  0% { width: 100%; }
+  100% { width: 0%; }
+}
+.toast-enter { animation: toastIn 250ms ease forwards; }
+.toast-exit { animation: toastOut 200ms ease forwards; }
+.toast-bar { height: 2px; background: var(--accent); animation: toastProgress 4s linear forwards; border-radius: 2px; }
+.toast-item:hover .toast-bar { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Auth Screen */
+.auth-wrap {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  background: var(--sidebar); padding: 20px;
+}
+.auth-card {
+  width: 100%; max-width: 420px; background: var(--canvas);
+  border: 1px solid var(--border); border-radius: 16px; padding: 32px;
+  box-shadow: var(--shadow);
+}
+.auth-card h1 { font-size: 22px; font-weight: 600; text-align: center; margin-bottom: 6px; }
+.auth-sub { font-size: 13.5px; color: var(--text-muted); text-align: center; margin-bottom: 22px; }
+.field-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.04em; margin-bottom: 6px; margin-top: 12px; }
+.text-input {
+  width: 100%; background: var(--input-bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; font-size: 14px; outline: none;
+  transition: border-color 150ms ease;
+}
+.text-input:focus { border-color: var(--accent); }
+.btn-primary {
+  width: 100%; margin-top: 18px; padding: 11px; border-radius: 10px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 14.5px;
+  transition: background 150ms ease;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.auth-footer { margin-top: 14px; font-size: 13px; color: var(--text-muted); }
+.auth-footer a { color: var(--accent); cursor: pointer; font-weight: 600; text-decoration: none; }
+.notice { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+.notice.err { color: var(--danger); }
+
+/* App Shell */
+.shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
+.sidebar {
+  width: 276px; flex-shrink: 0; background: var(--sidebar);
+  border-right: 1px solid var(--hairline); display: flex; flex-direction: column;
+}
+.profile-top {
+  height: 60px; padding: 0 12px; border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.profile-chip {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+  padding: 5px 8px; border-radius: 10px; cursor: pointer; transition: background 120ms;
+}
+.profile-chip:hover { background: var(--hover); }
+.avatar {
+  position: relative; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; color: #fff; font-weight: 600; flex-shrink: 0; user-select: none;
+}
+.status-dot {
+  position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px;
+  border-radius: 50%; border: 2.5px solid var(--sidebar);
+}
+.icon-btn {
+  width: 34px; height: 34px; border-radius: 9px; display: inline-flex;
+  align-items: center; justify-content: center; color: var(--text-secondary);
+  transition: background 120ms, color 120ms; flex-shrink: 0;
+}
+.icon-btn:hover { background: var(--hover); color: var(--text-primary); }
+.icon-btn.active { background: var(--accent); color: #fff; }
+.icon-btn.danger { background: var(--danger); color: #fff; }
+.icon-btn.success { background: var(--success); color: #fff; }
+
+.side-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px; gap: 10px; }
+.seg-switch {
+  display: flex; background: var(--surface); border-radius: 10px; padding: 3px; gap: 3px;
+}
+.seg-btn {
+  flex: 1; height: 30px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background 140ms, color 140ms;
+}
+.seg-btn.active { background: var(--floating); color: var(--text-primary); border: 1px solid var(--border); }
+.seg-btn:not(.active):hover { background: var(--hover); }
+.pill-badge {
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px;
+  background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pill-badge.green { background: var(--success); }
+
+.search-pill {
+  display: flex; align-items: center; gap: 8px; background: var(--input-bg);
+  border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px;
+}
+.search-pill input { flex: 1; border: none; background: transparent; outline: none; font-size: 13px; }
+.sec-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.sec-label { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; }
+
+.dm-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.dm-card {
+  height: 54px; padding: 0 10px; border-radius: 10px; display: flex; align-items: center;
+  gap: 10px; cursor: pointer; transition: background 120ms; flex-shrink: 0;
+}
+.dm-card:hover { background: var(--hover); }
+.dm-card.active { background: var(--active); }
+.dm-meta { flex: 1; min-width: 0; }
+.dm-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dm-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-time { font-size: 10.5px; color: var(--text-muted); flex-shrink: 0; }
+.dm-prev { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+
+.call-float-card {
+  margin: 0 10px 10px; padding: 12px; background: var(--floating);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+}
+.call-float-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.call-float-btns button {
+  height: 34px; border-radius: 8px; background: var(--surface); color: var(--text-primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.call-float-btns button:hover { background: var(--hover); }
+.call-float-btns button.on-danger { background: var(--danger); color: #fff; }
+.call-float-btns button.on-success { background: var(--success); color: #fff; }
+
+/* Main Workspace */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--canvas); }
+.topbar {
+  height: 56px; padding: 0 20px; border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;
+}
+.topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+.call-pill-btn {
+  height: 34px; padding: 0 14px; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--border); color: var(--text-primary); font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 7px; transition: all 140ms;
+}
+.call-pill-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.call-pill-btn.in-call { background: var(--success); border-color: var(--success); color: #fff; }
+
+/* Scalable Call Stage */
+.call-stage-wrap { padding: 10px 16px 0; flex-shrink: 0; }
+.call-stage {
+  background: #0a0c12; color: #f3f5fa; border-radius: 14px; border: 1px solid #23293a;
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+}
+.call-stage-hdr {
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.live-pill {
+  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 99px; letter-spacing: 0.04em;
+}
+.mini-pill {
+  height: 24px; padding: 0 8px; border-radius: 6px; background: #1e2332; color: #d5dceb;
+  font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
+}
+.mini-pill:hover { background: #2b3247; }
+.mini-pill.active { background: var(--accent); color: #fff; }
+.call-stage-body {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 4px 16px; gap: 14px; overflow: hidden;
+}
+.screen-view {
+  max-width: 100%; max-height: 100%; border-radius: 8px; object-fit: contain; background: #000;
+}
+.p-tile {
+  width: 164px; height: 108px; border-radius: 12px; background: #171b26;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative; border: 2px solid transparent; transition: border-color 150ms;
+}
+.p-tile.speaking { border-color: var(--success); }
+.p-tile-name { position: absolute; left: 10px; bottom: 8px; font-size: 12px; font-weight: 600; }
+.call-stage-dock {
+  padding: 8px 0 12px; display: flex; align-items: center; justify-content: center; gap: 12px;
+}
+.call-circle {
+  width: 42px; height: 42px; border-radius: 50%; background: #1e2332; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; transition: background 140ms;
+}
+.call-circle:hover { background: #2b3247; }
+.call-circle.on-white { background: #fff; color: #0a0c12; }
+.call-circle.on-green { background: var(--success); color: #fff; }
+.call-circle.on-red { background: var(--danger); color: #fff; }
+.resize-grip {
+  height: 12px; display: flex; align-items: center; justify-content: center; cursor: ns-resize;
+}
+.resize-grip span {
+  width: 48px; height: 4px; border-radius: 2px; background: var(--border); transition: background 120ms;
+}
+.resize-grip:hover span { background: var(--accent); }
+
+/* Chat Stream */
+.msg-scroll { flex: 1; overflow-y: auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 4px; }
+.date-pill {
+  align-self: center; margin: 10px 0; padding: 3px 12px; border-radius: 99px;
+  background: var(--surface); color: var(--text-muted); font-size: 11px; font-weight: 600;
+}
+.msg-row {
+  position: relative; display: flex; flex-direction: column; padding: 2px 0;
+}
+.msg-row.mine { align-items: flex-end; }
+.msg-row.theirs { align-items: flex-start; }
+.msg-inner { display: flex; align-items: flex-start; gap: 10px; max-width: 74%; }
+.msg-row.mine .msg-inner { flex-direction: row-reverse; }
+.bubble {
+  padding: 9px 14px; border-radius: 16px; line-height: 1.42; word-break: break-word;
+}
+.msg-row.mine .bubble {
+  background: var(--own-bubble); color: var(--own-text); border-bottom-right-radius: 4px;
+}
+.msg-row.theirs .bubble {
+  background: var(--peer-bubble); color: var(--text-primary);
+  border: 1px solid var(--border); border-top-left-radius: 4px;
+}
+.msg-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 6px; align-items: center; }
+.reply-chip {
+  font-size: 11.5px; color: var(--text-muted); background: var(--surface);
+  padding: 3px 10px; border-radius: 8px; margin-bottom: 4px; max-width: 360px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.reply-chip b { color: var(--accent); }
+.reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.react-pill {
+  padding: 2px 8px; border-radius: 10px; background: var(--surface);
+  border: 1px solid var(--border); font-size: 12.5px; color: var(--text-secondary);
+}
+.react-pill.mine { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
+.hover-bar {
+  position: absolute; top: -10px; background: var(--floating); border: 1px solid var(--border);
+  border-radius: 8px; padding: 2px; display: none; gap: 2px; box-shadow: var(--shadow); z-index: 4;
+}
+.msg-row:hover .hover-bar { display: flex; }
+.msg-row.mine .hover-bar { left: 8px; }
+.msg-row.theirs .hover-bar { right: 8px; }
+.hover-bar button { width: 26px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+.hover-bar button:hover { background: var(--hover); color: var(--text-primary); }
+.hover-bar button.del:hover { background: var(--danger); color: #fff; }
+.spoiler { background: var(--surface-alt); color: transparent; border-radius: 4px; padding: 0 4px; cursor: pointer; }
+.spoiler.open { color: inherit; background: rgba(128,128,128,0.18); }
+.code-inline { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,0.22); }
+.code-block { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.28); overflow-x: auto; margin: 4px 0; white-space: pre; }
+.mention { background: var(--accent-soft); color: var(--accent); padding: 0 4px; border-radius: 4px; font-weight: 600; }
+.msg-row.mine .mention { background: rgba(255,255,255,0.22); color: #fff; }
+
+/* Composer */
+.composer-dock { padding: 4px 18px 14px; flex-shrink: 0; }
+.typing-row { height: 20px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); padding-left: 8px; opacity: 0; transition: opacity 200ms ease; }
+.typing-row.show { opacity: 1; }
+.reply-banner {
+  background: var(--surface); border: 1px solid var(--border); border-bottom: none;
+  border-radius: 14px 14px 0 0; padding: 6px 14px; display: flex; align-items: center;
+  justify-content: space-between; font-size: 12px; color: var(--text-secondary);
+}
+.composer-pill {
+  display: flex; align-items: center; gap: 8px; background: var(--input-bg);
+  border: 1px solid var(--border); border-radius: 22px; padding: 6px 8px 6px 12px;
+  transition: border-color 150ms;
+}
+.composer-pill.has-reply { border-radius: 0 0 22px 22px; }
+.composer-pill:focus-within { border-color: var(--accent); }
+.composer-pill input {
+  flex: 1; border: none; background: transparent; outline: none; font-size: 14.5px; height: 28px;
+}
+.send-circle {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.send-circle:disabled { background: var(--surface-alt); color: var(--text-muted); cursor: default; }
+
+/* People Page */
+.tabs-bar { position: relative; display: flex; align-items: center; gap: 6px; height: 100%; }
+.tab-btn {
+  height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
+  color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px;
+}
+.tab-btn:hover { background: var(--hover); color: var(--text-primary); }
+.tab-btn.active { color: var(--text-primary); }
+.tab-btn.add-btn { background: var(--accent); color: #fff; }
+.tab-btn.add-btn.active { background: var(--accent-soft); color: var(--accent); }
+.tab-indicator {
+  position: absolute; bottom: 0; height: 2.5px; background: var(--accent);
+  border-radius: 2px; transition: left 150ms cubic-bezier(0.4, 0, 0.2, 1), width 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.people-body { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; align-items: center; }
+.people-col { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
+.friend-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 12px; background: var(--surface);
+  border: 1px solid var(--border); transition: background 120ms;
+}
+.friend-card:hover { background: var(--hover); }
+.friend-actions { display: flex; gap: 6px; }
+.friend-card.hover-slide .friend-actions {
+  opacity: 0; transform: translateX(8px); transition: opacity 150ms ease, transform 150ms ease;
+}
+.friend-card.hover-slide:hover .friend-actions { opacity: 1; transform: translateX(0); }
+.circle-act {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--floating);
+  border: 1px solid var(--border); color: var(--text-primary);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.circle-act:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.circle-act.accept:hover { background: var(--success); border-color: var(--success); color: #fff; }
+.circle-act.decline:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* Popovers, Modals, Toasts */
+.backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+}
+.settings-modal {
+  width: min(860px, calc(100vw - 40px)); height: min(620px, calc(100vh - 40px));
+  background: var(--canvas); border: 1px solid var(--border); border-radius: 16px;
+  display: flex; overflow: hidden; box-shadow: var(--shadow);
+}
+.settings-nav { width: 210px; background: var(--sidebar); border-right: 1px solid var(--hairline); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
+.settings-nav button { text-align: left; padding: 9px 12px; border-radius: 8px; font-size: 13.5px; font-weight: 600; color: var(--text-secondary); }
+.settings-nav button.active { background: var(--active); color: var(--text-primary); }
+.settings-nav button:hover:not(.active) { background: var(--hover); }
+.settings-content { flex: 1; padding: 24px 28px; overflow-y: auto; position: relative; }
+.pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.opt-btn {
+  padding: 8px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+}
+.opt-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.popover {
+  position: fixed; z-index: 45; background: var(--floating); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow); padding: 12px;
+}
+.emoji-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; max-height: 250px; overflow-y: auto; margin-top: 8px; }
+.emoji-grid button { font-size: 20px; height: 36px; border-radius: 8px; }
+.emoji-grid button:hover { background: var(--hover); }
+
+.toast-stack { position: fixed; top: 64px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: 300px; }
+.toast-item {
+  background: var(--floating); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 12px 12px 8px; cursor: pointer; overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .sidebar { width: 220px; }
+}
+</style>
+</head>
+<body>
+<div id="root" style="height:100%"></div>
+
+<script>
+(() => {
+  const BASE = location.origin;
+  const WS_BASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+
+  // Crisp inline SVG icons (zero external CDN needed on restricted Chromebooks)
+  const SVG = {
+    chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+    users: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
+    phoneOff: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>',
+    screen: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="9 10 12 7 15 10"/><line x1="12" y1="7" x2="12" y2="14"/></svg>',
+    mic: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+    micOff: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+    headphones: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>',
+    gear: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    sun: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>',
+    moon: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+    search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    smile: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+    send: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    reply: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+    trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+    check: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    x: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  };
+
+  // Studio Web Audio synthesizer matching the desktop app
+  let actx = null;
+  function getAudio() {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function playTone(notes, gap = 0.015) {
+    if (!state.prefs.sounds || state.deafened) return;
+    try {
+      const c = getAudio();
+      let t = c.currentTime;
+      for (const [f1, f2, dur, vol] of notes) {
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(f1, t);
+        if (f2 !== f1) osc.frequency.exponentialRampToValueAtTime(f2, t + dur);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(vol, t + dur * 0.12);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.connect(g); g.connect(c.destination);
+        osc.start(t); osc.stop(t + dur + 0.01);
+        t += dur + gap;
+      }
+    } catch {}
+  }
+  const SFX = {
+    send: () => playTone([[420, 560, 0.055, 0.08]]),
+    recv: () => playTone([[659, 659, 0.07, 0.1], [988, 988, 0.11, 0.09]], 0.02),
+    callJoin: () => playTone([[523, 523, 0.07, 0.1], [659, 659, 0.07, 0.1], [784, 784, 0.14, 0.11]], 0.015),
+    callLeave: () => playTone([[523, 523, 0.08, 0.1], [392, 392, 0.14, 0.1]], 0.015),
+    ring: () => playTone([[784, 784, 0.09, 0.11], [988, 988, 0.09, 0.11], [1175, 1175, 0.15, 0.1]], 0.025),
+    mute: () => playTone([[420, 270, 0.075, 0.1]]),
+    unmute: () => playTone([[310, 480, 0.075, 0.1]]),
+    shareOn: () => playTone([[587, 587, 0.07, 0.1], [880, 880, 0.13, 0.1]], 0.015),
+    shareOff: () => playTone([[659, 659, 0.07, 0.09], [440, 440, 0.12, 0.09]], 0.015),
+    react: () => playTone([[640, 920, 0.05, 0.08]]),
+    click: () => playTone([[540, 480, 0.024, 0.04]]),
+    friend: () => playTone([[587, 587, 0.06, 0.09], [740, 740, 0.06, 0.09], [880, 880, 0.12, 0.1]], 0.014),
+  };
+
+  const EMOJIS = ['😀','😂','🤣','😍','🥺','😭','😎','🤔','🤯','💀','👻','👍','👎','👏','🙌','🙏','🔥','❤️','💯','✨','🎉','🏆','🎮','🎧','💻','☕','🍕','🚀','⚡','⭐','👀','🫡'];
+
+  const savedSession = JSON.parse(localStorage.getItem('wl_session') || 'null');
+  const savedPrefs = Object.assign({
+    theme: 'dark', compact: false, fontSize: 15, sounds: true,
+    callHeight: 280, screenFps: 30, screenRes: 1080, status: 'online'
+  }, JSON.parse(localStorage.getItem('wl_prefs') || '{}'));
+
+  const state = {
+    session: savedSession,
+    prefs: savedPrefs,
+    authTab: 'login',
+    notice: '', noticeErr: false, busy: false,
+    connected: false,
+    channels: [],
+    friends: [],
+    online: {},
+    selectedChannel: null,
+    messages: [],
+    lastMessages: {},
+    unread: {},
+    typing: {},
+    chatSearch: '',
+    msgSearchOpen: false,
+    msgSearch: '',
+    peopleTab: 'online',
+    peopleSearch: '',
+    addFriendErr: '',
+    replyTo: null,
+    editingId: null,
+    editDraft: '',
+    showProfilePop: false,
+    showSettings: false,
+    settingsTab: 'appearance',
+    emojiTarget: undefined, // undefined = closed, null = composer, number = msgId
+    toasts: [],
+    inVoice: false,
+    callExpanded: true,
+    voiceRoom: null,
+    callStart: 0,
+    participants: [],
+    muted: false,
+    deafened: false,
+    sharing: false,
+    screenSrc: null,
+    screenMeta: '',
+    incomingCall: null,
+  };
+
+  function savePrefs() {
+    localStorage.setItem('wl_prefs', JSON.stringify(state.prefs));
+    document.documentElement.dataset.theme = state.prefs.theme;
+    document.documentElement.style.setProperty('--chat-font-size', state.prefs.fontSize + 'px');
+  }
+  savePrefs();
+
+  function avColor(name, mine) {
+    if (mine) return '#6366f1';
+    let h = 2166136261;
+    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619); }
+    const pal = ['#6366f1','#22c55e','#f59e0b','#ec4899','#06b6d4'];
+    return pal[Math.abs(h) % pal.length];
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function fmtTime(sec) {
+    const d = new Date(sec * 1000);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtDay(sec) {
+    const d = new Date(sec * 1000), n = new Date();
+    const k = x => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+    if (k(d) === k(n)) return 'Today';
+    const y = new Date(n); y.setDate(n.getDate() - 1);
+    if (k(d) === k(y)) return 'Yesterday';
+    return d.toLocaleDateString();
+  }
+  function renderMd(raw) {
+    const parts = raw.split('```');
+    return parts.map((part, i) => {
+      if (i % 2 === 1) {
+        const clean = part.replace(/^\n+|\n+$/g, '');
+        return `<div class="code-block">${esc(clean)}</div>`;
+      }
+      let h = esc(part);
+      h = h.replace(/\|\|([^|]+)\|\|/g, '<span class="spoiler" onclick="this.classList.toggle(\'open\')">$1</span>');
+      h = h.replace(/`([^`]+)`/g, '<span class="code-inline">$1</span>');
+      h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/__([^_]+)__/g, '<u>$1</u>');
+      h = h.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+      h = h.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">$1</a>');
+      h = h.replace(/(^|\s)(@[A-Za-z0-9_]+)/g, '$1<span class="mention">$2</span>');
+      h = h.replace(/^&gt; (.+)$/gm, '<div style="border-left:3px solid currentColor;padding-left:8px;opacity:.85">$1</div>');
+      return h.replace(/\n/g, '<br>');
+    }).join('');
+  }
+
+  async function api(path, opts = {}) {
+    const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    if (state.session?.token) headers['Authorization'] = 'Bearer ' + state.session.token;
+    const res = await fetch(BASE + path, Object.assign({}, opts, { headers }));
+    const txt = await res.text();
+    if (!res.ok) {
+      if (res.status === 401 && state.session) { signOut('Session expired.'); }
+      throw new Error(txt || `HTTP ${res.status}`);
+    }
+    return txt ? JSON.parse(txt) : null;
+  }
+
+  // WebSocket + reconnect
+  let ws = null, pingTimer = null, reconTimer = null;
+  function wsSend(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+  function connectWs() {
+    if (!state.session) return;
+    if (ws) { try { ws.close(); } catch {} }
+    ws = new WebSocket(`${WS_BASE}/ws?token=${encodeURIComponent(state.session.token)}`);
+    ws.onopen = () => {
+      state.connected = true;
+      wsSend({ type: 'set_presence', status: state.prefs.status });
+      if (state.inVoice && state.voiceRoom) wsSend({ type: 'join_voice', room: state.voiceRoom });
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => wsSend({ type: 'ping' }), 40000);
+      loadChannels(); loadFriends(); render();
+    };
+    ws.onclose = () => {
+      state.connected = false; clearInterval(pingTimer); render();
+      if (state.session) { clearTimeout(reconTimer); reconTimer = setTimeout(connectWs, 2500); }
+    };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      handleWs(m);
+    };
+  }
+
+  function pushToast(chId, sender, preview) {
+    const id = Date.now() + Math.random();
+    state.toasts.push({ id, chId, sender, preview, closing: false });
+    if (state.toasts.length > 3) state.toasts.shift();
+    renderToasts();
+    setTimeout(() => {
+      const t = state.toasts.find(x => x.id === id);
+      if (t && !t.closing) { t.closing = true; renderToasts(); setTimeout(() => { state.toasts = state.toasts.filter(x => x.id !== id); renderToasts(); }, 200); }
+    }, 4000);
+  }
+
+  function handleWs(m) {
+    const meId = state.session?.user_id;
+    switch (m.type) {
+      case 'presence_snapshot':
+        state.online = {};
+        for (const u of m.users) state.online[u.user_id] = u.status;
+        for (const f of state.friends) {
+          f.online = !!state.online[f.user_id];
+          f.presence = state.online[f.user_id] || 'offline';
+        }
+        render(); break;
+      case 'friends_updated': loadFriends(); break;
+      case 'channels_updated': loadChannels(); break;
+      case 'new_message': {
+        const msg = m.message;
+        state.lastMessages[msg.channel_id] = { text: msg.content, ts: msg.created_at };
+        if (state.typing[msg.channel_id]) delete state.typing[msg.channel_id][msg.user_id];
+        if (state.selectedChannel === msg.channel_id) {
+          msg._isNew = true;
+          state.messages.push(msg);
+          if (msg.user_id !== meId) SFX.recv();
+          render();
+          setTimeout(() => { const s = document.getElementById('msg-scroll'); if (s) s.scrollTop = s.scrollHeight; }, 20);
+        } else if (msg.user_id !== meId) {
+          state.unread[msg.channel_id] = (state.unread[msg.channel_id] || 0) + 1;
+          SFX.recv();
+          pushToast(msg.channel_id, msg.username, msg.content);
+          render();
+        }
+        break;
+      }
+      case 'message_edited':
+        if (state.selectedChannel === m.channel_id) {
+          const msg = state.messages.find(x => x.id === m.message_id);
+          if (msg) { msg.content = m.content; msg.edited_at = m.edited_at; render(); }
+        }
+        break;
+      case 'message_deleted':
+        if (state.selectedChannel === m.channel_id) {
+          state.messages = state.messages.filter(x => x.id !== m.message_id);
+          render();
+        }
+        break;
+      case 'reaction_updated':
+        if (state.selectedChannel === m.channel_id) {
+          const msg = state.messages.find(x => x.id === m.message_id);
+          if (msg) {
+            msg.reactions = msg.reactions || [];
+            let r = msg.reactions.find(x => x.emoji === m.emoji);
+            if (m.added) {
+              if (!r) { r = { emoji: m.emoji, user_ids: [] }; msg.reactions.push(r); }
+              if (!r.user_ids.includes(m.user_id)) r.user_ids.push(m.user_id);
+            } else if (r) {
+              r.user_ids = r.user_ids.filter(u => u !== m.user_id);
+              msg.reactions = msg.reactions.filter(x => x.user_ids.length > 0);
+            }
+            render();
+          }
+        }
+        break;
+      case 'typing':
+        state.typing[m.channel_id] = state.typing[m.channel_id] || {};
+        state.typing[m.channel_id][m.user_id] = { name: m.username, exp: Date.now() + 4000 };
+        renderTyping();
+        setTimeout(renderTyping, 4100);
+        break;
+      case 'voice_state': {
+        const inRoom = state.inVoice && state.voiceRoom === m.room;
+        if (!inRoom) {
+          const chId = Number(m.room.replace('channel:', ''));
+          const caller = m.participants.find(p => p.user_id !== meId);
+          if (caller && chId) {
+            if (!state.incomingCall || state.incomingCall.chId !== chId) {
+              state.incomingCall = { chId, caller: caller.username };
+              SFX.ring(); render();
+            }
+          } else if (state.incomingCall?.chId === chId) {
+            state.incomingCall = null; render();
+          }
+        } else {
+          state.participants = m.participants;
+          render();
+        }
+        break;
+      }
+      case 'screen_frame': {
+        const img = document.getElementById('live-screen-img');
+        const src = 'data:image/jpeg;base64,' + m.jpeg_b64;
+        state.screenSrc = src;
+        state.screenMeta = `${m.from_username} · ${m.width}x${m.height}`;
+        if (img) { img.src = src; } else { render(); }
+        break;
+      }
+      case 'screen_share_stopped':
+        state.screenSrc = null; state.screenMeta = ''; render(); break;
+    }
+  }
+
+  async function loadChannels() {
+    try { state.channels = await api('/api/channels'); render(); } catch {}
+  }
+  async function loadFriends() {
+    try { state.friends = await api('/api/friends'); render(); } catch {}
+  }
+  async function selectChannel(id) {
+    state.selectedChannel = id;
+    delete state.unread[id];
+    state.replyTo = null; state.editingId = null; state.msgSearchOpen = false; state.msgSearch = '';
+    SFX.click();
+    render();
+    try {
+      state.messages = await api(`/api/messages/${id}?limit=50`);
+      const last = state.messages[state.messages.length - 1];
+      if (last) state.lastMessages[id] = { text: last.content, ts: last.created_at };
+      render();
+      setTimeout(() => {
+        const s = document.getElementById('msg-scroll'); if (s) s.scrollTop = s.scrollHeight;
+        const inp = document.getElementById('draft-input'); if (inp) inp.focus();
+      }, 20);
+    } catch {}
+  }
+  async function openDm(userId, callAfter = false) {
+    try {
+      const ch = await api(`/api/dm/${userId}`, { method: 'POST' });
+      if (!state.channels.find(c => c.id === ch.id)) state.channels.push(ch);
+      await selectChannel(ch.id);
+      if (callAfter) startCall(ch.id);
+    } catch (e) { alert(e.message); }
+  }
+
+  // Screen Sharing (Chromebook / Browser getDisplayMedia -> 15/30/60 FPS, max 1080p JPEG)
+  let screenStream = null, screenTimer = null, screenVideo = null, screenCanvas = null;
+  async function toggleScreenShare() {
+    if (!state.inVoice) return;
+    if (state.sharing) {
+      stopScreenShare();
+      SFX.shareOff();
+      render();
+      return;
+    }
+    try {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: state.prefs.screenFps }, audio: false });
+      screenVideo = document.createElement('video');
+      screenVideo.srcObject = screenStream; screenVideo.muted = true;
+      await screenVideo.play();
+      screenCanvas = document.createElement('canvas');
+      state.sharing = true;
+      wsSend({ type: 'set_screen_share', room: state.voiceRoom, active: true });
+      SFX.shareOn();
+      screenStream.getVideoTracks()[0].onended = () => { stopScreenShare(); render(); };
+      runScreenLoop();
+      render();
+    } catch {}
+  }
+  function runScreenLoop() {
+    clearTimeout(screenTimer);
+    if (!state.sharing || !screenVideo) return;
+    const t0 = performance.now();
+    const vw = screenVideo.videoWidth, vh = screenVideo.videoHeight;
+    if (vw > 0 && vh > 0) {
+      const maxH = state.prefs.screenRes, maxW = Math.min(1920, Math.round(maxH * 16 / 9));
+      const scale = Math.min(1, maxW / vw, maxH / vh);
+      const w = Math.max(1, Math.round(vw * scale)), h = Math.max(1, Math.round(vh * scale));
+      screenCanvas.width = w; screenCanvas.height = h;
+      const ctx = screenCanvas.getContext('2d');
+      ctx.drawImage(screenVideo, 0, 0, w, h);
+      const q = state.prefs.screenFps >= 60 ? 0.5 : state.prefs.screenFps >= 30 ? 0.6 : 0.72;
+      const dataUrl = screenCanvas.toDataURL('image/jpeg', q);
+      const b64 = dataUrl.split(',')[1];
+      state.screenSrc = dataUrl;
+      state.screenMeta = `You · ${w}x${h} · ${state.prefs.screenFps} FPS`;
+      const img = document.getElementById('live-screen-img');
+      if (img) img.src = dataUrl;
+      wsSend({ type: 'screen_frame', room: state.voiceRoom, width: w, height: h, jpeg_b64: b64 });
+    }
+    const interval = 1000 / state.prefs.screenFps;
+    const wait = Math.max(4, interval - (performance.now() - t0));
+    screenTimer = setTimeout(runScreenLoop, wait);
+  }
+  function stopScreenShare() {
+    clearTimeout(screenTimer);
+    if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
+    if (state.sharing && state.voiceRoom) wsSend({ type: 'set_screen_share', room: state.voiceRoom, active: false });
+    state.sharing = false; state.screenSrc = null; state.screenMeta = '';
+  }
+
+  // Voice call state
+  let micStream = null;
+  async function startCall(chId) {
+    const room = `channel:${chId}`;
+    if (state.inVoice && state.voiceRoom === room) { state.callExpanded = true; render(); return; }
+    if (state.inVoice) leaveCall();
+    state.inVoice = true; state.callExpanded = true; state.voiceRoom = room;
+    state.callStart = Date.now(); state.incomingCall = null;
+    wsSend({ type: 'join_voice', room });
+    SFX.callJoin();
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch {}
+    render();
+  }
+  function leaveCall() {
+    stopScreenShare();
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (state.inVoice) { wsSend({ type: 'leave_voice' }); SFX.callLeave(); }
+    state.inVoice = false; state.voiceRoom = null; state.participants = [];
+    render();
+  }
+
+  function signOut(msg = '') {
+    leaveCall();
+    if (ws) { try { ws.close(); } catch {} ws = null; }
+    state.session = null; state.channels = []; state.friends = []; state.messages = [];
+    state.selectedChannel = null; state.showSettings = false; state.showProfilePop = false;
+    state.notice = msg; state.noticeErr = !!msg;
+    localStorage.removeItem('wl_session');
+    render();
+  }
+
+  let lastTypingSent = 0;
+  function sendDraft() {
+    const inp = document.getElementById('draft-input');
+    if (!inp) return;
+    const text = inp.value.trim();
+    if (!text || !state.selectedChannel) return;
+    wsSend({ type: 'send_message', channel_id: state.selectedChannel, content: text, reply_to_id: state.replyTo?.id || null });
+    inp.value = '';
+    state.replyTo = null;
+    SFX.send();
+    render();
+    setTimeout(() => { const el = document.getElementById('draft-input'); if (el) el.focus(); }, 10);
+  }
+
+  function renderTyping() {
+    const el = document.getElementById('typing-row');
+    if (!el || !state.selectedChannel) return;
+    const map = state.typing[state.selectedChannel] || {};
+    const now = Date.now();
+    const names = Object.values(map).filter(x => x.exp > now).map(x => x.name);
+    if (names.length) {
+      el.classList.add('show');
+      el.innerHTML = `<span class="typing-dots"><span></span><span></span><span></span></span><span>${esc(names.join(', '))} ${names.length === 1 ? 'is' : 'are'} typing...</span>`;
+    } else {
+      el.classList.remove('show');
+    }
+  }
+
+  function renderToasts() {
+    let wrap = document.getElementById('toast-stack');
+    if (!wrap) { wrap = document.createElement('div'); wrap.id = 'toast-stack'; wrap.className = 'toast-stack'; document.body.appendChild(wrap); }
+    wrap.innerHTML = state.toasts.map(t => `
+      <div class="toast-item ${t.closing ? 'toast-exit' : 'toast-enter'}" data-toast-ch="${t.chId}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div class="avatar" style="width:32px;height:32px;background:${avColor(t.sender,false)};font-size:13px">${esc(t.sender[0]?.toUpperCase() || '?')}</div>
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:600;font-size:13.5px">${esc(t.sender)}</div>
+            <div style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.preview)}</div>
+          </div>
+        </div>
+        <div class="toast-bar"></div>
+      </div>`).join('');
+    wrap.querySelectorAll('[data-toast-ch]').forEach(el => {
+      el.onclick = () => { selectChannel(Number(el.dataset.toastCh)); state.toasts = []; renderToasts(); };
+    });
+  }
+
+  function render() {
+    const root = document.getElementById('root');
+    if (!state.session) {
+      root.innerHTML = `
+        <div class="auth-wrap">
+          <form class="auth-card" id="auth-form">
+            <h1>${state.authTab === 'login' ? 'Sign in to Wireline' : 'Create your account'}</h1>
+            <div class="auth-sub">Private chats, voice calls & screen sharing — works everywhere.</div>
+            <label class="field-label">EMAIL</label>
+            <input class="text-input" id="auth-email" type="email" required placeholder="you@example.com" />
+            ${state.authTab === 'register' ? `<label class="field-label">USERNAME</label><input class="text-input" id="auth-user" required placeholder="Username" />` : ''}
+            <label class="field-label">PASSWORD</label>
+            <input class="text-input" id="auth-pass" type="password" required placeholder="${state.authTab === 'register' ? '8+ characters' : ''}" />
+            <button class="btn-primary" type="submit" ${state.busy ? 'disabled' : ''}>${state.authTab === 'login' ? 'Sign In' : 'Create Account'}</button>
+            ${state.notice ? `<div class="notice ${state.noticeErr ? 'err' : ''}">${esc(state.notice)}</div>` : ''}
+            <div class="auth-footer">
+              ${state.authTab === 'login'
+                ? 'New here? <a id="auth-switch">Create an account</a>'
+                : 'Already have an account? <a id="auth-switch">Sign in</a>'}
+            </div>
+          </form>
+        </div>`;
+      document.getElementById('auth-switch').onclick = () => { state.authTab = state.authTab === 'login' ? 'register' : 'login'; state.notice = ''; render(); };
+      document.getElementById('auth-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('auth-email').value.trim();
+        const password = document.getElementById('auth-pass').value;
+        state.busy = true; state.notice = 'Working...'; state.noticeErr = false; render();
+        try {
+          if (state.authTab === 'register') {
+            const username = document.getElementById('auth-user').value.trim();
+            await api('/api/register', { method: 'POST', body: JSON.stringify({ email, username, password }) });
+          }
+          const resp = await api('/api/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+          state.session = resp; localStorage.setItem('wl_session', JSON.stringify(resp));
+          state.busy = false; state.notice = ''; connectWs(); render();
+        } catch (err) {
+          state.busy = false; state.notice = err.message; state.noticeErr = true; render();
+        }
+      };
+      return;
+    }
+
+    const me = state.session;
+    const pendingIn = state.friends.filter(f => f.status === 'pending' && f.direction === 'incoming').length;
+    const pendingAll = state.friends.filter(f => f.status === 'pending').length;
+    const onPeople = state.selectedChannel === null;
+    const activeCh = state.channels.find(c => c.id === state.selectedChannel);
+    const inThisCall = state.inVoice && activeCh && state.voiceRoom === `channel:${activeCh.id}`;
+
+    const dms = state.channels
+      .filter(c => c.kind === 'dm' && (!state.chatSearch || c.name.toLowerCase().includes(state.chatSearch.toLowerCase())))
+      .sort((a, b) => (state.lastMessages[b.id]?.ts || b.id) - (state.lastMessages[a.id]?.ts || a.id));
+
+    root.innerHTML = `
+      <div class="shell">
+        <aside class="sidebar">
+          <div class="profile-top">
+            <div class="profile-chip" id="btn-profile-pop">
+              <div class="avatar" style="width:34px;height:34px;background:${avColor(me.username,true)};font-size:14px">
+                ${esc(me.username[0]?.toUpperCase() || '?')}
+                <span class="status-dot dot-${state.prefs.status}"></span>
+              </div>
+              <div style="min-width:0;flex:1">
+                <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(me.username)}</div>
+                <div style="font-size:11.5px;color:var(--text-muted);text-transform:capitalize">${esc(state.prefs.status)}</div>
+              </div>
+            </div>
+            <button class="icon-btn" id="btn-theme" title="Toggle Dark/Light Mode">${state.prefs.theme === 'dark' ? SVG.sun : SVG.moon}</button>
+            <button class="icon-btn" id="btn-settings" title="Settings">${SVG.gear}</button>
+          </div>
+
+          <div class="side-body">
+            <div class="seg-switch">
+              <button class="seg-btn ${!onPeople ? 'active' : ''}" id="nav-chats">${SVG.chat} Chats</button>
+              <button class="seg-btn ${onPeople ? 'active' : ''}" id="nav-people">${SVG.users} People ${pendingIn > 0 ? `<span class="pill-badge badge-pop">${pendingIn}</span>` : ''}</button>
+            </div>
+            <div class="search-pill">${SVG.search}<input id="side-search" placeholder="Search conversations..." value="${esc(state.chatSearch)}" /></div>
+            <div class="sec-row">
+              <span class="sec-label">CONVERSATIONS</span>
+              <button class="icon-btn" style="width:24px;height:24px" id="btn-new-dm" title="New Chat">${SVG.plus}</button>
+            </div>
+            <div class="dm-list">
+              ${dms.length ? dms.map(c => {
+                const st = state.online[c.peer_user_id] || 'offline';
+                const last = state.lastMessages[c.id];
+                const un = state.unread[c.id] || 0;
+                return `<div class="dm-card ${state.selectedChannel === c.id ? 'active' : ''}" data-ch="${c.id}">
+                  <div class="avatar" style="width:36px;height:36px;background:${avColor(c.name,false)};font-size:14px">
+                    ${esc(c.name[0]?.toUpperCase() || '?')}
+                    <span class="status-dot dot-${st}"></span>
+                  </div>
+                  <div class="dm-meta">
+                    <div class="dm-top">
+                      <span class="dm-name">${esc(c.name)}</span>
+                      ${last ? `<span class="dm-time">${fmtTime(last.ts)}</span>` : ''}
+                    </div>
+                    ${last ? `<div class="dm-prev" style="${un ? 'color:var(--text-primary);font-weight:500' : ''}">${esc(last.text)}</div>` : ''}
+                  </div>
+                  ${un ? `<span class="pill-badge">${un}</span>` : ''}
+                </div>`;
+              }).join('') : `<div style="text-align:center;padding:28px 0;color:var(--text-muted);font-size:13px">No conversations yet</div>`}
+            </div>
+          </div>
+
+          ${state.inVoice ? `
+            <div class="call-float-card">
+              <div style="font-size:13px;font-weight:600;color:var(--success)">Voice Active ${state.sharing ? '· Sharing' : ''}</div>
+              <div class="call-float-btns">
+                <button id="side-mute" class="${state.muted ? 'on-danger' : ''}" title="Mute">${state.muted ? SVG.micOff : SVG.mic}</button>
+                <button id="side-deaf" class="${state.deafened ? 'on-danger' : ''}" title="Deafen">${SVG.headphones}</button>
+                <button id="side-share" class="${state.sharing ? 'on-success' : ''}" title="Share Screen">${SVG.screen}</button>
+                <button id="side-hangup" class="on-danger" title="End Call">${SVG.phoneOff}</button>
+              </div>
+            </div>` : state.incomingCall ? `
+            <div class="call-float-card" style="border-color:var(--accent)">
+              <div style="font-weight:600;font-size:14px">${esc(state.incomingCall.caller)}</div>
+              <div style="font-size:12px;color:var(--success);margin-bottom:8px">Incoming voice call...</div>
+              <div style="display:flex;gap:8px">
+                <button id="ans-call" style="flex:1;height:32px;border-radius:8px;background:var(--success);color:#fff;font-weight:600;font-size:13px">Answer</button>
+                <button id="dec-call" style="flex:1;height:32px;border-radius:8px;background:var(--danger);color:#fff;font-weight:600;font-size:13px">Decline</button>
+              </div>
+            </div>` : ''}
+        </aside>
+
+        <main class="main">
+          ${activeCh ? renderChat(activeCh, inThisCall, me) : renderPeople(pendingAll)}
+        </main>
+      </div>
+      ${state.showProfilePop ? renderProfilePop(me) : ''}
+      ${state.emojiTarget !== undefined ? renderEmojiPicker() : ''}
+      ${state.showSettings ? renderSettings() : ''}
+    `;
+
+    bindEvents(activeCh);
+    renderTyping();
+    renderToasts();
+  }
+
+  function renderChat(ch, inThisCall, me) {
+    const peerSt = state.online[ch.peer_user_id] || 'offline';
+    const q = state.msgSearchOpen ? state.msgSearch.trim().toLowerCase() : '';
+    const msgs = state.messages.filter(m => !q || m.content.toLowerCase().includes(q) || m.username.toLowerCase().includes(q));
+    let lastDay = '';
+    const msgHtml = msgs.map((m, i) => {
+      const day = fmtDay(m.created_at);
+      const sep = day !== lastDay ? `<div class="date-pill">${esc(day)}</div>` : '';
+      lastDay = day;
+      const mine = m.user_id === me.user_id;
+      const prev = msgs[i - 1];
+      const grouped = !sep && !m.reply_to_id && prev && prev.user_id === m.user_id && Math.abs(m.created_at - prev.created_at) < 300;
+      const refMsg = m.reply_to_id ? state.messages.find(x => x.id === m.reply_to_id) : null;
+      const newCls = m._isNew ? 'msg-new' : '';
+      if (m._isNew) m._isNew = false;
+
+      const reacts = (m.reactions || []).length ? `<div class="reactions">${m.reactions.map(r =>
+        `<button class="react-pill ${r.user_ids.includes(me.user_id) ? 'mine' : ''}" data-react-msg="${m.id}" data-react-em="${esc(r.emoji)}">${esc(r.emoji)} ${r.user_ids.length}</button>`
+      ).join('')}</div>` : '';
+
+      return `${sep}<div class="msg-row ${mine ? 'mine' : 'theirs'} ${newCls}" style="${!grouped && i > 0 ? 'margin-top:8px' : ''}">
+        <div class="hover-bar">
+          <button data-open-em="${m.id}" title="React">${SVG.smile}</button>
+          <button data-reply="${m.id}" title="Reply">${SVG.reply}</button>
+          ${mine ? `<button data-edit="${m.id}" title="Edit">${SVG.edit}</button><button class="del" data-del="${m.id}" title="Delete">${SVG.trash}</button>` : ''}
+        </div>
+        <div class="msg-inner">
+          ${!mine ? (grouped ? '<div style="width:34px;flex-shrink:0"></div>' : `<div class="avatar" style="width:34px;height:34px;background:${avColor(m.username,false)};font-size:13.5px">${esc(m.username[0]?.toUpperCase() || '?')}</div>`) : ''}
+          <div style="display:flex;flex-direction:column;align-items:${mine ? 'flex-end' : 'flex-start'};min-width:0">
+            ${!mine && !grouped ? `<div class="msg-meta" style="margin-bottom:3px"><strong style="color:var(--text-primary);font-size:13px">${esc(m.username)}</strong><span>${fmtTime(m.created_at)}</span></div>` : ''}
+            ${m.reply_to_id ? `<div class="reply-chip">${refMsg ? `<b>${esc(refMsg.username)}</b> ${esc(refMsg.content.slice(0, 48))}` : 'Original message deleted'}</div>` : ''}
+            ${state.editingId === m.id ? `
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="text-input" id="edit-input" style="width:280px;padding:6px 10px" value="${esc(state.editDraft)}" />
+                <button id="save-edit" class="opt-btn active" style="padding:6px 10px">Save</button>
+                <button id="cancel-edit" class="opt-btn" style="padding:6px 10px">Cancel</button>
+              </div>` : `<div class="bubble">${renderMd(m.content)}</div>`}
+            ${mine && (!grouped || m.edited_at) ? `<div class="msg-meta">${m.edited_at ? '<span>(edited)</span>' : ''}<span>${fmtTime(m.created_at)}</span></div>` : ''}
+            ${!mine && m.edited_at ? `<div class="msg-meta">(edited)</div>` : ''}
+            ${reacts}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="avatar" style="width:34px;height:34px;background:${avColor(ch.name,false)};font-size:14px">
+            ${esc(ch.name[0]?.toUpperCase() || '?')}
+            <span class="status-dot dot-${peerSt}" style="border-color:var(--canvas)"></span>
+          </div>
+          <div>
+            <div style="font-weight:600;font-size:15px">${esc(ch.name)}</div>
+            <div style="font-size:11.5px;color:${peerSt === 'online' ? 'var(--success)' : 'var(--text-muted)'};text-transform:capitalize">${esc(peerSt)}</div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          ${state.msgSearchOpen ? `
+            <div class="search-pill" style="width:220px"><input id="msg-search-input" placeholder="Search messages..." value="${esc(state.msgSearch)}" /><button id="close-msg-search">${SVG.x}</button></div>
+          ` : `
+            <button class="call-pill-btn ${inThisCall ? 'in-call' : ''}" id="btn-call">${SVG.phone} ${inThisCall ? 'In Call' : 'Call'}</button>
+            <button class="icon-btn" id="btn-msg-search" title="Search">${SVG.search}</button>
+          `}
+        </div>
+      </header>
+
+      ${inThisCall && state.callExpanded ? `
+        <div class="call-stage-wrap">
+          <div class="call-stage" id="call-stage" style="height:${state.prefs.callHeight}px">
+            <div class="call-stage-hdr">
+              <div style="display:flex;align-items:center;gap:8px">
+                <strong style="font-size:13.5px">${esc(ch.name)}</strong>
+                ${state.sharing || state.screenSrc ? `<span class="live-pill">LIVE</span><span style="font-size:11.5px;color:#a6b0c6">${esc(state.screenMeta)}</span>` : ''}
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+                ${state.sharing ? `
+                  <button class="mini-pill ${state.prefs.screenRes===720?'active':''}" data-res="720">720p</button>
+                  <button class="mini-pill ${state.prefs.screenRes===1080?'active':''}" data-res="1080">1080p</button>
+                  <button class="mini-pill ${state.prefs.screenFps===15?'active':''}" data-fps="15">15fps</button>
+                  <button class="mini-pill ${state.prefs.screenFps===30?'active':''}" data-fps="30">30fps</button>
+                  <button class="mini-pill ${state.prefs.screenFps===60?'active':''}" data-fps="60">60fps</button>
+                ` : ''}
+                <button class="mini-pill" data-csz="200">S</button>
+                <button class="mini-pill" data-csz="320">M</button>
+                <button class="mini-pill" data-csz="480">L</button>
+                <button class="mini-pill" id="btn-hide-call">Hide</button>
+              </div>
+            </div>
+            <div class="call-stage-body">
+              ${state.screenSrc ? `<img id="live-screen-img" class="screen-view" src="${state.screenSrc}" />` : `
+                <div class="p-tile"><div class="avatar" style="width:52px;height:52px;background:${avColor(me.username,true)};font-size:20px">${esc(me.username[0]?.toUpperCase() || '?')}</div><span class="p-tile-name">${esc(me.username)}</span></div>
+                ${state.participants.filter(x => x.user_id !== me.user_id).map(pt => `<div class="p-tile ${pt.speaking?'speaking':''}"><div class="avatar" style="width:52px;height:52px;background:${avColor(pt.username,false)};font-size:20px">${esc(pt.username[0]?.toUpperCase() || '?')}</div><span class="p-tile-name">${esc(pt.username)}</span></div>`).join('')}
+              `}
+            </div>
+            <div class="call-stage-dock">
+              <button class="call-circle ${state.sharing ? 'on-green' : ''}" id="stage-share" title="Share Screen">${SVG.screen}</button>
+              <button class="call-circle ${state.muted ? 'on-white' : ''}" id="stage-mute" title="Mute">${state.muted ? SVG.micOff : SVG.mic}</button>
+              <button class="call-circle ${state.deafened ? 'on-white' : ''}" id="stage-deaf" title="Deafen">${SVG.headphones}</button>
+              <button class="call-circle on-red" id="stage-hangup" title="End Call">${SVG.phoneOff}</button>
+            </div>
+          </div>
+          <div class="resize-grip" id="call-resize-grip" title="Drag to resize voice call"><span></span></div>
+        </div>` : ''}
+
+      <div class="msg-scroll" id="msg-scroll">
+        <div style="text-align:center;padding:24px 0 12px">
+          <div class="avatar" style="width:60px;height:60px;margin:0 auto 8px;background:${avColor(ch.name,false)};font-size:24px">${esc(ch.name[0]?.toUpperCase() || '?')}</div>
+          <div style="font-size:19px;font-weight:600">${esc(ch.name)}</div>
+          <div style="font-size:13px;color:var(--text-muted)">Start of your private conversation with ${esc(ch.name)}.</div>
+        </div>
+        ${msgHtml}
+      </div>
+
+      <div class="composer-dock">
+        <div class="typing-row" id="typing-row"></div>
+        ${state.replyTo ? `<div class="reply-banner"><span>Replying to <b>${esc(state.replyTo.user)}</b>: ${esc(state.replyTo.text.slice(0,50))}</span><button id="cancel-reply">${SVG.x}</button></div>` : ''}
+        <div class="composer-pill ${state.replyTo ? 'has-reply' : ''}">
+          <input id="draft-input" placeholder="Write to ${esc(ch.name)}..." autocomplete="off" />
+          <button class="icon-btn" id="btn-composer-emoji" style="width:30px;height:30px" title="Emoji">${SVG.smile}</button>
+          <button class="send-circle" id="btn-send" title="Send">${SVG.send}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderPeople(pendingAll) {
+    const q = state.peopleSearch.trim().toLowerCase();
+    const list = state.friends.filter(f => {
+      if (q && !f.username.toLowerCase().includes(q)) return false;
+      if (state.peopleTab === 'online') return f.status === 'accepted' && f.online;
+      if (state.peopleTab === 'all') return f.status === 'accepted' || f.direction === 'mutual';
+      if (state.peopleTab === 'pending') return f.status === 'pending';
+      return false;
+    });
+    return `
+      <header class="topbar">
+        <div class="tabs-bar" id="people-tabs">
+          <strong style="font-size:16px;margin-right:8px">People</strong>
+          <button class="tab-btn ${state.peopleTab==='online'?'active':''}" data-ptab="online">Online</button>
+          <button class="tab-btn ${state.peopleTab==='all'?'active':''}" data-ptab="all">All</button>
+          <button class="tab-btn ${state.peopleTab==='pending'?'active':''}" data-ptab="pending">Requests ${pendingAll > 0 ? `<span class="pill-badge green badge-pop">${pendingAll}</span>` : ''}</button>
+          <button class="tab-btn add-btn ${state.peopleTab==='add'?'active':''}" data-ptab="add">+ Add Friend</button>
+          <div class="tab-indicator" id="tab-indicator"></div>
+        </div>
+      </header>
+      <div class="people-body">
+        <div class="people-col">
+          ${state.peopleTab === 'add' ? `
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:520px;margin:24px auto;width:100%">
+              <div style="font-size:18px;font-weight:600;margin-bottom:4px">Add a Friend</div>
+              <div style="font-size:13.5px;color:var(--text-secondary);margin-bottom:16px">Connect using their Wireline username or email.</div>
+              <form id="add-friend-form" style="display:flex;gap:8px">
+                <input class="text-input" id="add-friend-input" placeholder="Username or email..." required />
+                <button class="opt-btn active" type="submit" style="white-space:nowrap">Send Request</button>
+              </form>
+              ${state.addFriendErr ? `<div class="notice err">${esc(state.addFriendErr)}</div>` : ''}
+            </div>` : `
+            <div class="search-pill">${SVG.search}<input id="people-search" placeholder="Filter people..." value="${esc(state.peopleSearch)}" /></div>
+            <div class="sec-label" style="margin-top:6px">${state.peopleTab.toUpperCase()} — ${list.length}</div>
+            ${list.length ? list.map(f => `
+              <div class="friend-card ${f.status === 'accepted' ? 'hover-slide' : ''}" data-fcard="${f.user_id}">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="avatar" style="width:38px;height:38px;background:${avColor(f.username,false)};font-size:15px">
+                    ${esc(f.username[0]?.toUpperCase() || '?')}
+                    ${f.status === 'accepted' ? `<span class="status-dot dot-${f.presence || 'offline'}" style="border-color:var(--surface)"></span>` : ''}
+                  </div>
+                  <div>
+                    <div style="font-weight:600;font-size:14.5px">${esc(f.username)}</div>
+                    <div style="font-size:12px;color:var(--text-muted);text-transform:capitalize">${f.status === 'pending' ? (f.direction === 'incoming' ? 'Incoming request' : 'Outgoing request') : (f.presence || 'offline')}</div>
+                  </div>
+                </div>
+                <div class="friend-actions">
+                  ${f.status === 'pending' ? (f.direction === 'incoming' ? `
+                    <button class="circle-act accept" data-fresp="${f.user_id}" data-acc="1" title="Accept">${SVG.check}</button>
+                    <button class="circle-act decline" data-fresp="${f.user_id}" data-acc="0" title="Decline">${SVG.x}</button>
+                  ` : `<button class="circle-act decline" data-fresp="${f.user_id}" data-acc="0" title="Cancel Request">${SVG.x}</button>`) : `
+                    <button class="circle-act" data-open-dm="${f.user_id}" title="Message">${SVG.chat}</button>
+                    <button class="circle-act" data-call-dm="${f.user_id}" title="Call">${SVG.phone}</button>
+                  `}
+                </div>
+              </div>`).join('') : `<div style="text-align:center;padding:56px 0;color:var(--text-muted)">Nothing here yet.</div>`}
+          `}
+        </div>
+      </div>`;
+  }
+
+  function renderProfilePop(me) {
+    return `<div class="popover modal-enter" style="top:64px;left:12px;width:230px">
+      <div style="font-weight:600;font-size:15px">${esc(me.username)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${esc(me.email)}</div>
+      ${['online','away','dnd'].map(s => `<button class="opt-btn ${state.prefs.status===s?'active':''}" data-set-st="${s}" style="width:100%;text-align:left;margin-bottom:4px;text-transform:capitalize">${s === 'dnd' ? 'Do Not Disturb' : s}</button>`).join('')}
+      <button class="opt-btn" id="pop-logout" style="width:100%;margin-top:8px;color:var(--danger)">Log Out</button>
+    </div>`;
+  }
+
+  function renderEmojiPicker() {
+    return `<div class="popover modal-enter" style="bottom:74px;right:20px;width:320px">
+      <div class="sec-label">PICK EMOJI</div>
+      <div class="emoji-grid">${EMOJIS.map(e => `<button data-pick-em="${e}">${e}</button>`).join('')}</div>
+    </div>`;
+  }
+
+  function renderSettings() {
+    return `<div class="backdrop" id="settings-backdrop">
+      <div class="settings-modal modal-enter" onclick="event.stopPropagation()">
+        <div class="settings-nav">
+          <div class="sec-label" style="padding:4px 10px 8px">SETTINGS</div>
+          <button class="${state.settingsTab==='appearance'?'active':''}" data-stab="appearance">Appearance</button>
+          <button class="${state.settingsTab==='voice'?'active':''}" data-stab="voice">Voice, Video & Audio</button>
+          <button style="margin-top:auto;color:var(--danger)" id="set-logout">Log Out</button>
+        </div>
+        <div class="settings-content">
+          <button class="icon-btn" id="close-settings" style="position:absolute;top:16px;right:16px">${SVG.x}</button>
+          ${state.settingsTab === 'appearance' ? `
+            <h2 style="font-size:20px;margin-bottom:16px">Appearance</h2>
+            <div class="sec-label">THEME</div>
+            <div class="pill-row">
+              <button class="opt-btn ${state.prefs.theme==='dark'?'active':''}" data-set-theme="dark">Midnight Dark</button>
+              <button class="opt-btn ${state.prefs.theme==='light'?'active':''}" data-set-theme="light">Daylight Light</button>
+            </div>
+            <div class="sec-label" style="margin-top:18px">FONT SIZE (${state.prefs.fontSize}px)</div>
+            <input type="range" min="12" max="20" value="${state.prefs.fontSize}" id="font-slider" style="margin-top:8px;width:220px" />
+          ` : `
+            <h2 style="font-size:20px;margin-bottom:16px">Voice, Video & Audio</h2>
+            <div class="sec-label">UI SOUND EFFECTS</div>
+            <div class="pill-row">
+              <button class="opt-btn ${state.prefs.sounds?'active':''}" data-set-sfx="1">Sounds On</button>
+              <button class="opt-btn ${!state.prefs.sounds?'active':''}" data-set-sfx="0">Sounds Off</button>
+            </div>
+            <div class="sec-label" style="margin-top:18px">SCREEN SHARE RESOLUTION (MAX 1080P)</div>
+            <div class="pill-row">
+              ${[480,720,1080].map(r => `<button class="opt-btn ${state.prefs.screenRes===r?'active':''}" data-res="${r}">${r}p</button>`).join('')}
+            </div>
+            <div class="sec-label" style="margin-top:18px">SCREEN SHARE FRAME RATE</div>
+            <div class="pill-row">
+              ${[15,30,60].map(f => `<button class="opt-btn ${state.prefs.screenFps===f?'active':''}" data-fps="${f}">${f} FPS</button>`).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function bindEvents(activeCh) {
+    const q = id => document.getElementById(id);
+    if (q('btn-theme')) q('btn-theme').onclick = () => { state.prefs.theme = state.prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); SFX.click(); render(); };
+    if (q('btn-settings')) q('btn-settings').onclick = () => { state.showSettings = true; SFX.click(); render(); };
+    if (q('btn-profile-pop')) q('btn-profile-pop').onclick = (e) => { e.stopPropagation(); state.showProfilePop = !state.showProfilePop; SFX.click(); render(); };
+    if (q('nav-people')) q('nav-people').onclick = () => { state.selectedChannel = null; SFX.click(); render(); };
+    if (q('nav-chats')) q('nav-chats').onclick = () => { if (!state.selectedChannel && state.channels.length) selectChannel(state.channels[0].id); };
+    if (q('btn-new-dm')) q('btn-new-dm').onclick = () => { state.selectedChannel = null; state.peopleTab = 'all'; SFX.click(); render(); };
+    if (q('side-search')) q('side-search').oninput = e => { state.chatSearch = e.target.value; render(); q('side-search')?.focus(); };
+
+    document.querySelectorAll('[data-ch]').forEach(el => el.onclick = () => selectChannel(Number(el.dataset.ch)));
+    if (q('side-mute')) q('side-mute').onclick = () => { state.muted = !state.muted; wsSend({ type: 'set_voice_state', muted: state.muted, deafened: state.deafened, speaking: false }); (state.muted ? SFX.mute : SFX.unmute)(); render(); };
+    if (q('side-deaf')) q('side-deaf').onclick = () => { state.deafened = !state.deafened; wsSend({ type: 'set_voice_state', muted: state.muted, deafened: state.deafened, speaking: false }); render(); };
+    if (q('side-share')) q('side-share').onclick = toggleScreenShare;
+    if (q('side-hangup')) q('side-hangup').onclick = leaveCall;
+    if (q('ans-call')) q('ans-call').onclick = () => { const chId = state.incomingCall.chId; state.incomingCall = null; selectChannel(chId); startCall(chId); };
+    if (q('dec-call')) q('dec-call').onclick = () => { state.incomingCall = null; SFX.click(); render(); };
+
+    if (activeCh) {
+      if (q('btn-call')) q('btn-call').onclick = () => {
+        if (state.inVoice && state.voiceRoom === `channel:${activeCh.id}`) { state.callExpanded = !state.callExpanded; SFX.click(); render(); }
+        else startCall(activeCh.id);
+      };
+      if (q('btn-msg-search')) q('btn-msg-search').onclick = () => { state.msgSearchOpen = true; render(); q('msg-search-input')?.focus(); };
+      if (q('close-msg-search')) q('close-msg-search').onclick = () => { state.msgSearchOpen = false; state.msgSearch = ''; render(); };
+      if (q('msg-search-input')) q('msg-search-input').oninput = e => { state.msgSearch = e.target.value; render(); q('msg-search-input')?.focus(); };
+      if (q('btn-hide-call')) q('btn-hide-call').onclick = () => { state.callExpanded = false; SFX.click(); render(); };
+      if (q('stage-share')) q('stage-share').onclick = toggleScreenShare;
+      if (q('stage-mute')) q('stage-mute').onclick = () => { state.muted = !state.muted; wsSend({ type: 'set_voice_state', muted: state.muted, deafened: state.deafened, speaking: false }); (state.muted ? SFX.mute : SFX.unmute)(); render(); };
+      if (q('stage-deaf')) q('stage-deaf').onclick = () => { state.deafened = !state.deafened; wsSend({ type: 'set_voice_state', muted: state.muted, deafened: state.deafened, speaking: false }); render(); };
+      if (q('stage-hangup')) q('stage-hangup').onclick = leaveCall;
+
+      // Draggable call stage resizer
+      const grip = q('call-resize-grip'), stage = q('call-stage');
+      if (grip && stage) {
+        grip.onmousedown = (e) => {
+          e.preventDefault();
+          const startY = e.clientY, startH = state.prefs.callHeight;
+          const onMove = (ev) => {
+            const h = Math.max(180, Math.min(window.innerHeight - 160, startH + (ev.clientY - startY)));
+            state.prefs.callHeight = Math.round(h);
+            stage.style.height = state.prefs.callHeight + 'px';
+          };
+          const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); savePrefs(); };
+          window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+        };
+      }
+      document.querySelectorAll('[data-csz]').forEach(b => b.onclick = () => { state.prefs.callHeight = Number(b.dataset.csz); savePrefs(); SFX.click(); render(); });
+
+      if (q('btn-send')) q('btn-send').onclick = sendDraft;
+      if (q('btn-composer-emoji')) q('btn-composer-emoji').onclick = (e) => { e.stopPropagation(); state.emojiTarget = state.emojiTarget === null ? undefined : null; render(); };
+      if (q('cancel-reply')) q('cancel-reply').onclick = () => { state.replyTo = null; render(); };
+      const draft = q('draft-input');
+      if (draft) {
+        draft.onkeydown = (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDraft(); }
+          if (e.key === 'ArrowUp' && !draft.value) {
+            const last = [...state.messages].reverse().find(x => x.user_id === state.session.user_id);
+            if (last) { state.editingId = last.id; state.editDraft = last.content; render(); q('edit-input')?.focus(); }
+          }
+        };
+        draft.oninput = () => {
+          if (Date.now() - lastTypingSent > 2500) { lastTypingSent = Date.now(); wsSend({ type: 'typing', channel_id: activeCh.id }); }
+        };
+      }
+      document.querySelectorAll('[data-open-em]').forEach(b => b.onclick = (e) => { e.stopPropagation(); state.emojiTarget = Number(b.dataset.openEm); render(); });
+      document.querySelectorAll('[data-reply]').forEach(b => b.onclick = () => {
+        const m = state.messages.find(x => x.id === Number(b.dataset.reply));
+        if (m) { state.replyTo = { id: m.id, user: m.username, text: m.content }; render(); q('draft-input')?.focus(); }
+      });
+      document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+        const m = state.messages.find(x => x.id === Number(b.dataset.edit));
+        if (m) { state.editingId = m.id; state.editDraft = m.content; render(); q('edit-input')?.focus(); }
+      });
+      document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+        await api(`/api/messages/${Number(b.dataset.del)}`, { method: 'DELETE' });
+      });
+      document.querySelectorAll('[data-react-msg]').forEach(b => b.onclick = () => {
+        wsSend({ type: 'toggle_reaction', channel_id: activeCh.id, message_id: Number(b.dataset.reactMsg), emoji: b.dataset.reactEm });
+        SFX.react();
+      });
+      if (q('save-edit')) q('save-edit').onclick = async () => {
+        const val = q('edit-input').value.trim();
+        if (val) await api(`/api/messages/${state.editingId}`, { method: 'PATCH', body: JSON.stringify({ content: val }) });
+        state.editingId = null; render();
+      };
+      if (q('cancel-edit')) q('cancel-edit').onclick = () => { state.editingId = null; render(); };
+    } else {
+      // Sliding tab underline measurement
+      const bar = q('people-tabs'), ind = q('tab-indicator');
+      const activeBtn = bar?.querySelector('.tab-btn.active');
+      if (ind && activeBtn) { ind.style.left = activeBtn.offsetLeft + 'px'; ind.style.width = activeBtn.offsetWidth + 'px'; }
+      document.querySelectorAll('[data-ptab]').forEach(b => b.onclick = () => { state.peopleTab = b.dataset.ptab; state.addFriendErr = ''; SFX.click(); render(); });
+      if (q('people-search')) q('people-search').oninput = e => { state.peopleSearch = e.target.value; render(); q('people-search')?.focus(); };
+      if (q('add-friend-form')) q('add-friend-form').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ query: q('add-friend-input').value.trim() }) });
+          q('add-friend-input').value = ''; state.addFriendErr = ''; SFX.friend(); loadFriends();
+        } catch (err) { state.addFriendErr = err.message; render(); }
+      };
+      document.querySelectorAll('[data-fresp]').forEach(b => b.onclick = () => {
+        const uid = Number(b.dataset.fresp), acc = b.dataset.acc === '1';
+        const card = document.querySelector(`[data-fcard="${uid}"]`);
+        if (card) card.classList.add('removing');
+        (acc ? SFX.friend : SFX.click)();
+        setTimeout(async () => {
+          await api('/api/friends/respond', { method: 'POST', body: JSON.stringify({ requester_id: uid, accept: acc }) });
+          loadFriends(); if (acc) loadChannels();
+        }, 250);
+      });
+      document.querySelectorAll('[data-open-dm]').forEach(b => b.onclick = () => openDm(Number(b.dataset.openDm), false));
+      document.querySelectorAll('[data-call-dm]').forEach(b => b.onclick = () => openDm(Number(b.dataset.callDm), true));
+    }
+
+    // Popovers & Settings
+    document.querySelectorAll('[data-set-st]').forEach(b => b.onclick = () => {
+      state.prefs.status = b.dataset.setSt; savePrefs(); wsSend({ type: 'set_presence', status: state.prefs.status }); state.showProfilePop = false; SFX.click(); render();
+    });
+    if (q('pop-logout')) q('pop-logout').onclick = () => signOut();
+    document.querySelectorAll('[data-pick-em]').forEach(b => b.onclick = () => {
+      const em = b.dataset.pickEm;
+      if (typeof state.emojiTarget === 'number' && state.selectedChannel) {
+        wsSend({ type: 'toggle_reaction', channel_id: state.selectedChannel, message_id: state.emojiTarget, emoji: em });
+        SFX.react();
+      } else {
+        const inp = q('draft-input'); if (inp) { inp.value += em; inp.focus(); }
+      }
+      state.emojiTarget = undefined; render();
+    });
+    if (q('settings-backdrop')) q('settings-backdrop').onclick = () => { state.showSettings = false; render(); };
+    if (q('close-settings')) q('close-settings').onclick = () => { state.showSettings = false; render(); };
+    if (q('set-logout')) q('set-logout').onclick = () => signOut();
+    document.querySelectorAll('[data-stab]').forEach(b => b.onclick = () => { state.settingsTab = b.dataset.stab; SFX.click(); render(); });
+    document.querySelectorAll('[data-set-theme]').forEach(b => b.onclick = () => { state.prefs.theme = b.dataset.setTheme; savePrefs(); SFX.click(); render(); });
+    document.querySelectorAll('[data-set-sfx]').forEach(b => b.onclick = () => { state.prefs.sounds = b.dataset.setSfx === '1'; savePrefs(); if (state.prefs.sounds) SFX.react(); render(); });
+    document.querySelectorAll('[data-res]').forEach(b => b.onclick = () => { state.prefs.screenRes = Number(b.dataset.res); savePrefs(); SFX.click(); render(); });
+    document.querySelectorAll('[data-fps]').forEach(b => b.onclick = () => { state.prefs.screenFps = Number(b.dataset.fps); savePrefs(); SFX.click(); render(); });
+    if (q('font-slider')) q('font-slider').oninput = e => { state.prefs.fontSize = Number(e.target.value); savePrefs(); render(); };
+  }
+
+  document.addEventListener('click', () => {
+    let changed = false;
+    if (state.showProfilePop) { state.showProfilePop = false; changed = true; }
+    if (state.emojiTarget !== undefined) { state.emojiTarget = undefined; changed = true; }
+    if (changed) render();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (state.showSettings) { state.showSettings = false; render(); }
+      else if (state.emojiTarget !== undefined) { state.emojiTarget = undefined; render(); }
+      else if (state.showProfilePop) { state.showProfilePop = false; render(); }
+      else if (state.replyTo) { state.replyTo = null; render(); }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); document.getElementById('side-search')?.focus(); }
+  });
+
+  render();
+  if (state.session) connectWs();
+})();
+</script>
+</body>
+</html>
