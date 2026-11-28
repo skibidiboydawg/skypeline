@@ -365,11 +365,13 @@ impl SkyApp {
 
                             ui.add_space(4.0);
 
-                            // Text input
+                            // Text input (stable ID so focus persists across reply banner toggles & sends)
+                            let draft_id = egui::Id::new(("chat_draft_input", channel.id));
                             let input_w = (ui.available_width() - 40.0).max(120.0);
                             let field = ui.add_sized(
                                 [input_w, 26.0],
                                 egui::TextEdit::singleline(&mut self.draft)
+                                    .id(draft_id)
                                     .frame(false)
                                     .hint_text(format!("Message @{}", channel.name)),
                             );
@@ -395,9 +397,56 @@ impl SkyApp {
                                 }
                             }
 
-                            // Enter to send
+                            // Enter to send — immediately keep focus in the message input
                             if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                 self.send_message();
+                                field.request_focus();
+                                self.refocus_draft = true;
+                                ui.ctx().request_repaint();
+                            } else if !field.has_focus()
+                                && !field.lost_focus()
+                                && !self.show_settings_modal
+                                && !self.show_profile_popover
+                                && self.emoji_picker_target.is_none()
+                                && self.editing_message.is_none()
+                                && !self.chat_search_open
+                                && !ui.ctx().wants_keyboard_input()
+                            {
+                                // Discord-style type-anywhere auto-focus: runs AFTER TextEdit so
+                                // Event::Text is never doubled and the first keystroke is never dropped.
+                                let typed: String = ui.input(|i| {
+                                    if i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt {
+                                        return String::new();
+                                    }
+                                    i.events
+                                        .iter()
+                                        .filter_map(|ev| match ev {
+                                            egui::Event::Text(t)
+                                                if !t.is_empty()
+                                                    && !t.chars().all(char::is_control) =>
+                                            {
+                                                Some(t.as_str())
+                                            }
+                                            _ => None,
+                                        })
+                                        .collect()
+                                });
+                                if !typed.is_empty() {
+                                    self.draft.push_str(&typed);
+                                    let end_idx = self.draft.chars().count();
+                                    let mut state =
+                                        egui::TextEdit::load_state(ui.ctx(), draft_id)
+                                            .unwrap_or_default();
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::one(
+                                            egui::text::CCursor::new(end_idx),
+                                        ),
+                                    ));
+                                    egui::TextEdit::store_state(ui.ctx(), draft_id, state);
+                                    field.request_focus();
+                                    self.notify_typing(channel.id);
+                                    ui.ctx().request_repaint();
+                                }
                             }
 
                             // Right Emoji Picker smile button

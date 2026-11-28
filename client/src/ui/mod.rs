@@ -576,6 +576,7 @@ impl SkyApp {
         self.reply_to = None;
         self.chat_search_open = false;
         self.chat_msg_search.clear();
+        self.refocus_draft = true;
         self.load_messages(channel_id, None);
     }
 
