@@ -1,7 +1,10 @@
-//! Discord-faithful 240px left sidebar (#2b2d31): Quick Search, Friends button,
-//! Direct Messages list with right-click context menu, Voice Connected bar, and 52px User Panel (#1e1f22).
+//! Original Wireline Sidebar (268px):
+//! Top user profile bar (with instant Dark/Light toggle & Settings), segmented
+//! Chats/People pill switcher, rounded search pill, spacious 54px conversation cards,
+//! and a floating Active Call / Incoming Call card pinned cleanly at the bottom when active.
 
 use super::{avatar_color, format_day_label, format_hhmm, icons, FriendsTab, SkyApp};
+use crate::sounds::SoundEffect;
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Rect, RichText, Sense, Stroke, Ui};
@@ -9,72 +12,63 @@ use skypeline_shared::{ChannelInfo, FriendshipStatus, PresenceStatus};
 
 impl SkyApp {
     pub(crate) fn ui_left_sidebar(&mut self, ctx: &Context) {
+        let p = theme::of(ctx);
         let search_id = egui::Id::new("sidebar_search_input");
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
             ctx.memory_mut(|m| m.request_focus(search_id));
         }
 
         egui::SidePanel::left("left_sidebar")
-            .exact_width(240.0)
+            .exact_width(268.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
-                    .fill(theme::BG_SECONDARY)
+                    .fill(p.sidebar)
                     .stroke(Stroke::NONE)
                     .inner_margin(egui::Margin::same(0)),
             )
             .show(ctx, |ui| {
-                // Pin Voice Connected / Incoming Call bar + strict 52px User Panel FIRST
-                egui::TopBottomPanel::bottom("sidebar_user_dock")
-                    .show_separator_line(false)
-                    .frame(egui::Frame::new().inner_margin(egui::Margin::same(0)))
-                    .show_inside(ui, |ui| {
-                        if self.in_voice {
-                            self.ui_active_call_banner(ui);
-                        } else if let Some((call_ch_id, caller_name)) = self.incoming_call.clone() {
-                            self.ui_incoming_call_banner(ui, call_ch_id, &caller_name);
-                        }
-                        self.ui_user_dock(ui);
-                    });
+                // Subtle right hairline separating sidebar from workspace canvas
+                let panel_r = ui.max_rect();
+                ui.painter().line_segment(
+                    [panel_r.right_top(), panel_r.right_bottom()],
+                    p.hairline_stroke(),
+                );
+
+                // Floating Call Card pinned cleanly at bottom ONLY when in a call or ringing
+                if self.in_voice || self.incoming_call.is_some() {
+                    egui::TopBottomPanel::bottom("sidebar_floating_call")
+                        .show_separator_line(false)
+                        .frame(
+                            egui::Frame::new()
+                                .fill(p.sidebar)
+                                .inner_margin(egui::Margin::same(10)),
+                        )
+                        .show_inside(ui, |ui| {
+                            if self.in_voice {
+                                self.ui_active_call_card(ui);
+                            } else if let Some((call_ch_id, caller_name)) =
+                                self.incoming_call.clone()
+                            {
+                                self.ui_incoming_call_card(ui, call_ch_id, &caller_name);
+                            }
+                        });
+                }
 
                 egui::CentralPanel::default()
                     .frame(
                         egui::Frame::new()
-                            .fill(theme::BG_SECONDARY)
+                            .fill(p.sidebar)
                             .inner_margin(egui::Margin::same(0)),
                     )
                     .show_inside(ui, |ui| {
-                        // Top 48px search header (authentic Discord #222428 hairline)
-                        let (top_r, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 48.0),
-                            Sense::hover(),
-                        );
-                        ui.painter().line_segment(
-                            [top_r.left_bottom(), top_r.right_bottom()],
-                            theme::hairline(),
-                        );
-                        let search_box = top_r.shrink2(egui::vec2(10.0, 10.0));
-                        ui.painter()
-                            .rect_filled(search_box, 4.0, theme::BG_TERTIARY);
-                        ui.allocate_new_ui(
-                            egui::UiBuilder::new()
-                                .max_rect(search_box.shrink2(egui::vec2(8.0, 4.0)))
-                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                            |ui| {
-                                ui.add_sized(
-                                    [ui.available_width(), 20.0],
-                                    egui::TextEdit::singleline(&mut self.chat_search)
-                                        .id(search_id)
-                                        .frame(false)
-                                        .hint_text("Find or start a conversation"),
-                                );
-                            },
-                        );
+                        // 1. Original Top Profile & Controls Header (60px)
+                        self.ui_top_profile_bar(ctx, ui);
 
                         egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(8, 8))
+                            .inner_margin(egui::Margin::symmetric(12, 8))
                             .show(ui, |ui| {
-                                // "Friends" navigation item
+                                // 2. Segmented Switcher Pill: [ Chats | People ]
                                 let pending_count = self
                                     .friends
                                     .iter()
@@ -83,101 +77,199 @@ impl SkyApp {
                                             && f.direction == "incoming"
                                     })
                                     .count();
-                                let home = self.selected_channel.is_none();
-                                let (fr_r, fr_resp) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 42.0),
+                                let on_people = self.selected_channel.is_none();
+
+                                let (seg_r, _) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), 36.0),
+                                    Sense::hover(),
+                                );
+                                ui.painter().rect_filled(seg_r, 10.0, p.surface);
+                                let half = (seg_r.width() - 6.0) * 0.5;
+                                let left_pill = Rect::from_min_size(
+                                    seg_r.min + egui::vec2(3.0, 3.0),
+                                    egui::vec2(half, 30.0),
+                                );
+                                let right_pill = Rect::from_min_size(
+                                    egui::pos2(left_pill.right(), seg_r.top() + 3.0),
+                                    egui::vec2(half, 30.0),
+                                );
+
+                                // Chats tab
+                                let chats_resp = ui.interact(
+                                    left_pill,
+                                    ui.id().with("nav_chats_tab"),
                                     Sense::click(),
                                 );
-                                ui.painter().rect_filled(
-                                    fr_r,
-                                    4.0,
-                                    if home {
-                                        theme::BG_ACTIVE
-                                    } else if fr_resp.hovered() {
-                                        theme::BG_HOVER
-                                    } else {
-                                        Color32::TRANSPARENT
-                                    },
-                                );
-                                icons::paint_users(
+                                if !on_people {
+                                    ui.painter().rect_filled(left_pill, 8.0, p.floating);
+                                    ui.painter().rect_stroke(
+                                        left_pill,
+                                        8.0,
+                                        p.border_stroke(),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                } else if chats_resp.hovered() {
+                                    ui.painter().rect_filled(left_pill, 8.0, p.hover);
+                                }
+                                let c_fg = if !on_people {
+                                    p.text_primary
+                                } else {
+                                    p.text_secondary
+                                };
+                                icons::paint_message_circle(
                                     ui.painter(),
-                                    fr_r.left_center() + egui::vec2(20.0, 0.0),
-                                    18.0,
-                                    if home {
-                                        theme::TEXT_PRIMARY
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    },
+                                    left_pill.center() - egui::vec2(22.0, 0.0),
+                                    15.0,
+                                    c_fg,
                                 );
                                 ui.painter().text(
-                                    fr_r.left_center() + egui::vec2(42.0, 0.0),
-                                    Align2::LEFT_CENTER,
-                                    "Friends",
-                                    FontId::proportional(15.0),
-                                    if home {
-                                        theme::TEXT_PRIMARY
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    },
+                                    left_pill.center() + egui::vec2(8.0, 0.0),
+                                    Align2::CENTER_CENTER,
+                                    "Chats",
+                                    FontId::new(13.0, theme::semibold_family()),
+                                    c_fg,
+                                );
+                                if chats_resp.clicked() && on_people {
+                                    if let Some(first_dm) = self
+                                        .channels
+                                        .iter()
+                                        .find(|c| {
+                                            c.kind == "dm"
+                                                && !self.config.closed_dms.contains(&c.id)
+                                        })
+                                        .map(|c| c.id)
+                                    {
+                                        self.select_channel(first_dm);
+                                    }
+                                }
+
+                                // People tab
+                                let people_resp = ui.interact(
+                                    right_pill,
+                                    ui.id().with("nav_people_tab"),
+                                    Sense::click(),
+                                );
+                                if on_people {
+                                    ui.painter().rect_filled(right_pill, 8.0, p.floating);
+                                    ui.painter().rect_stroke(
+                                        right_pill,
+                                        8.0,
+                                        p.border_stroke(),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                } else if people_resp.hovered() {
+                                    ui.painter().rect_filled(right_pill, 8.0, p.hover);
+                                }
+                                let p_fg = if on_people {
+                                    p.text_primary
+                                } else {
+                                    p.text_secondary
+                                };
+                                icons::paint_users(
+                                    ui.painter(),
+                                    right_pill.center() - egui::vec2(26.0, 0.0),
+                                    15.0,
+                                    p_fg,
+                                );
+                                ui.painter().text(
+                                    right_pill.center() + egui::vec2(6.0, 0.0),
+                                    Align2::CENTER_CENTER,
+                                    "People",
+                                    FontId::new(13.0, theme::semibold_family()),
+                                    p_fg,
                                 );
                                 if pending_count > 0 {
                                     let scale = self.pending_badge_scale(pending_count);
-                                    let badge_c = fr_r.right_center() - egui::vec2(16.0, 0.0);
-                                    ui.painter().circle_filled(badge_c, 8.5 * scale, theme::DANGER);
+                                    let bc = right_pill.right_center() - egui::vec2(13.0, 0.0);
+                                    ui.painter().circle_filled(bc, 8.0 * scale, p.accent);
                                     ui.painter().text(
-                                        badge_c,
+                                        bc,
                                         Align2::CENTER_CENTER,
                                         pending_count.min(99).to_string(),
-                                        FontId::proportional((11.0 * scale).max(7.0)),
+                                        FontId::new(
+                                            (10.0 * scale).max(7.0),
+                                            theme::semibold_family(),
+                                        ),
                                         Color32::WHITE,
                                     );
                                 }
-                                if fr_resp.clicked() {
+                                if people_resp.clicked() && !on_people {
                                     self.selected_channel = None;
                                     self.messages.clear();
+                                    self.play_sound(SoundEffect::UiClick);
                                 }
+
+                                ui.add_space(10.0);
+
+                                // 3. Rounded Search Pill
+                                egui::Frame::new()
+                                    .fill(p.input_bg)
+                                    .stroke(p.border_stroke())
+                                    .corner_radius(10.0)
+                                    .inner_margin(egui::Margin::symmetric(10, 6))
+                                    .show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            let (sr, _) = ui.allocate_exact_size(
+                                                egui::vec2(16.0, 16.0),
+                                                Sense::hover(),
+                                            );
+                                            icons::paint_search(
+                                                ui.painter(),
+                                                sr.center(),
+                                                14.5,
+                                                p.text_muted,
+                                            );
+                                            let w = (ui.available_width() - 8.0).max(100.0);
+                                            ui.add_sized(
+                                                [w, 18.0],
+                                                egui::TextEdit::singleline(&mut self.chat_search)
+                                                    .id(search_id)
+                                                    .frame(false)
+                                                    .hint_text("Search conversations..."),
+                                            );
+                                        });
+                                    });
 
                                 ui.add_space(12.0);
 
-                                // "DIRECT MESSAGES" header + "+" button
+                                // Section label + New Chat button
                                 ui.horizontal(|ui| {
-                                    ui.add_space(6.0);
+                                    ui.add_space(4.0);
                                     ui.label(
-                                        RichText::new("DIRECT MESSAGES")
-                                            .size(11.5)
-                                            .strong()
-                                            .color(theme::TEXT_MUTED),
+                                        theme::semibold("CONVERSATIONS", 11.0).color(p.text_muted),
                                     );
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
                                             let (pr, presp) = ui.allocate_exact_size(
-                                                egui::vec2(20.0, 20.0),
+                                                egui::vec2(22.0, 22.0),
                                                 Sense::click(),
                                             );
                                             if presp.hovered() {
-                                                ui.painter().rect_filled(pr, 4.0, theme::BG_HOVER);
+                                                ui.painter().rect_filled(pr, 6.0, p.hover);
                                             }
                                             icons::paint_plus(
                                                 ui.painter(),
                                                 pr.center(),
                                                 14.0,
                                                 if presp.hovered() {
-                                                    theme::TEXT_PRIMARY
+                                                    p.text_primary
                                                 } else {
-                                                    theme::TEXT_MUTED
+                                                    p.text_muted
                                                 },
                                             );
-                                            if presp.on_hover_text("New DM").clicked() {
+                                            if presp.on_hover_text("Start a new chat").clicked() {
                                                 self.selected_channel = None;
                                                 self.friends_tab = FriendsTab::All;
+                                                self.play_sound(SoundEffect::UiClick);
                                             }
                                         },
                                     );
                                 });
-                                ui.add_space(4.0);
+                                ui.add_space(6.0);
 
-                                // Scrollable DM List
+                                // 4. Spacious 54px Conversation Cards
                                 let search = self.chat_search.trim().to_ascii_lowercase();
                                 let mut dms: Vec<ChannelInfo> = self
                                     .channels
@@ -212,28 +304,18 @@ impl SkyApp {
                                             })
                                             .collect();
                                         if visible_dms.is_empty() {
-                                            ui.add_space(28.0);
+                                            ui.add_space(32.0);
                                             ui.vertical_centered(|ui| {
-                                                let (er, _) = ui.allocate_exact_size(
-                                                    egui::vec2(28.0, 28.0),
-                                                    Sense::hover(),
-                                                );
-                                                icons::paint_message_circle(
-                                                    ui.painter(),
-                                                    er.center(),
-                                                    22.0,
-                                                    theme::TEXT_MUTED,
-                                                );
-                                                ui.add_space(6.0);
                                                 ui.label(
                                                     RichText::new("No conversations yet")
-                                                        .small()
-                                                        .color(theme::TEXT_MUTED),
+                                                        .size(13.0)
+                                                        .color(p.text_muted),
                                                 );
                                             });
                                         } else {
                                             for ch in visible_dms {
-                                                self.ui_channel_row(ui, &ch);
+                                                self.ui_channel_card(ui, &ch);
+                                                ui.add_space(2.0);
                                             }
                                         }
                                     });
@@ -242,7 +324,166 @@ impl SkyApp {
             });
     }
 
-    fn ui_channel_row(&mut self, ui: &mut Ui, ch: &ChannelInfo) {
+    /// Original Top User Profile & Theme/Settings Header (replaces Discord's bottom user panel).
+    fn ui_top_profile_bar(&mut self, ctx: &Context, ui: &mut Ui) {
+        let p = theme::of(ctx);
+        let me_name = self
+            .me
+            .as_ref()
+            .map(|m| m.username.clone())
+            .unwrap_or_else(|| "User".into());
+        let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
+        let me_hash = self.me.as_ref().and_then(|m| m.avatar_hash.clone());
+
+        let (bar_rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 60.0), Sense::hover());
+        ui.painter().line_segment(
+            [bar_rect.left_bottom(), bar_rect.right_bottom()],
+            p.hairline_stroke(),
+        );
+        let cy = bar_rect.center().y;
+
+        // Clickable profile chip on left
+        let chip_w = (bar_rect.width() - 88.0).max(110.0);
+        let chip_r = Rect::from_min_size(
+            egui::pos2(bar_rect.left() + 10.0, cy - 20.0),
+            egui::vec2(chip_w, 40.0),
+        );
+        let chip_resp = ui.interact(chip_r, ui.id().with("top_profile_chip"), Sense::click());
+        if chip_resp.hovered() {
+            ui.painter().rect_filled(chip_r, 10.0, p.hover);
+        }
+
+        let av_r = Rect::from_center_size(
+            egui::pos2(chip_r.left() + 22.0, cy),
+            egui::vec2(34.0, 34.0),
+        );
+        let mut drew = false;
+        if let Some(h) = me_hash.as_deref() {
+            let tex = self.avatars.texture(
+                &ui.ctx().clone(),
+                &self.api(),
+                self.token.as_deref(),
+                me_id,
+                Some(h),
+                &self.events_tx,
+            );
+            if let Some(t) = tex {
+                ui.painter().image(
+                    t.id(),
+                    av_r,
+                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+                drew = true;
+            }
+        }
+        if !drew {
+            ui.painter()
+                .circle_filled(av_r.center(), 17.0, avatar_color(&me_name, true));
+            let init = me_name
+                .chars()
+                .next()
+                .unwrap_or('?')
+                .to_ascii_uppercase()
+                .to_string();
+            ui.painter().text(
+                av_r.center(),
+                Align2::CENTER_CENTER,
+                init,
+                FontId::new(14.0, theme::semibold_family()),
+                Color32::WHITE,
+            );
+        }
+        let dot = av_r.right_bottom() - egui::vec2(3.0, 3.0);
+        let pulse = self.pulse_time(ctx);
+        icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, p.sidebar, pulse);
+
+        let tx = av_r.right() + 9.0;
+        ui.painter().text(
+            egui::pos2(tx, cy - 1.0),
+            Align2::LEFT_BOTTOM,
+            &me_name,
+            FontId::new(14.0, theme::semibold_family()),
+            p.text_primary,
+        );
+        let sub = if !self.config.custom_status.trim().is_empty() {
+            self.config.custom_status.as_str()
+        } else {
+            self.presence.label()
+        };
+        ui.painter().text(
+            egui::pos2(tx, cy + 1.0),
+            Align2::LEFT_TOP,
+            sub,
+            FontId::proportional(11.5),
+            p.text_muted,
+        );
+        if chip_resp.on_hover_text("Status & Account").clicked() {
+            self.show_profile_popover = !self.show_profile_popover;
+            self.play_sound(SoundEffect::UiClick);
+        }
+
+        // Right: Instant Dark/Light Theme Toggle + Settings button
+        let set_r = Rect::from_center_size(
+            egui::pos2(bar_rect.right() - 24.0, cy),
+            egui::vec2(32.0, 32.0),
+        );
+        let set_resp = ui.interact(set_r, ui.id().with("top_settings_btn"), Sense::click());
+        if set_resp.hovered() {
+            ui.painter().rect_filled(set_r, 8.0, p.hover);
+        }
+        icons::paint_settings(
+            ui.painter(),
+            set_r.center(),
+            17.5,
+            if set_resp.hovered() {
+                p.text_primary
+            } else {
+                p.text_secondary
+            },
+        );
+        if set_resp.on_hover_text("Settings").clicked() {
+            self.open_settings_modal(self.settings_tab);
+            self.play_sound(SoundEffect::UiClick);
+        }
+
+        let th_r = Rect::from_center_size(
+            egui::pos2(set_r.left() - 20.0, cy),
+            egui::vec2(32.0, 32.0),
+        );
+        let th_resp = ui.interact(th_r, ui.id().with("top_theme_toggle"), Sense::click());
+        if th_resp.hovered() {
+            ui.painter().rect_filled(th_r, 8.0, p.hover);
+        }
+        icons::paint_sun_moon(
+            ui.painter(),
+            th_r.center(),
+            17.0,
+            if th_resp.hovered() {
+                p.accent
+            } else {
+                p.text_secondary
+            },
+            self.config.dark_mode,
+        );
+        if th_resp
+            .on_hover_text(if self.config.dark_mode {
+                "Switch to Light Mode"
+            } else {
+                "Switch to Dark Mode"
+            })
+            .clicked()
+        {
+            self.config.dark_mode = !self.config.dark_mode;
+            self.config.save();
+            theme::apply(ctx, self.config.dark_mode, self.config.font_size);
+            self.play_sound(SoundEffect::UiClick);
+        }
+    }
+
+    fn ui_channel_card(&mut self, ui: &mut Ui, ch: &ChannelInfo) {
+        let p = theme::of(ui.ctx());
         let selected = self.selected_channel == Some(ch.id);
         let unread = self.unread.get(&ch.id).copied().unwrap_or(0);
         let muted = self.is_channel_muted(ch.id);
@@ -252,53 +493,49 @@ impl SkyApp {
             .unwrap_or(PresenceStatus::Offline);
 
         let (rect, resp) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), Sense::click());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 54.0), Sense::click());
         let bg = if selected {
-            theme::BG_ACTIVE
+            p.active
         } else if resp.hovered() {
-            theme::BG_HOVER
+            p.hover
         } else {
             Color32::TRANSPARENT
         };
-        ui.painter().rect_filled(rect, 4.0, bg);
+        ui.painter().rect_filled(rect, 10.0, bg);
 
-        // Unread left 2px blurple bar
-        if unread > 0 && !selected {
-            let bar = Rect::from_min_max(
-                rect.left_top() + egui::vec2(0.0, 8.0),
-                rect.left_bottom() + egui::vec2(2.5, -8.0),
-            );
-            ui.painter().rect_filled(bar, 1.0, theme::ACCENT);
-        }
-
-        let ar = Rect::from_min_size(rect.min + egui::vec2(8.0, 6.0), egui::vec2(32.0, 32.0));
+        let ar = Rect::from_center_size(
+            egui::pos2(rect.left() + 26.0, rect.center().y),
+            egui::vec2(36.0, 36.0),
+        );
         let ring_bg = if selected {
-            theme::BG_ACTIVE
+            p.active
+        } else if resp.hovered() {
+            p.hover
         } else {
-            theme::BG_SECONDARY
+            p.sidebar
         };
         self.paint_channel_avatar(ui, ar, ch, presence, ring_bg);
 
         let name_color = if selected || unread > 0 {
-            theme::TEXT_PRIMARY
+            p.text_primary
         } else if muted {
-            theme::TEXT_MUTED
+            p.text_muted
         } else {
-            theme::TEXT_SECONDARY
+            p.text_secondary
         };
 
         let last_info = self.last_messages.get(&ch.id).cloned();
-        let has_preview = !selected && last_info.is_some();
-        let name_y = if has_preview {
-            rect.top() + 7.0
+        let tx = ar.right() + 10.0;
+        let name_y = if last_info.is_some() {
+            rect.top() + 10.0
         } else {
-            rect.center().y - 7.0
+            rect.center().y - 8.0
         };
         ui.painter().text(
-            egui::pos2(rect.left() + 50.0, name_y),
+            egui::pos2(tx, name_y),
             Align2::LEFT_TOP,
             &ch.name,
-            FontId::proportional(14.0),
+            FontId::new(14.0, theme::semibold_family()),
             name_color,
         );
 
@@ -311,45 +548,40 @@ impl SkyApp {
                 day
             };
             ui.painter().text(
-                egui::pos2(rect.right() - 8.0, rect.top() + 8.0),
+                egui::pos2(rect.right() - 10.0, rect.top() + 11.0),
                 Align2::RIGHT_TOP,
                 ts_str,
                 FontId::proportional(10.5),
-                theme::TEXT_MUTED,
+                p.text_muted,
             );
-            if has_preview {
-                let clipped: String = if preview.chars().count() > 20 {
-                    format!("{}...", preview.chars().take(20).collect::<String>())
+            let clipped: String = if preview.chars().count() > 22 {
+                format!("{}...", preview.chars().take(22).collect::<String>())
+            } else {
+                preview.clone()
+            };
+            ui.painter().text(
+                egui::pos2(tx, rect.top() + 29.0),
+                Align2::LEFT_TOP,
+                clipped,
+                FontId::proportional(12.0),
+                if unread > 0 {
+                    p.text_primary
                 } else {
-                    preview.clone()
-                };
-                ui.painter().text(
-                    egui::pos2(rect.left() + 50.0, rect.top() + 24.0),
-                    Align2::LEFT_TOP,
-                    clipped,
-                    FontId::proportional(12.0),
-                    if unread > 0 {
-                        theme::TEXT_SECONDARY
-                    } else {
-                        theme::TEXT_MUTED
-                    },
-                );
-            }
+                    p.text_muted
+                },
+            );
         }
 
         if unread > 0 {
-            let badge_c = rect.right_center() - egui::vec2(14.0, -6.0);
-            let pill = Rect::from_center_size(badge_c, egui::vec2(18.0, 16.0));
-            ui.painter().rect_filled(
-                pill,
-                8.0,
-                if muted { theme::TEXT_MUTED } else { theme::DANGER },
-            );
+            let badge_c = egui::pos2(rect.right() - 18.0, rect.bottom() - 16.0);
+            let pill = Rect::from_center_size(badge_c, egui::vec2(19.0, 17.0));
+            ui.painter()
+                .rect_filled(pill, 8.5, if muted { p.text_muted } else { p.accent });
             ui.painter().text(
                 pill.center(),
                 Align2::CENTER_CENTER,
                 unread.min(99).to_string(),
-                FontId::proportional(10.5),
+                FontId::new(10.5, theme::semibold_family()),
                 Color32::WHITE,
             );
         }
@@ -358,7 +590,6 @@ impl SkyApp {
             self.select_channel(ch.id);
         }
 
-        // Right-click Discord context menu on DM entry
         resp.context_menu(|ui| {
             ui.set_min_width(160.0);
             if ui.button("Mark As Read").clicked() {
@@ -376,7 +607,7 @@ impl SkyApp {
             }
             ui.separator();
             if ui
-                .button(RichText::new("Close DM").color(theme::DANGER))
+                .button(RichText::new("Close Chat").color(p.danger))
                 .clicked()
             {
                 self.close_dm(ch.id);
@@ -385,193 +616,194 @@ impl SkyApp {
         });
     }
 
-    /// Persistent Voice Connected bar (56px, #232428) with Share Screen + Disconnect buttons.
-    fn ui_active_call_banner(&mut self, ui: &mut Ui) {
+    /// Floating Active Call Card inside the sidebar with Mute, Deafen, Share Screen & End Call.
+    fn ui_active_call_card(&mut self, ui: &mut Ui) {
+        let p = theme::of(ui.ctx());
         let elapsed = self
             .call_started_at
             .map(|s| (Self::now_secs() - s).max(0.0) as u64)
             .unwrap_or(0);
-        let (bar_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), Sense::hover());
-        ui.painter()
-            .rect_filled(bar_rect, 0.0, theme::BG_USER_PANEL);
-        ui.painter().line_segment(
-            [bar_rect.left_top(), bar_rect.right_top()],
-            theme::hairline(),
-        );
-        ui.painter().line_segment(
-            [bar_rect.left_bottom(), bar_rect.right_bottom()],
-            theme::hairline(),
-        );
 
-        let sig_c = bar_rect.left_top() + egui::vec2(18.0, 19.0);
-        icons::paint_signal(ui.painter(), sig_c, 16.0, theme::SUCCESS);
+        egui::Frame::new()
+            .fill(p.floating)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
+            .shadow(p.shadow())
+            .inner_margin(egui::Margin::same(12))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    let (sr, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+                    icons::paint_signal(ui.painter(), sr.center(), 16.0, p.success);
+                    ui.vertical(|ui| {
+                        ui.label(theme::semibold("Voice Active", 13.0).color(p.success));
+                        ui.label(
+                            RichText::new(format!(
+                                "{:02}:{:02}{}",
+                                elapsed / 60,
+                                elapsed % 60,
+                                if self.sharing { " · Sharing" } else { "" }
+                            ))
+                            .small()
+                            .color(p.text_muted),
+                        );
+                    });
+                });
 
-        ui.painter().text(
-            bar_rect.left_top() + egui::vec2(32.0, 10.0),
-            Align2::LEFT_TOP,
-            "Voice Connected",
-            FontId::new(13.0, theme::semibold_family()),
-            theme::SUCCESS,
-        );
-        ui.painter().text(
-            bar_rect.left_top() + egui::vec2(32.0, 28.0),
-            Align2::LEFT_TOP,
-            format!(
-                "{:02}:{:02}{}",
-                elapsed / 60,
-                elapsed % 60,
-                if self.sharing { " · Sharing" } else { "" }
-            ),
-            FontId::proportional(11.5),
-            theme::TEXT_MUTED,
-        );
+                ui.add_space(10.0);
 
-        // Disconnect button (rightmost)
-        let disc_r = Rect::from_center_size(
-            bar_rect.right_center() - egui::vec2(20.0, 0.0),
-            egui::vec2(30.0, 30.0),
-        );
-        let disc_resp = ui.interact(disc_r, ui.id().with("voice_disc_btn"), Sense::click());
-        if disc_resp.hovered() {
-            ui.painter().rect_filled(disc_r, 4.0, theme::DANGER);
-        }
-        icons::paint_phone_off(
-            ui.painter(),
-            disc_r.center(),
-            17.0,
-            if disc_resp.hovered() {
-                Color32::WHITE
-            } else {
-                theme::TEXT_SECONDARY
-            },
-        );
-        if disc_resp.on_hover_text("Disconnect").clicked() {
-            self.leave_voice();
-        }
+                // 4 clean pill controls: Mute | Deafen | Share Screen | End
+                let btn_w = ((ui.available_width() - 18.0) / 4.0).max(40.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
 
-        // Dedicated Share Screen button right next to Disconnect!
-        let scr_r = Rect::from_center_size(
-            bar_rect.right_center() - egui::vec2(54.0, 0.0),
-            egui::vec2(30.0, 30.0),
-        );
-        let scr_resp = ui.interact(scr_r, ui.id().with("voice_screen_btn"), Sense::click());
-        if scr_resp.hovered() || self.sharing {
-            ui.painter().rect_filled(
-                scr_r,
-                4.0,
-                if self.sharing {
-                    theme::SUCCESS
-                } else {
-                    theme::BG_HOVER
-                },
-            );
-        }
-        icons::paint_screen_share(
-            ui.painter(),
-            scr_r.center(),
-            17.0,
-            if self.sharing {
-                Color32::WHITE
-            } else if scr_resp.hovered() {
-                theme::TEXT_PRIMARY
-            } else {
-                theme::TEXT_SECONDARY
-            },
-        );
-        if scr_resp
-            .on_hover_text(if self.sharing {
-                "Stop Sharing Screen"
-            } else {
-                "Share Your Screen"
-            })
-            .clicked()
-        {
-            self.toggle_screen_share();
-        }
+                    // Mute
+                    let (mr, mresp) =
+                        ui.allocate_exact_size(egui::vec2(btn_w, 34.0), Sense::click());
+                    ui.painter().rect_filled(
+                        mr,
+                        8.0,
+                        if self.muted {
+                            p.danger
+                        } else if mresp.hovered() {
+                            p.hover
+                        } else {
+                            p.surface
+                        },
+                    );
+                    icons::paint_mic(
+                        ui.painter(),
+                        mr.center(),
+                        17.0,
+                        if self.muted {
+                            Color32::WHITE
+                        } else {
+                            p.text_primary
+                        },
+                        self.muted,
+                    );
+                    if mresp.on_hover_text("Mute (Ctrl+Shift+M)").clicked() {
+                        self.toggle_mute();
+                    }
+
+                    // Deafen
+                    let (dr, dresp) =
+                        ui.allocate_exact_size(egui::vec2(btn_w, 34.0), Sense::click());
+                    ui.painter().rect_filled(
+                        dr,
+                        8.0,
+                        if self.deafened {
+                            p.danger
+                        } else if dresp.hovered() {
+                            p.hover
+                        } else {
+                            p.surface
+                        },
+                    );
+                    icons::paint_headphones(
+                        ui.painter(),
+                        dr.center(),
+                        17.0,
+                        if self.deafened {
+                            Color32::WHITE
+                        } else {
+                            p.text_primary
+                        },
+                        self.deafened,
+                    );
+                    if dresp.on_hover_text("Deafen (Ctrl+Shift+D)").clicked() {
+                        self.toggle_deafen();
+                    }
+
+                    // Share Screen (only inside an active call!)
+                    let (scr, sresp) =
+                        ui.allocate_exact_size(egui::vec2(btn_w, 34.0), Sense::click());
+                    ui.painter().rect_filled(
+                        scr,
+                        8.0,
+                        if self.sharing {
+                            p.success
+                        } else if sresp.hovered() {
+                            p.hover
+                        } else {
+                            p.surface
+                        },
+                    );
+                    icons::paint_screen_share(
+                        ui.painter(),
+                        scr.center(),
+                        17.0,
+                        if self.sharing {
+                            Color32::WHITE
+                        } else {
+                            p.text_primary
+                        },
+                    );
+                    if sresp
+                        .on_hover_text(if self.sharing {
+                            "Stop Sharing Screen"
+                        } else {
+                            "Share Your Screen"
+                        })
+                        .clicked()
+                    {
+                        self.toggle_screen_share();
+                    }
+
+                    // End Call
+                    let (er, eresp) =
+                        ui.allocate_exact_size(egui::vec2(btn_w, 34.0), Sense::click());
+                    ui.painter().rect_filled(er, 8.0, p.danger);
+                    icons::paint_phone_off(ui.painter(), er.center(), 17.0, Color32::WHITE);
+                    if eresp.on_hover_text("End Call").clicked() {
+                        self.leave_voice();
+                    }
+                });
+            });
     }
 
-    fn ui_incoming_call_banner(&mut self, ui: &mut Ui, channel_id: i64, caller: &str) {
-        let (bar_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::hover());
-        ui.painter()
-            .rect_filled(bar_rect, 0.0, theme::BG_FLOATING);
-        ui.painter().line_segment(
-            [bar_rect.left_top(), bar_rect.right_top()],
-            Stroke::new(1.5_f32, theme::ACCENT),
-        );
-        ui.painter().text(
-            bar_rect.left_top() + egui::vec2(12.0, 10.0),
-            Align2::LEFT_TOP,
-            caller,
-            FontId::proportional(13.5),
-            theme::TEXT_PRIMARY,
-        );
-        ui.painter().text(
-            bar_rect.left_top() + egui::vec2(12.0, 28.0),
-            Align2::LEFT_TOP,
-            "Incoming voice call...",
-            FontId::proportional(11.5),
-            theme::SUCCESS,
-        );
-
-        let dec_r = Rect::from_center_size(
-            bar_rect.right_center() - egui::vec2(20.0, 0.0),
-            egui::vec2(28.0, 28.0),
-        );
-        let dec_resp = ui.interact(dec_r, ui.id().with("inc_call_decline"), Sense::click());
-        ui.painter().circle_filled(
-            dec_r.center(),
-            14.0,
-            if dec_resp.hovered() {
-                theme::DANGER
-            } else {
-                theme::BG_SECONDARY
-            },
-        );
-        icons::paint_x(
-            ui.painter(),
-            dec_r.center(),
-            14.0,
-            if dec_resp.hovered() {
-                Color32::WHITE
-            } else {
-                theme::DANGER
-            },
-        );
-        if dec_resp.on_hover_text("Dismiss").clicked() {
-            self.incoming_call = None;
-        }
-
-        let ans_r = Rect::from_center_size(
-            bar_rect.right_center() - egui::vec2(54.0, 0.0),
-            egui::vec2(28.0, 28.0),
-        );
-        let ans_resp = ui.interact(ans_r, ui.id().with("inc_call_accept"), Sense::click());
-        ui.painter().circle_filled(
-            ans_r.center(),
-            14.0,
-            if ans_resp.hovered() {
-                theme::SUCCESS
-            } else {
-                theme::BG_SECONDARY
-            },
-        );
-        icons::paint_phone(
-            ui.painter(),
-            ans_r.center(),
-            14.0,
-            if ans_resp.hovered() {
-                Color32::WHITE
-            } else {
-                theme::SUCCESS
-            },
-        );
-        if ans_resp.on_hover_text("Answer call").clicked() {
-            self.incoming_call = None;
-            self.select_channel(channel_id);
-            self.start_call(channel_id);
-        }
+    fn ui_incoming_call_card(&mut self, ui: &mut Ui, channel_id: i64, caller: &str) {
+        let p = theme::of(ui.ctx());
+        egui::Frame::new()
+            .fill(p.floating)
+            .stroke(Stroke::new(1.5_f32, p.accent))
+            .corner_radius(12.0)
+            .shadow(p.shadow())
+            .inner_margin(egui::Margin::same(12))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(theme::semibold(caller, 14.0).color(p.text_primary));
+                ui.label(RichText::new("Incoming voice call...").small().color(p.success));
+                ui.add_space(10.0);
+                let half = ((ui.available_width() - 8.0) * 0.5).max(60.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(
+                            egui::Button::new(theme::semibold("Answer", 13.0).color(Color32::WHITE))
+                                .fill(p.success)
+                                .corner_radius(8.0)
+                                .min_size(egui::vec2(half, 32.0)),
+                        )
+                        .clicked()
+                    {
+                        self.incoming_call = None;
+                        self.select_channel(channel_id);
+                        self.start_call(channel_id);
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new(theme::semibold("Decline", 13.0).color(Color32::WHITE))
+                                .fill(p.danger)
+                                .corner_radius(8.0)
+                                .min_size(egui::vec2(half, 32.0)),
+                        )
+                        .clicked()
+                    {
+                        self.incoming_call = None;
+                        self.play_sound(SoundEffect::UiClick);
+                    }
+                });
+            });
     }
 
     fn paint_channel_avatar(
@@ -625,203 +857,12 @@ impl SkyApp {
                 rect.center(),
                 Align2::CENTER_CENTER,
                 initial,
-                FontId::proportional(13.0),
+                FontId::new(14.0, theme::semibold_family()),
                 Color32::WHITE,
             );
         }
         let dot = rect.right_bottom() - egui::vec2(3.0, 3.0);
         let pulse = self.pulse_time(ui.ctx());
         icons::paint_status_dot_pulse(ui.painter(), dot, presence, ring_bg, pulse);
-    }
-
-    /// Strict 52px Discord Bottom User Panel (--bg-tertiary #1e1f22).
-    fn ui_user_dock(&mut self, ui: &mut Ui) {
-        let me_name = self
-            .me
-            .as_ref()
-            .map(|m| m.username.clone())
-            .unwrap_or_else(|| "User".into());
-        let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
-        let me_hash = self.me.as_ref().and_then(|m| m.avatar_hash.clone());
-
-        let (dock_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::hover());
-        ui.painter()
-            .rect_filled(dock_rect, 0.0, theme::BG_USER_PANEL);
-
-        let cy = dock_rect.center().y;
-
-        // Clickable profile section
-        let prof_w = (dock_rect.width() - 108.0).max(92.0);
-        let prof_rect = Rect::from_min_size(
-            egui::pos2(dock_rect.left() + 6.0, cy - 19.0),
-            egui::vec2(prof_w, 38.0),
-        );
-        let prof_resp = ui.interact(prof_rect, ui.id().with("user_dock_profile"), Sense::click());
-        if prof_resp.hovered() {
-            ui.painter().rect_filled(prof_rect, 4.0, theme::BG_HOVER);
-        }
-
-        let avatar_rect = Rect::from_center_size(
-            egui::pos2(prof_rect.left() + 19.0, cy),
-            egui::vec2(32.0, 32.0),
-        );
-        let mut drew = false;
-        if let Some(h) = me_hash.as_deref() {
-            let tex = self.avatars.texture(
-                &ui.ctx().clone(),
-                &self.api(),
-                self.token.as_deref(),
-                me_id,
-                Some(h),
-                &self.events_tx,
-            );
-            if let Some(t) = tex {
-                ui.painter().image(
-                    t.id(),
-                    avatar_rect,
-                    Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-                drew = true;
-            }
-        }
-        if !drew {
-            ui.painter()
-                .circle_filled(avatar_rect.center(), 16.0, avatar_color(&me_name, true));
-            let initial = me_name
-                .chars()
-                .next()
-                .unwrap_or('?')
-                .to_ascii_uppercase()
-                .to_string();
-            ui.painter().text(
-                avatar_rect.center(),
-                Align2::CENTER_CENTER,
-                initial,
-                FontId::proportional(13.0),
-                Color32::WHITE,
-            );
-        }
-        let dot = avatar_rect.right_bottom() - egui::vec2(3.0, 3.0);
-        let pulse = self.pulse_time(ui.ctx());
-        icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, theme::BG_USER_PANEL, pulse);
-
-        let text_x = avatar_rect.right() + 8.0;
-        ui.painter().text(
-            egui::pos2(text_x, cy - 1.0),
-            Align2::LEFT_BOTTOM,
-            &me_name,
-            FontId::new(13.5, theme::semibold_family()),
-            theme::TEXT_PRIMARY,
-        );
-        let sub = if !self.config.custom_status.trim().is_empty() {
-            self.config.custom_status.as_str()
-        } else {
-            self.presence.label()
-        };
-        ui.painter().text(
-            egui::pos2(text_x, cy + 1.0),
-            Align2::LEFT_TOP,
-            sub,
-            FontId::proportional(11.5),
-            theme::TEXT_MUTED,
-        );
-        if prof_resp.on_hover_text("Change Status").clicked() {
-            self.show_profile_popover = !self.show_profile_popover;
-        }
-
-        // Right: 3x 32px icon buttons (Mic, Headphones, Settings)
-        let btn_size = 30.0;
-        let gap = 2.0;
-        let right_edge = dock_rect.right() - 6.0;
-
-        let gr = Rect::from_center_size(
-            egui::pos2(right_edge - btn_size * 0.5, cy),
-            egui::vec2(btn_size, btn_size),
-        );
-        let gresp = ui.interact(gr, ui.id().with("dock_settings"), Sense::click());
-        if gresp.hovered() {
-            ui.painter().rect_filled(gr, 4.0, theme::BG_HOVER);
-        }
-        icons::paint_settings(
-            ui.painter(),
-            gr.center(),
-            17.0,
-            if gresp.hovered() {
-                theme::TEXT_PRIMARY
-            } else {
-                theme::TEXT_SECONDARY
-            },
-        );
-        if gresp.on_hover_text("User Settings").clicked() {
-            self.open_settings_modal(self.settings_tab);
-        }
-
-        let dr = Rect::from_center_size(
-            egui::pos2(gr.left() - gap - btn_size * 0.5, cy),
-            egui::vec2(btn_size, btn_size),
-        );
-        let dresp = ui.interact(dr, ui.id().with("dock_deafen"), Sense::click());
-        if dresp.hovered() || self.deafened {
-            ui.painter().rect_filled(
-                dr,
-                4.0,
-                if self.deafened {
-                    Color32::from_rgb(0x46, 0x26, 0x29)
-                } else {
-                    theme::BG_HOVER
-                },
-            );
-        }
-        icons::paint_headphones(
-            ui.painter(),
-            dr.center(),
-            17.0,
-            if self.deafened {
-                theme::DANGER
-            } else if dresp.hovered() {
-                theme::TEXT_PRIMARY
-            } else {
-                theme::TEXT_SECONDARY
-            },
-            self.deafened,
-        );
-        if dresp.on_hover_text("Deafen (Ctrl+Shift+D)").clicked() {
-            self.toggle_deafen();
-        }
-
-        let mr = Rect::from_center_size(
-            egui::pos2(dr.left() - gap - btn_size * 0.5, cy),
-            egui::vec2(btn_size, btn_size),
-        );
-        let mresp = ui.interact(mr, ui.id().with("dock_mute"), Sense::click());
-        if mresp.hovered() || self.muted {
-            ui.painter().rect_filled(
-                mr,
-                4.0,
-                if self.muted {
-                    Color32::from_rgb(0x46, 0x26, 0x29)
-                } else {
-                    theme::BG_HOVER
-                },
-            );
-        }
-        icons::paint_mic(
-            ui.painter(),
-            mr.center(),
-            17.0,
-            if self.muted {
-                theme::DANGER
-            } else if mresp.hovered() {
-                theme::TEXT_PRIMARY
-            } else {
-                theme::TEXT_SECONDARY
-            },
-            self.muted,
-        );
-        if mresp.on_hover_text("Mute (Ctrl+Shift+M)").clicked() {
-            self.toggle_mute();
-        }
     }
 }

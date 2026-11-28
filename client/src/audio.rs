@@ -49,9 +49,14 @@ enum AudioCommand {
 struct PlaybackState {
     /// 48 kHz mono PCM waiting to be resampled by the output callback.
     queue: VecDeque<f32>,
+    /// Separate 48 kHz UI sound-effect queue mixed cleanly over voice playback.
+    sfx_queue: VecDeque<f32>,
     /// Fractional position between `previous` and `queue.front()`.
     phase: f64,
     previous: f32,
+    /// Separate resampler state for UI sound effects.
+    sfx_phase: f64,
+    sfx_previous: f32,
     /// Sample rate reported by the output device (48 kHz until configured).
     out_rate: u32,
 }
@@ -70,6 +75,23 @@ impl PlaybackState {
         if self.queue.len() > max {
             let excess = self.queue.len() - max;
             self.queue.drain(..excess);
+        }
+    }
+
+    fn push_sfx(&mut self, pcm: &[f32]) {
+        // Overlap/mix new SFX into any currently playing tail so rapid clicks feel instant.
+        for (i, &sample) in pcm.iter().enumerate() {
+            let s = if sample.is_finite() { sample } else { 0.0 };
+            if i < self.sfx_queue.len() {
+                self.sfx_queue[i] = (self.sfx_queue[i] + s).clamp(-1.0, 1.0);
+            } else {
+                self.sfx_queue.push_back(s.clamp(-1.0, 1.0));
+            }
+        }
+        let max = OPUS_RATE as usize;
+        if self.sfx_queue.len() > max {
+            let excess = self.sfx_queue.len() - max;
+            self.sfx_queue.drain(..excess);
         }
     }
 }
@@ -135,6 +157,15 @@ impl AudioEngine {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.push_pcm(pcm);
+    }
+
+    /// Enqueue a 48 kHz UI sound effect mixed smoothly over voice playback.
+    pub fn play_sfx(&self, pcm: &[f32]) {
+        let mut state = self
+            .playback
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.push_sfx(pcm);
     }
 
     pub fn set_muted(&self, value: bool) {
@@ -615,17 +646,31 @@ impl OutputSample for u16 {
     }
 }
 
-/// Streaming linear interpolation: `phase` tracks the fractional source
-/// position between the previously consumed sample and the queue head.
+/// Streaming linear interpolation: mixes voice PCM + UI sound effects smoothly.
 fn take_mono(state: &mut PlaybackState, step: f64) -> f32 {
     let next = state.queue.front().copied().unwrap_or(0.0);
-    let value = state.previous * (1.0 - state.phase as f32) + next * state.phase as f32;
+    let voice = state.previous * (1.0 - state.phase as f32) + next * state.phase as f32;
     state.phase += step;
     while state.phase >= 1.0 {
         state.phase -= 1.0;
         state.previous = state.queue.pop_front().unwrap_or(0.0);
     }
-    value
+
+    let sfx = if state.sfx_queue.is_empty() && state.sfx_previous.abs() < 1e-5 {
+        0.0
+    } else {
+        let s_next = state.sfx_queue.front().copied().unwrap_or(0.0);
+        let val =
+            state.sfx_previous * (1.0 - state.sfx_phase as f32) + s_next * state.sfx_phase as f32;
+        state.sfx_phase += step;
+        while state.sfx_phase >= 1.0 {
+            state.sfx_phase -= 1.0;
+            state.sfx_previous = state.sfx_queue.pop_front().unwrap_or(0.0);
+        }
+        val
+    };
+
+    (voice + sfx).clamp(-1.0, 1.0)
 }
 
 fn audio_error<E: std::fmt::Display>(err: E) {

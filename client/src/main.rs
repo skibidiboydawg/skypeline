@@ -10,6 +10,7 @@ mod events;
 mod native;
 mod net;
 mod screen;
+mod sounds;
 mod theme;
 mod ui;
 mod updater;

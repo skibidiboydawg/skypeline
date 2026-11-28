@@ -98,10 +98,6 @@ pub fn paint_screen_share(painter: &egui::Painter, c: Pos2, size: f32, color: Co
     paint_glyph(painter, c, size, regular::MONITOR_ARROW_UP, color);
 }
 
-pub fn paint_pin(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    paint_glyph(painter, c, size, regular::PUSH_PIN, color);
-}
-
 pub fn paint_users(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
     paint_glyph(painter, c, size, regular::USERS, color);
 }
@@ -174,6 +170,11 @@ pub fn paint_fullscreen(painter: &egui::Painter, c: Pos2, size: f32, color: Colo
     paint_glyph(painter, c, size, regular::ARROWS_OUT, color);
 }
 
-pub fn paint_at(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
-    paint_glyph(painter, c, size, regular::AT, color);
+pub fn paint_send(painter: &egui::Painter, c: Pos2, size: f32, color: Color32) {
+    paint_glyph(painter, c, size, regular::PAPER_PLANE_RIGHT, color);
+}
+
+pub fn paint_sun_moon(painter: &egui::Painter, c: Pos2, size: f32, color: Color32, is_dark: bool) {
+    let glyph = if is_dark { regular::SUN } else { regular::MOON };
+    paint_glyph(painter, c, size, glyph, color);
 }

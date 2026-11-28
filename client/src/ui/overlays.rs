@@ -1,7 +1,10 @@
-//! Discord-faithful overlays: Status Popover, 300px User Profile Popup,
-//! 360px Emoji Picker, Notifications Inbox, Full-Screen Settings Modal, and Toast Notifications.
+//! Original Wireline overlays (100% Dynamic Dark & Light Mode):
+//! Top-anchored Status Popover, 300px User Profile Popup, Emoji Picker,
+//! Notifications Inbox, Settings Modal (with Dark/Light, UI Sounds, Screen Share FPS/Res,
+//! Auto-Update, Reduce Motion), and Toast Notifications with 4s progress bar.
 
 use super::{anim, avatar_color, icons, ProfilePopup, SettingsTab, SkyApp};
+use crate::sounds::SoundEffect;
 use crate::theme;
 use eframe::egui;
 use egui::{Align2, Color32, Context, FontId, Pos2, Rect, RichText, Sense, Stroke};
@@ -42,30 +45,25 @@ const EMOJI_CATEGORIES: &[(&str, &[&str])] = &[
 ];
 
 impl SkyApp {
-    /// Status switcher popover anchored above the bottom-left 52px user panel.
+    /// Status switcher popover anchored cleanly below the top-left profile bar.
     pub(crate) fn ui_profile_popover(&mut self, ctx: &Context) {
         if !self.show_profile_popover {
             return;
         }
-        let screen = ctx.screen_rect();
-        let anchor = egui::pos2(10.0, (screen.bottom() - 320.0).max(16.0));
+        let p = theme::of(ctx);
+        let anchor = egui::pos2(12.0, 62.0);
         let resp = egui::Area::new(egui::Id::new("profile_status_popover"))
             .order(egui::Order::Foreground)
             .fixed_pos(anchor)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(theme::BG_FLOATING)
-                    .stroke(theme::border())
-                    .corner_radius(8.0)
-                    .shadow(egui::Shadow {
-                        offset: [0, 8],
-                        blur: 24,
-                        spread: 0,
-                        color: Color32::from_black_alpha(140),
-                    })
+                    .fill(p.floating)
+                    .stroke(p.border_stroke())
+                    .corner_radius(12.0)
+                    .shadow(p.shadow())
                     .inner_margin(egui::Margin::same(12))
                     .show(ui, |ui| {
-                        ui.set_width(224.0);
+                        ui.set_width(236.0);
                         let name = self
                             .me
                             .as_ref()
@@ -76,14 +74,9 @@ impl SkyApp {
                             .as_ref()
                             .map(|m| m.email.clone())
                             .unwrap_or_default();
-                        ui.label(
-                            RichText::new(&name)
-                                .size(15.0)
-                                .strong()
-                                .color(theme::TEXT_PRIMARY),
-                        );
+                        ui.label(theme::semibold(&name, 15.0).color(p.text_primary));
                         if !email.is_empty() {
-                            ui.label(RichText::new(&email).small().color(theme::TEXT_MUTED));
+                            ui.label(RichText::new(&email).small().color(p.text_muted));
                         }
 
                         ui.add_space(8.0);
@@ -91,25 +84,16 @@ impl SkyApp {
                             egui::vec2(ui.available_width(), 1.0),
                             Sense::hover(),
                         );
-                        ui.painter().rect_filled(div_r, 0.0, theme::BORDER_SUBTLE);
+                        ui.painter().rect_filled(div_r, 0.0, p.hairline);
                         ui.add_space(8.0);
 
-                        ui.label(
-                            RichText::new("SET STATUS")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
+                        ui.label(theme::semibold("STATUS", 10.5).color(p.text_muted));
                         ui.add_space(4.0);
 
                         for (status, label, desc) in [
-                            (PresenceStatus::Online, "Online", "Ready to chat"),
+                            (PresenceStatus::Online, "Online", "Available to chat"),
                             (PresenceStatus::Away, "Idle", "Stepped away"),
-                            (
-                                PresenceStatus::Dnd,
-                                "Do Not Disturb",
-                                "Mute desktop notifications",
-                            ),
+                            (PresenceStatus::Dnd, "Do Not Disturb", "Mute alerts"),
                         ] {
                             let active = self.presence == status;
                             let (r, btn) = ui.allocate_exact_size(
@@ -119,63 +103,51 @@ impl SkyApp {
                             if active || btn.hovered() {
                                 ui.painter().rect_filled(
                                     r,
-                                    4.0,
-                                    if active {
-                                        theme::BG_ACTIVE
-                                    } else {
-                                        theme::BG_HOVER
-                                    },
+                                    8.0,
+                                    if active { p.active } else { p.hover },
                                 );
                             }
                             icons::paint_status_dot(
                                 ui.painter(),
                                 r.left_center() + egui::vec2(14.0, 0.0),
                                 status,
-                                if active {
-                                    theme::BG_ACTIVE
-                                } else {
-                                    theme::BG_FLOATING
-                                },
+                                if active { p.active } else { p.floating },
                             );
                             ui.painter().text(
                                 r.left_top() + egui::vec2(30.0, 4.0),
                                 Align2::LEFT_TOP,
                                 label,
-                                FontId::proportional(13.0),
-                                theme::TEXT_PRIMARY,
+                                FontId::new(13.0, theme::semibold_family()),
+                                p.text_primary,
                             );
                             ui.painter().text(
                                 r.left_top() + egui::vec2(30.0, 19.0),
                                 Align2::LEFT_TOP,
                                 desc,
                                 FontId::proportional(10.5),
-                                theme::TEXT_MUTED,
+                                p.text_muted,
                             );
                             if btn.clicked() {
                                 self.set_presence(status);
                                 self.show_profile_popover = false;
+                                self.play_sound(SoundEffect::UiClick);
                             }
                         }
 
                         ui.add_space(8.0);
-                        ui.label(
-                            RichText::new("CUSTOM STATUS")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
+                        ui.label(theme::semibold("CUSTOM STATUS", 10.5).color(p.text_muted));
                         ui.add_space(4.0);
                         let status_resp = egui::Frame::new()
-                            .fill(theme::BG_TERTIARY)
-                            .stroke(theme::input_border())
-                            .corner_radius(4.0)
+                            .fill(p.input_bg)
+                            .stroke(p.border_stroke())
+                            .corner_radius(8.0)
                             .inner_margin(egui::Margin::symmetric(8, 5))
                             .show(ui, |ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.config.custom_status)
                                         .frame(false)
                                         .desired_width(ui.available_width())
-                                        .hint_text("What's up?"),
+                                        .hint_text("What are you up to?"),
                                 )
                             })
                             .inner;
@@ -188,26 +160,30 @@ impl SkyApp {
                             egui::vec2(ui.available_width(), 1.0),
                             Sense::hover(),
                         );
-                        ui.painter().rect_filled(div2, 0.0, theme::BORDER_SUBTLE);
+                        ui.painter().rect_filled(div2, 0.0, p.hairline);
                         ui.add_space(6.0);
 
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("User Settings").color(theme::TEXT_SECONDARY),
+                                    theme::semibold("Settings", 13.0).color(p.text_primary),
                                 )
-                                .fill(Color32::TRANSPARENT)
-                                .min_size(egui::vec2(ui.available_width(), 28.0)),
+                                .fill(p.surface)
+                                .corner_radius(8.0)
+                                .min_size(egui::vec2(ui.available_width(), 30.0)),
                             )
                             .clicked()
                         {
                             self.show_profile_popover = false;
                             self.open_settings_modal(self.settings_tab);
+                            self.play_sound(SoundEffect::UiClick);
                         }
+                        ui.add_space(4.0);
                         if ui
                             .add(
-                                egui::Button::new(RichText::new("Log Out").color(theme::DANGER))
+                                egui::Button::new(theme::semibold("Log Out", 13.0).color(p.danger))
                                     .fill(Color32::TRANSPARENT)
+                                    .corner_radius(8.0)
                                     .min_size(egui::vec2(ui.available_width(), 28.0)),
                             )
                             .clicked()
@@ -220,20 +196,20 @@ impl SkyApp {
 
         if ctx.input(|i| i.pointer.any_click()) {
             if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                let dock_area =
-                    Rect::from_min_max(egui::pos2(0.0, screen.bottom() - 56.0), egui::pos2(240.0, screen.bottom()));
-                if !resp.response.rect.contains(pos) && !dock_area.contains(pos) {
+                let top_area = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(268.0, 62.0));
+                if !resp.response.rect.contains(pos) && !top_area.contains(pos) {
                     self.show_profile_popover = false;
                 }
             }
         }
     }
 
-    /// 300px floating Discord User Profile Card with #8 scale-in (180ms) & reverse exit (150ms).
+    /// 300px floating User Profile Card with scale-in (180ms) & reverse exit (150ms).
     pub(crate) fn ui_user_profile_popup(&mut self, ctx: &Context) {
         let Some(popup) = self.profile_popup.clone() else {
             return;
         };
+        let p = theme::of(ctx);
         let now = Self::now_secs();
         let (alpha, scale, _, done_exit) = anim::modal_transition(
             (now - self.profile_popup_opened_at) as f32,
@@ -281,38 +257,31 @@ impl SkyApp {
                     ui.multiply_opacity(alpha);
                 }
                 egui::Frame::new()
-                    .fill(theme::BG_FLOATING)
-                    .stroke(theme::border())
-                    .corner_radius(8.0)
-                    .shadow(egui::Shadow {
-                        offset: [0, 8],
-                        blur: 24,
-                        spread: 0,
-                        color: Color32::from_black_alpha((150.0 * alpha) as u8),
-                    })
+                    .fill(p.floating)
+                    .stroke(p.border_stroke())
+                    .corner_radius(14.0)
+                    .shadow(p.shadow())
                     .inner_margin(egui::Margin::same(0))
                     .show(ui, |ui| {
                         ui.set_width(card_w);
 
-                        // 60px top banner + 48px overlap space for 80px avatar
                         let (banner_area, _) =
-                            ui.allocate_exact_size(egui::vec2(card_w, 102.0), Sense::hover());
-                        let banner = Rect::from_min_size(banner_area.min, egui::vec2(card_w, 60.0));
+                            ui.allocate_exact_size(egui::vec2(card_w, 100.0), Sense::hover());
+                        let banner = Rect::from_min_size(banner_area.min, egui::vec2(card_w, 58.0));
                         ui.painter().rect_filled(
                             banner,
                             egui::CornerRadius {
-                                nw: 8,
-                                ne: 8,
+                                nw: 14,
+                                ne: 14,
                                 sw: 0,
                                 se: 0,
                             },
                             avatar_color(&popup.username, is_me),
                         );
 
-                        let av_center = banner.left_bottom() + egui::vec2(56.0, 0.0);
-                        ui.painter()
-                            .circle_filled(av_center, 46.0, theme::BG_FLOATING);
-                        let av_rect = Rect::from_center_size(av_center, egui::vec2(80.0, 80.0));
+                        let av_center = banner.left_bottom() + egui::vec2(54.0, 0.0);
+                        ui.painter().circle_filled(av_center, 44.0, p.floating);
+                        let av_rect = Rect::from_center_size(av_center, egui::vec2(76.0, 76.0));
 
                         let mut drew = false;
                         if let Some(h) = avatar_hash.as_deref() {
@@ -337,7 +306,7 @@ impl SkyApp {
                         if !drew {
                             ui.painter().circle_filled(
                                 av_center,
-                                40.0,
+                                38.0,
                                 avatar_color(&popup.username, is_me),
                             );
                             let initial = popup
@@ -351,15 +320,15 @@ impl SkyApp {
                                 av_center,
                                 Align2::CENTER_CENTER,
                                 initial,
-                                FontId::proportional(30.0),
+                                FontId::new(28.0, theme::semibold_family()),
                                 Color32::WHITE,
                             );
                         }
                         icons::paint_status_dot_pulse(
                             ui.painter(),
-                            av_center + egui::vec2(28.0, 28.0),
+                            av_center + egui::vec2(26.0, 26.0),
                             popup.status,
-                            theme::BG_FLOATING,
+                            p.floating,
                             pulse,
                         );
 
@@ -373,10 +342,7 @@ impl SkyApp {
                             .show(ui, |ui| {
                                 ui.set_width(card_w - 32.0);
                                 ui.label(
-                                    RichText::new(&popup.username)
-                                        .size(18.0)
-                                        .strong()
-                                        .color(theme::TEXT_PRIMARY),
+                                    theme::semibold(&popup.username, 18.0).color(p.text_primary),
                                 );
                                 ui.label(
                                     RichText::new(format!(
@@ -385,7 +351,7 @@ impl SkyApp {
                                         popup.status.label()
                                     ))
                                     .size(12.5)
-                                    .color(theme::TEXT_MUTED),
+                                    .color(p.text_muted),
                                 );
 
                                 ui.add_space(10.0);
@@ -393,35 +359,17 @@ impl SkyApp {
                                     egui::vec2(ui.available_width(), 1.0),
                                     Sense::hover(),
                                 );
-                                ui.painter().rect_filled(div, 0.0, theme::BORDER_SUBTLE);
+                                ui.painter().rect_filled(div, 0.0, p.hairline);
                                 ui.add_space(10.0);
 
-                                ui.label(
-                                    RichText::new("ABOUT ME")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::TEXT_MUTED),
-                                );
+                                ui.label(theme::semibold("ABOUT", 10.5).color(p.text_muted));
                                 ui.add_space(2.0);
                                 let bio = if is_me && !self.config.bio.trim().is_empty() {
                                     self.config.bio.as_str()
                                 } else {
-                                    "Wireline desktop member."
+                                    "Wireline member."
                                 };
-                                ui.label(RichText::new(bio).size(13.0).color(theme::TEXT_SECONDARY));
-
-                                ui.add_space(10.0);
-                                ui.label(
-                                    RichText::new("WIRELINE MEMBER")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(theme::TEXT_MUTED),
-                                );
-                                ui.label(
-                                    RichText::new(format!("User ID #{}", popup.user_id))
-                                        .size(12.5)
-                                        .color(theme::TEXT_SECONDARY),
-                                );
+                                ui.label(RichText::new(bio).size(13.0).color(p.text_secondary));
 
                                 if !is_me {
                                     ui.add_space(14.0);
@@ -429,12 +377,11 @@ impl SkyApp {
                                         if ui
                                             .add(
                                                 egui::Button::new(
-                                                    RichText::new("Send Message")
-                                                        .strong()
+                                                    theme::semibold("Message", 13.0)
                                                         .color(Color32::WHITE),
                                                 )
-                                                .fill(theme::ACCENT)
-                                                .corner_radius(4.0)
+                                                .fill(p.accent)
+                                                .corner_radius(8.0)
                                                 .min_size(egui::vec2(148.0, 32.0)),
                                             )
                                             .clicked()
@@ -446,14 +393,16 @@ impl SkyApp {
                                         if ui
                                             .add(
                                                 egui::Button::new(
-                                                    RichText::new(blk_label).color(if is_blocked {
-                                                        theme::TEXT_PRIMARY
-                                                    } else {
-                                                        theme::DANGER
-                                                    }),
+                                                    theme::semibold(blk_label, 13.0).color(
+                                                        if is_blocked {
+                                                            p.text_primary
+                                                        } else {
+                                                            p.danger
+                                                        },
+                                                    ),
                                                 )
-                                                .fill(theme::BG_SECONDARY)
-                                                .corner_radius(4.0)
+                                                .fill(p.surface)
+                                                .corner_radius(8.0)
                                                 .min_size(egui::vec2(106.0, 32.0)),
                                             )
                                             .clicked()
@@ -486,51 +435,46 @@ impl SkyApp {
         }
     }
 
-    /// 360px Discord Emoji Picker floating above the message input bar.
+    /// 360px Emoji Picker floating above the composer.
     pub(crate) fn ui_emoji_picker(&mut self, ctx: &Context) {
         let Some(target) = self.emoji_picker_target else {
             return;
         };
+        let p = theme::of(ctx);
         let screen = ctx.screen_rect();
         let w = 360.0;
         let h = 340.0;
         let pos = egui::pos2(
-            (screen.right() - w - 20.0).max(250.0),
+            (screen.right() - w - 20.0).max(274.0),
             (screen.bottom() - h - 76.0).max(60.0),
         );
 
         let mut picked: Option<String> = None;
-        let resp = egui::Area::new(egui::Id::new("discord_emoji_picker"))
+        let resp = egui::Area::new(egui::Id::new("wireline_emoji_picker"))
             .order(egui::Order::Foreground)
             .fixed_pos(pos)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(theme::BG_FLOATING)
-                    .stroke(theme::border())
-                    .corner_radius(8.0)
-                    .shadow(egui::Shadow {
-                        offset: [0, 8],
-                        blur: 24,
-                        spread: 0,
-                        color: Color32::from_black_alpha(150),
-                    })
+                    .fill(p.floating)
+                    .stroke(p.border_stroke())
+                    .corner_radius(14.0)
+                    .shadow(p.shadow())
                     .inner_margin(egui::Margin::same(12))
                     .show(ui, |ui| {
                         ui.set_width(w - 24.0);
                         ui.set_height(h - 24.0);
 
-                        // Search bar
                         egui::Frame::new()
-                            .fill(theme::BG_TERTIARY)
-                            .stroke(theme::input_border())
-                            .corner_radius(4.0)
+                            .fill(p.input_bg)
+                            .stroke(p.border_stroke())
+                            .corner_radius(8.0)
                             .inner_margin(egui::Margin::symmetric(8, 5))
                             .show(ui, |ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.emoji_search)
                                         .frame(false)
                                         .desired_width(ui.available_width())
-                                        .hint_text("Filter emoji or paste any emoji..."),
+                                        .hint_text("Filter emoji..."),
                                 );
                             });
                         ui.add_space(8.0);
@@ -546,10 +490,8 @@ impl SkyApp {
                                         continue;
                                     }
                                     ui.label(
-                                        RichText::new(cat_name.to_ascii_uppercase())
-                                            .size(11.0)
-                                            .strong()
-                                            .color(theme::TEXT_MUTED),
+                                        theme::semibold(cat_name.to_ascii_uppercase(), 10.5)
+                                            .color(p.text_muted),
                                     );
                                     ui.add_space(4.0);
                                     for row in emojis.chunks(7) {
@@ -561,18 +503,14 @@ impl SkyApp {
                                                     Sense::click(),
                                                 );
                                                 if eresp.hovered() {
-                                                    ui.painter().rect_filled(
-                                                        r,
-                                                        6.0,
-                                                        theme::BG_ACTIVE,
-                                                    );
+                                                    ui.painter().rect_filled(r, 8.0, p.hover);
                                                 }
                                                 ui.painter().text(
                                                     r.center(),
                                                     Align2::CENTER_CENTER,
                                                     emoji,
                                                     FontId::proportional(20.0),
-                                                    Color32::WHITE,
+                                                    p.text_primary,
                                                 );
                                                 if eresp.clicked() {
                                                     picked = Some(emoji.to_string());
@@ -596,6 +534,7 @@ impl SkyApp {
                 None => {
                     self.draft.push_str(&emoji);
                     self.refocus_draft = true;
+                    self.play_sound(SoundEffect::UiClick);
                 }
             }
             self.emoji_picker_target = None;
@@ -604,8 +543,8 @@ impl SkyApp {
         }
 
         if ctx.input(|i| i.pointer.any_click()) {
-            if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !resp.response.rect.contains(p) {
+            if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                if !resp.response.rect.contains(pos) {
                     self.emoji_picker_target = None;
                 }
             }
@@ -617,9 +556,10 @@ impl SkyApp {
         if !self.show_inbox_popover {
             return;
         }
+        let p = theme::of(ctx);
         let screen = ctx.screen_rect();
         let w = 320.0;
-        let pos = egui::pos2((screen.right() - w - 16.0).max(250.0), 54.0);
+        let pos = egui::pos2((screen.right() - w - 16.0).max(274.0), 60.0);
         let incoming: Vec<_> = self
             .friends
             .iter()
@@ -633,49 +573,37 @@ impl SkyApp {
             .fixed_pos(pos)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(theme::BG_FLOATING)
-                    .stroke(theme::border())
-                    .corner_radius(8.0)
-                    .shadow(egui::Shadow {
-                        offset: [0, 8],
-                        blur: 24,
-                        spread: 0,
-                        color: Color32::from_black_alpha(150),
-                    })
+                    .fill(p.floating)
+                    .stroke(p.border_stroke())
+                    .corner_radius(14.0)
+                    .shadow(p.shadow())
                     .inner_margin(egui::Margin::same(14))
                     .show(ui, |ui| {
                         ui.set_width(w - 28.0);
-                        ui.label(
-                            RichText::new("INBOX")
-                                .size(12.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
+                        ui.label(theme::semibold("INBOX", 11.5).color(p.text_muted));
                         ui.add_space(8.0);
                         if incoming.is_empty() {
                             ui.label(
-                                RichText::new("Nothing here yet. You're all caught up!")
-                                    .color(theme::TEXT_MUTED),
+                                RichText::new("All caught up!").color(p.text_muted),
                             );
                         } else {
                             for req in &incoming {
                                 egui::Frame::new()
-                                    .fill(theme::BG_SECONDARY)
-                                    .corner_radius(6.0)
+                                    .fill(p.surface)
+                                    .corner_radius(10.0)
                                     .inner_margin(egui::Margin::symmetric(10, 8))
                                     .show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
                                             ui.vertical(|ui| {
                                                 ui.label(
-                                                    RichText::new(&req.username)
-                                                        .strong()
-                                                        .color(theme::TEXT_PRIMARY),
+                                                    theme::semibold(&req.username, 13.5)
+                                                        .color(p.text_primary),
                                                 );
                                                 ui.label(
                                                     RichText::new("Incoming friend request")
                                                         .small()
-                                                        .color(theme::TEXT_MUTED),
+                                                        .color(p.text_muted),
                                                 );
                                             });
                                             ui.with_layout(
@@ -686,10 +614,10 @@ impl SkyApp {
                                                             egui::Button::new(
                                                                 RichText::new("Decline")
                                                                     .small()
-                                                                    .color(theme::DANGER),
+                                                                    .color(p.danger),
                                                             )
-                                                            .fill(theme::BG_TERTIARY)
-                                                            .corner_radius(4.0),
+                                                            .fill(p.floating)
+                                                            .corner_radius(6.0),
                                                         )
                                                         .clicked()
                                                     {
@@ -702,8 +630,8 @@ impl SkyApp {
                                                                     .small()
                                                                     .color(Color32::WHITE),
                                                             )
-                                                            .fill(theme::SUCCESS)
-                                                            .corner_radius(4.0),
+                                                            .fill(p.success)
+                                                            .corner_radius(6.0),
                                                         )
                                                         .clicked()
                                                     {
@@ -723,19 +651,20 @@ impl SkyApp {
             self.respond_friend(uid, accept);
         }
         if ctx.input(|i| i.pointer.any_click()) {
-            if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !resp.response.rect.contains(p) && p.y > 50.0 {
+            if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                if !resp.response.rect.contains(pos) && pos.y > 58.0 {
                     self.show_inbox_popover = false;
                 }
             }
         }
     }
 
-    /// Full-Screen Discord Settings Modal with #8 scale-in (180ms) & reverse exit (150ms).
+    /// Full-Screen Wireline Settings Modal (100% Dynamic Dark & Light Mode, scale-in/out).
     pub(crate) fn ui_settings_modal(&mut self, ctx: &Context) {
         if !self.show_settings_modal {
             return;
         }
+        let p = theme::of(ctx);
         let now = Self::now_secs();
         let (alpha, scale, backdrop_alpha, done_exit) = anim::modal_transition(
             (now - self.settings_opened_at) as f32,
@@ -752,28 +681,29 @@ impl SkyApp {
         }
 
         let screen = ctx.screen_rect();
-        egui::Area::new(egui::Id::new("discord_settings_modal"))
+        egui::Area::new(egui::Id::new("wireline_settings_modal"))
             .order(egui::Order::Foreground)
             .fixed_pos(screen.min)
             .show(ctx, |ui| {
-                // Full-screen dim backdrop (180ms linear opacity fade)
                 let (bg_rect, bg_resp) = ui.allocate_exact_size(screen.size(), Sense::click());
                 ui.painter().rect_filled(
                     bg_rect,
                     0.0,
-                    Color32::from_black_alpha((215.0 * backdrop_alpha) as u8),
+                    Color32::from_black_alpha(
+                        ((if p.dark { 200.0 } else { 110.0 }) * backdrop_alpha) as u8,
+                    ),
                 );
 
-                let base_w = (screen.width() - 80.0).clamp(560.0, 920.0);
-                let base_h = (screen.height() - 80.0).clamp(420.0, 660.0);
+                let base_w = (screen.width() - 80.0).clamp(560.0, 900.0);
+                let base_h = (screen.height() - 80.0).clamp(440.0, 660.0);
                 let modal_w = base_w * scale;
                 let modal_h = base_h * scale;
                 let modal_rect =
                     Rect::from_center_size(screen.center(), egui::vec2(modal_w, modal_h));
 
                 if bg_resp.clicked() {
-                    if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                        if !modal_rect.contains(p) {
+                    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                        if !modal_rect.contains(pos) {
                             self.close_settings_modal();
                         }
                     }
@@ -783,25 +713,29 @@ impl SkyApp {
                     ui.multiply_opacity(alpha);
                 }
 
-                ui.painter().rect_filled(modal_rect, 8.0, theme::BG_PRIMARY);
+                ui.painter().rect_filled(modal_rect, 16.0, p.canvas);
                 ui.painter().rect_stroke(
                     modal_rect,
-                    8.0,
-                    theme::border(),
+                    16.0,
+                    p.border_stroke(),
                     egui::StrokeKind::Outside,
                 );
 
-                // Left 220px navigation sidebar (#2b2d31)
-                let nav_rect = Rect::from_min_size(modal_rect.min, egui::vec2(220.0, modal_h));
+                // Left 210px navigation sidebar
+                let nav_rect = Rect::from_min_size(modal_rect.min, egui::vec2(210.0, modal_h));
                 ui.painter().rect_filled(
                     nav_rect,
                     egui::CornerRadius {
-                        nw: 8,
+                        nw: 16,
                         ne: 0,
-                        sw: 8,
+                        sw: 16,
                         se: 0,
                     },
-                    theme::BG_SECONDARY,
+                    p.sidebar,
+                );
+                ui.painter().line_segment(
+                    [nav_rect.right_top(), nav_rect.right_bottom()],
+                    p.hairline_stroke(),
                 );
 
                 let mut logout_clicked = false;
@@ -812,59 +746,34 @@ impl SkyApp {
                         .max_rect(nav_rect.shrink2(egui::vec2(14.0, 20.0)))
                         .layout(egui::Layout::top_down(egui::Align::LEFT)),
                     |ui| {
-                        ui.label(
-                            RichText::new("USER SETTINGS")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.add_space(4.0);
+                        ui.label(theme::semibold("SETTINGS", 11.0).color(p.text_muted));
+                        ui.add_space(6.0);
                         self.settings_nav_item(ui, SettingsTab::MyAccount, "My Account");
-
-                        ui.add_space(12.0);
-                        let (d1, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 1.0),
-                            Sense::hover(),
-                        );
-                        ui.painter().rect_filled(d1, 0.0, theme::BORDER_SUBTLE);
-                        ui.add_space(12.0);
-
-                        ui.label(
-                            RichText::new("APP SETTINGS")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.add_space(4.0);
                         self.settings_nav_item(ui, SettingsTab::Appearance, "Appearance");
-                        self.settings_nav_item(ui, SettingsTab::VoiceVideo, "Voice & Video");
-                        self.settings_nav_item(ui, SettingsTab::Keybinds, "Keybinds");
+                        self.settings_nav_item(ui, SettingsTab::VoiceVideo, "Voice, Video & Audio");
+                        self.settings_nav_item(ui, SettingsTab::Keybinds, "Shortcuts");
 
                         ui.add_space(16.0);
                         let (d2, _) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), 1.0),
                             Sense::hover(),
                         );
-                        ui.painter().rect_filled(d2, 0.0, theme::BORDER_SUBTLE);
+                        ui.painter().rect_filled(d2, 0.0, p.hairline);
                         ui.add_space(10.0);
 
                         let (lr, lresp) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 32.0),
+                            egui::vec2(ui.available_width(), 34.0),
                             Sense::click(),
                         );
                         if lresp.hovered() {
-                            ui.painter().rect_filled(
-                                lr,
-                                4.0,
-                                Color32::from_rgb(0x46, 0x26, 0x29),
-                            );
+                            ui.painter().rect_filled(lr, 8.0, p.danger.gamma_multiply(0.14));
                         }
                         ui.painter().text(
                             lr.left_center() + egui::vec2(10.0, 0.0),
                             Align2::LEFT_CENTER,
                             "Log Out",
-                            FontId::proportional(14.0),
-                            theme::DANGER,
+                            FontId::new(13.5, theme::semibold_family()),
+                            p.danger,
                         );
                         if lresp.clicked() {
                             logout_clicked = true;
@@ -872,56 +781,45 @@ impl SkyApp {
                     },
                 );
 
-                // Right content area (#313338)
+                // Right content area
                 let content_rect = Rect::from_min_max(
                     egui::pos2(nav_rect.right(), modal_rect.top()),
                     modal_rect.right_bottom(),
                 );
-                // Top-right Escape / X button
-                let close_c = content_rect.right_top() + egui::vec2(-32.0, 32.0);
-                let close_r = Rect::from_center_size(close_c, egui::vec2(34.0, 34.0));
-                let close_resp = ui.interact(
-                    close_r,
-                    ui.id().with("settings_close_x"),
-                    Sense::click(),
-                );
-                ui.painter().circle_stroke(
+                let close_c = content_rect.right_top() + egui::vec2(-30.0, 30.0);
+                let close_r = Rect::from_center_size(close_c, egui::vec2(32.0, 32.0));
+                let close_resp =
+                    ui.interact(close_r, ui.id().with("settings_close_x"), Sense::click());
+                ui.painter().circle_filled(
                     close_c,
                     16.0,
-                    Stroke::new(
-                        1.5_f32,
-                        if close_resp.hovered() {
-                            theme::TEXT_PRIMARY
-                        } else {
-                            theme::TEXT_MUTED
-                        },
-                    ),
+                    if close_resp.hovered() {
+                        p.hover
+                    } else {
+                        p.surface
+                    },
                 );
                 icons::paint_x(
                     ui.painter(),
                     close_c,
-                    15.0,
+                    14.0,
                     if close_resp.hovered() {
-                        theme::TEXT_PRIMARY
+                        p.text_primary
                     } else {
-                        theme::TEXT_SECONDARY
+                        p.text_secondary
                     },
                 );
-                ui.painter().text(
-                    close_c + egui::vec2(0.0, 24.0),
-                    Align2::CENTER_TOP,
-                    "ESC",
-                    FontId::proportional(10.5),
-                    theme::TEXT_MUTED,
-                );
-                if close_resp.clicked() {
+                if close_resp.on_hover_text("Close (Esc)").clicked() {
                     close_clicked = true;
                 }
 
-                let inner = content_rect.shrink2(egui::vec2(32.0, 28.0));
+                let inner = content_rect.shrink2(egui::vec2(32.0, 26.0));
                 let inner = Rect::from_min_max(
                     inner.min,
-                    egui::pos2((inner.right() - 42.0).max(inner.left() + 200.0), inner.bottom()),
+                    egui::pos2(
+                        (inner.right() - 36.0).max(inner.left() + 200.0),
+                        inner.bottom(),
+                    ),
                 );
                 ui.allocate_new_ui(
                     egui::UiBuilder::new()
@@ -951,43 +849,34 @@ impl SkyApp {
     }
 
     fn settings_nav_item(&mut self, ui: &mut egui::Ui, tab: SettingsTab, label: &str) {
+        let p = theme::of(ui.ctx());
         let active = self.settings_tab == tab;
         let (r, resp) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), Sense::click());
         if active || resp.hovered() {
-            ui.painter().rect_filled(
-                r,
-                4.0,
-                if active {
-                    theme::BG_ACTIVE
-                } else {
-                    theme::BG_HOVER
-                },
-            );
+            ui.painter()
+                .rect_filled(r, 8.0, if active { p.active } else { p.hover });
         }
         ui.painter().text(
             r.left_center() + egui::vec2(10.0, 0.0),
             Align2::LEFT_CENTER,
             label,
-            FontId::proportional(14.0),
+            FontId::new(13.5, theme::semibold_family()),
             if active {
-                theme::TEXT_PRIMARY
+                p.text_primary
             } else {
-                theme::TEXT_SECONDARY
+                p.text_secondary
             },
         );
         if resp.clicked() {
             self.settings_tab = tab;
+            self.play_sound(SoundEffect::UiClick);
         }
     }
 
     fn ui_settings_account(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            RichText::new("My Account")
-                .size(20.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
+        let p = theme::of(ui.ctx());
+        ui.label(theme::semibold("My Account", 20.0).color(p.text_primary));
         ui.add_space(16.0);
 
         let name = self
@@ -1002,105 +891,53 @@ impl SkyApp {
             .unwrap_or_default();
         let uid = self.me.as_ref().map(|m| m.user_id).unwrap_or(0);
 
-        // Discord-style profile banner card
         egui::Frame::new()
-            .fill(theme::BG_TERTIARY)
-            .corner_radius(8.0)
-            .inner_margin(egui::Margin::same(0))
+            .fill(p.surface)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                let (top_r, _) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 96.0),
-                    Sense::hover(),
-                );
-                let banner = Rect::from_min_size(top_r.min, egui::vec2(top_r.width(), 64.0));
-                ui.painter().rect_filled(
-                    banner,
-                    egui::CornerRadius {
-                        nw: 8,
-                        ne: 8,
-                        sw: 0,
-                        se: 0,
-                    },
-                    theme::ACCENT,
-                );
-                let av_c = banner.left_bottom() + egui::vec2(52.0, 0.0);
-                ui.painter().circle_filled(av_c, 40.0, theme::BG_TERTIARY);
-                ui.painter().circle_filled(av_c, 34.0, theme::ACCENT);
-                let init = name
-                    .chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_ascii_uppercase()
-                    .to_string();
-                ui.painter().text(
-                    av_c,
-                    Align2::CENTER_CENTER,
-                    init,
-                    FontId::proportional(26.0),
-                    Color32::WHITE,
-                );
-                icons::paint_status_dot(
-                    ui.painter(),
-                    av_c + egui::vec2(24.0, 24.0),
-                    self.presence,
-                    theme::BG_TERTIARY,
-                );
-                ui.painter().text(
-                    av_c + egui::vec2(48.0, 4.0),
-                    Align2::LEFT_TOP,
-                    &name,
-                    FontId::proportional(18.0),
-                    theme::TEXT_PRIMARY,
-                );
-
-                egui::Frame::new()
-                    .fill(theme::BG_SECONDARY)
-                    .corner_radius(6.0)
-                    .outer_margin(egui::Margin::same(16))
-                    .inner_margin(egui::Margin::same(14))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(
-                            RichText::new("USERNAME")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(RichText::new(&name).color(theme::TEXT_PRIMARY));
-                        ui.add_space(10.0);
-
-                        ui.label(
-                            RichText::new("EMAIL")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(RichText::new(&email).color(theme::TEXT_PRIMARY));
-                        ui.add_space(10.0);
-
-                        ui.label(
-                            RichText::new("USER ID")
-                                .size(11.0)
-                                .strong()
-                                .color(theme::TEXT_MUTED),
-                        );
-                        ui.label(RichText::new(format!("#{uid}")).color(theme::TEXT_SECONDARY));
+                ui.horizontal(|ui| {
+                    let (av_r, _) =
+                        ui.allocate_exact_size(egui::vec2(56.0, 56.0), Sense::hover());
+                    ui.painter().circle_filled(av_r.center(), 28.0, p.accent);
+                    let init = name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_ascii_uppercase()
+                        .to_string();
+                    ui.painter().text(
+                        av_r.center(),
+                        Align2::CENTER_CENTER,
+                        init,
+                        FontId::new(22.0, theme::semibold_family()),
+                        Color32::WHITE,
+                    );
+                    icons::paint_status_dot_pulse(
+                        ui.painter(),
+                        av_r.right_bottom() - egui::vec2(4.0, 4.0),
+                        self.presence,
+                        p.surface,
+                        self.pulse_time(ui.ctx()),
+                    );
+                    ui.add_space(10.0);
+                    ui.vertical(|ui| {
+                        ui.label(theme::semibold(&name, 17.0).color(p.text_primary));
+                        ui.label(RichText::new(&email).size(13.0).color(p.text_secondary));
+                        ui.label(RichText::new(format!("User ID #{uid}")).small().color(p.text_muted));
                     });
+                });
             });
 
         ui.add_space(16.0);
-        ui.label(
-            RichText::new("ABOUT ME")
-                .size(11.5)
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
-        ui.add_space(4.0);
+        ui.label(theme::semibold("ABOUT ME", 11.0).color(p.text_muted));
+        ui.add_space(6.0);
         let bio_resp = egui::Frame::new()
-            .fill(theme::BG_TERTIARY)
-            .stroke(theme::input_border())
-            .corner_radius(4.0)
+            .fill(p.input_bg)
+            .stroke(p.border_stroke())
+            .corner_radius(10.0)
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.add(
@@ -1118,155 +955,79 @@ impl SkyApp {
     }
 
     fn ui_settings_appearance(&mut self, ctx: &Context, ui: &mut egui::Ui) {
-        ui.label(
-            RichText::new("Appearance")
-                .size(20.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
+        let p = theme::of(ctx);
+        ui.label(theme::semibold("Appearance", 20.0).color(p.text_primary));
         ui.add_space(16.0);
 
-        // Live preview box
-        egui::Frame::new()
-            .fill(theme::BG_SECONDARY)
-            .stroke(theme::border())
-            .corner_radius(6.0)
-            .inner_margin(egui::Margin::same(14))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    if !self.config.compact_mode {
-                        let (r, _) = ui.allocate_exact_size(egui::vec2(38.0, 38.0), Sense::hover());
-                        ui.painter().circle_filled(r.center(), 19.0, theme::ACCENT);
-                        ui.painter().text(
-                            r.center(),
-                            Align2::CENTER_CENTER,
-                            "W",
-                            FontId::proportional(16.0),
-                            Color32::WHITE,
-                        );
-                        ui.add_space(6.0);
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new("Wireline")
-                                        .strong()
-                                        .size(self.config.font_size)
-                                        .color(theme::TEXT_PRIMARY),
-                                );
-                                ui.label(
-                                    RichText::new("Today at 4:20 PM")
-                                        .size(11.5)
-                                        .color(theme::TEXT_MUTED),
-                                );
-                            });
-                            ui.label(
-                                RichText::new("Looks crisp! This is a live preview of your chat settings.")
-                                    .size(self.config.font_size)
-                                    .color(theme::TEXT_PRIMARY),
-                            );
-                        });
-                    } else {
-                        ui.label(RichText::new("4:20 PM").size(11.5).color(theme::TEXT_MUTED));
-                        ui.label(
-                            RichText::new("Wireline")
-                                .strong()
-                                .size(self.config.font_size)
-                                .color(theme::TEXT_PRIMARY),
-                        );
-                        ui.label(
-                            RichText::new("Compact mode packs more messages onto the screen.")
-                                .size(self.config.font_size)
-                                .color(theme::TEXT_PRIMARY),
-                        );
-                    }
-                });
-            });
-
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("THEME")
-                .size(11.5)
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
+        ui.label(theme::semibold("THEME", 11.0).color(p.text_muted));
         ui.add_space(6.0);
         let mut theme_changed = false;
         ui.horizontal(|ui| {
-            for (is_dark, label) in [(true, "Dark"), (false, "Light")] {
+            for (is_dark, label) in [(true, "Midnight Dark"), (false, "Daylight Light")] {
                 let active = self.config.dark_mode == is_dark;
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(label).color(if active {
+                        egui::Button::new(theme::semibold(label, 13.0).color(if active {
                             Color32::WHITE
                         } else {
-                            theme::TEXT_SECONDARY
+                            p.text_primary
                         }))
-                        .fill(if active {
-                            theme::ACCENT
+                        .fill(if active { p.accent } else { p.surface })
+                        .stroke(if active {
+                            Stroke::NONE
                         } else {
-                            theme::BG_SECONDARY
+                            p.border_stroke()
                         })
-                        .corner_radius(6.0)
-                        .min_size(egui::vec2(96.0, 34.0)),
+                        .corner_radius(8.0)
+                        .min_size(egui::vec2(128.0, 34.0)),
                     )
                     .clicked()
                 {
                     self.config.dark_mode = is_dark;
                     theme_changed = true;
+                    self.play_sound(SoundEffect::UiClick);
                 }
             }
         });
 
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("MESSAGE DISPLAY")
-                .size(11.5)
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
+        ui.add_space(16.0);
+        ui.label(theme::semibold("MESSAGE STYLE", 11.0).color(p.text_muted));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            for (compact, label) in [
-                (false, "Cozy: Modern, beautiful, and easy on your eyes."),
-                (true, "Compact: Fit more messages on screen at one time."),
-            ] {
+            for (compact, label) in [(false, "Modern Bubbles"), (true, "Compact Feed")] {
                 let active = self.config.compact_mode == compact;
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(if compact { "Compact" } else { "Cozy" }).color(
-                            if active {
-                                Color32::WHITE
-                            } else {
-                                theme::TEXT_SECONDARY
-                            },
-                        ))
-                        .fill(if active {
-                            theme::ACCENT
+                        egui::Button::new(theme::semibold(label, 13.0).color(if active {
+                            Color32::WHITE
                         } else {
-                            theme::BG_SECONDARY
+                            p.text_primary
+                        }))
+                        .fill(if active { p.accent } else { p.surface })
+                        .stroke(if active {
+                            Stroke::NONE
+                        } else {
+                            p.border_stroke()
                         })
-                        .corner_radius(6.0)
-                        .min_size(egui::vec2(96.0, 34.0)),
+                        .corner_radius(8.0)
+                        .min_size(egui::vec2(128.0, 34.0)),
                     )
-                    .on_hover_text(label)
                     .clicked()
                 {
                     self.config.compact_mode = compact;
                     self.config.save();
+                    self.play_sound(SoundEffect::UiClick);
                 }
             }
         });
 
-        ui.add_space(18.0);
+        ui.add_space(16.0);
         ui.label(
-            RichText::new(format!(
-                "CHAT FONT SCALING — {}px",
-                self.config.font_size.round() as i32
-            ))
-            .size(11.5)
-            .strong()
-            .color(theme::TEXT_MUTED),
+            theme::semibold(
+                format!("FONT SIZE — {}px", self.config.font_size.round() as i32),
+                11.0,
+            )
+            .color(p.text_muted),
         );
         ui.add_space(6.0);
         if ui
@@ -1285,119 +1046,109 @@ impl SkyApp {
             theme::apply(ctx, self.config.dark_mode, self.config.font_size);
         }
 
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("ACCESSIBILITY — REDUCE MOTION")
-                .size(11.5)
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
+        ui.add_space(16.0);
+        ui.label(theme::semibold("MOTION", 11.0).color(p.text_muted));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             for (rm, label) in [(false, "Full Animations"), (true, "Reduce Motion")] {
                 let active = self.config.reduced_motion == rm;
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(label).color(if active {
+                        egui::Button::new(theme::semibold(label, 13.0).color(if active {
                             Color32::WHITE
                         } else {
-                            theme::TEXT_SECONDARY
+                            p.text_primary
                         }))
-                        .fill(if active {
-                            theme::ACCENT
+                        .fill(if active { p.accent } else { p.surface })
+                        .stroke(if active {
+                            Stroke::NONE
                         } else {
-                            theme::BG_SECONDARY
+                            p.border_stroke()
                         })
-                        .corner_radius(6.0)
-                        .min_size(egui::vec2(124.0, 34.0)),
+                        .corner_radius(8.0)
+                        .min_size(egui::vec2(128.0, 34.0)),
                     )
                     .clicked()
                 {
                     self.config.reduced_motion = rm;
                     self.config.save();
+                    self.play_sound(SoundEffect::UiClick);
                 }
             }
         });
 
-        ui.add_space(18.0);
-        ui.label(
-            RichText::new("UPDATES")
-                .size(11.5)
-                .strong()
-                .color(theme::TEXT_MUTED),
-        );
+        ui.add_space(16.0);
+        ui.label(theme::semibold("UPDATES", 11.0).color(p.text_muted));
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             for (au, label) in [(true, "Auto-Install Updates"), (false, "Manual Only")] {
                 let active = self.config.auto_update == au;
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(label).color(if active {
+                        egui::Button::new(theme::semibold(label, 13.0).color(if active {
                             Color32::WHITE
                         } else {
-                            theme::TEXT_SECONDARY
+                            p.text_primary
                         }))
-                        .fill(if active {
-                            theme::ACCENT
+                        .fill(if active { p.accent } else { p.surface })
+                        .stroke(if active {
+                            Stroke::NONE
                         } else {
-                            theme::BG_SECONDARY
+                            p.border_stroke()
                         })
-                        .corner_radius(6.0)
+                        .corner_radius(8.0)
                         .min_size(egui::vec2(142.0, 34.0)),
                     )
                     .clicked()
                 {
                     self.config.auto_update = au;
                     self.config.save();
+                    self.play_sound(SoundEffect::UiClick);
                 }
             }
             if ui
                 .add(
-                    egui::Button::new(RichText::new("Check Now").color(theme::TEXT_PRIMARY))
-                        .fill(theme::BG_ACTIVE)
-                        .corner_radius(6.0)
+                    egui::Button::new(theme::semibold("Check Now", 13.0).color(p.text_primary))
+                        .fill(p.surface)
+                        .stroke(p.border_stroke())
+                        .corner_radius(8.0)
                         .min_size(egui::vec2(96.0, 34.0)),
                 )
                 .clicked()
             {
                 self.check_for_updates(true);
+                self.play_sound(SoundEffect::UiClick);
             }
         });
     }
 
     fn ui_settings_voice(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            RichText::new("Voice & Video")
-                .size(20.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
+        let p = theme::of(ui.ctx());
+        ui.label(theme::semibold("Voice, Video & Audio", 20.0).color(p.text_primary));
         ui.add_space(16.0);
 
         egui::Frame::new()
-            .fill(theme::BG_SECONDARY)
-            .corner_radius(6.0)
+            .fill(p.surface)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
             .inner_margin(egui::Margin::same(14))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                ui.label(theme::semibold("MICROPHONE & SOUND EFFECTS", 11.0).color(p.text_muted));
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new(if self.muted {
-                                    "Unmute Microphone"
-                                } else {
-                                    "Mute Microphone"
-                                })
+                                theme::semibold(
+                                    if self.muted { "Unmute Mic" } else { "Mute Mic" },
+                                    13.0,
+                                )
                                 .color(Color32::WHITE),
                             )
-                            .fill(if self.muted {
-                                theme::DANGER
-                            } else {
-                                theme::ACCENT
-                            })
-                            .corner_radius(4.0)
-                            .min_size(egui::vec2(160.0, 34.0)),
+                            .fill(if self.muted { p.danger } else { p.accent })
+                            .corner_radius(8.0)
+                            .min_size(egui::vec2(124.0, 34.0)),
                         )
                         .clicked()
                     {
@@ -1406,67 +1157,89 @@ impl SkyApp {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new(if self.deafened {
-                                    "Undeafen Audio"
+                                theme::semibold(
+                                    if self.deafened { "Undeafen" } else { "Deafen" },
+                                    13.0,
+                                )
+                                .color(if self.deafened {
+                                    Color32::WHITE
                                 } else {
-                                    "Deafen Audio"
-                                })
-                                .color(Color32::WHITE),
+                                    p.text_primary
+                                }),
                             )
-                            .fill(if self.deafened {
-                                theme::DANGER
+                            .fill(if self.deafened { p.danger } else { p.floating })
+                            .stroke(if self.deafened {
+                                Stroke::NONE
                             } else {
-                                theme::BG_ACTIVE
+                                p.border_stroke()
                             })
-                            .corner_radius(4.0)
-                            .min_size(egui::vec2(150.0, 34.0)),
+                            .corner_radius(8.0)
+                            .min_size(egui::vec2(110.0, 34.0)),
                         )
                         .clicked()
                     {
                         self.toggle_deafen();
                     }
+                    let sfx_on = self.config.ui_sounds;
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                theme::semibold(
+                                    if sfx_on { "UI Sounds: On" } else { "UI Sounds: Off" },
+                                    13.0,
+                                )
+                                .color(if sfx_on {
+                                    Color32::WHITE
+                                } else {
+                                    p.text_primary
+                                }),
+                            )
+                            .fill(if sfx_on { p.success } else { p.floating })
+                            .stroke(if sfx_on {
+                                Stroke::NONE
+                            } else {
+                                p.border_stroke()
+                            })
+                            .corner_radius(8.0)
+                            .min_size(egui::vec2(124.0, 34.0)),
+                        )
+                        .clicked()
+                    {
+                        self.config.ui_sounds = !self.config.ui_sounds;
+                        self.config.save();
+                        if self.config.ui_sounds {
+                            self.play_sound(SoundEffect::Reaction);
+                        }
+                    }
                 });
-                ui.add_space(12.0);
+                ui.add_space(10.0);
                 ui.label(
                     RichText::new(format!(
-                        "Relay status: {}",
+                        "Relay: {}",
                         if self.connected {
                             "Connected (Opus 48kHz)"
                         } else {
                             "Reconnecting..."
                         }
                     ))
-                    .color(if self.connected {
-                        theme::SUCCESS
-                    } else {
-                        theme::WARNING
-                    }),
+                    .small()
+                    .color(if self.connected { p.success } else { p.warning }),
                 );
-                if self.in_voice {
-                    ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(format!(
-                            "Active room: {} ({} participant(s))",
-                            self.voice_room.as_deref().unwrap_or("voice"),
-                            self.participants.len()
-                        ))
-                        .color(theme::TEXT_SECONDARY),
-                    );
-                }
             });
 
-        ui.add_space(18.0);
-        ui.label(theme::semibold("SCREEN SHARE", 12.0).color(theme::TEXT_MUTED));
+        ui.add_space(16.0);
+        ui.label(theme::semibold("SCREEN SHARE", 11.5).color(p.text_muted));
         ui.add_space(8.0);
 
         egui::Frame::new()
-            .fill(theme::BG_SECONDARY)
-            .corner_radius(6.0)
+            .fill(p.surface)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
             .inner_margin(egui::Margin::same(14))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
 
-                ui.label(theme::semibold("RESOLUTION (MAX 1080P)", 11.0).color(theme::TEXT_MUTED));
+                ui.label(theme::semibold("RESOLUTION (MAX 1080P)", 11.0).color(p.text_muted));
                 ui.add_space(6.0);
                 let mut picked_res: Option<u32> = None;
                 ui.horizontal(|ui| {
@@ -1474,19 +1247,18 @@ impl SkyApp {
                         let active = self.config.screen_max_height == h;
                         if ui
                             .add(
-                                egui::Button::new(
-                                    theme::semibold(label, 13.0).color(if active {
-                                        Color32::WHITE
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    }),
-                                )
-                                .fill(if active {
-                                    theme::ACCENT
+                                egui::Button::new(theme::semibold(label, 13.0).color(if active {
+                                    Color32::WHITE
                                 } else {
-                                    theme::BG_TERTIARY
+                                    p.text_primary
+                                }))
+                                .fill(if active { p.accent } else { p.floating })
+                                .stroke(if active {
+                                    Stroke::NONE
+                                } else {
+                                    p.border_stroke()
                                 })
-                                .corner_radius(4.0)
+                                .corner_radius(8.0)
                                 .min_size(egui::vec2(88.0, 32.0)),
                             )
                             .clicked()
@@ -1497,10 +1269,11 @@ impl SkyApp {
                 });
                 if let Some(h) = picked_res {
                     self.set_screen_resolution(h);
+                    self.play_sound(SoundEffect::UiClick);
                 }
 
                 ui.add_space(14.0);
-                ui.label(theme::semibold("FRAME RATE", 11.0).color(theme::TEXT_MUTED));
+                ui.label(theme::semibold("FRAME RATE", 11.0).color(p.text_muted));
                 ui.add_space(6.0);
                 let mut picked_fps: Option<u32> = None;
                 ui.horizontal(|ui| {
@@ -1512,19 +1285,18 @@ impl SkyApp {
                         let active = self.config.screen_fps == fps;
                         if ui
                             .add(
-                                egui::Button::new(
-                                    theme::semibold(label, 13.0).color(if active {
-                                        Color32::WHITE
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    }),
-                                )
-                                .fill(if active {
-                                    theme::ACCENT
+                                egui::Button::new(theme::semibold(label, 13.0).color(if active {
+                                    Color32::WHITE
                                 } else {
-                                    theme::BG_TERTIARY
+                                    p.text_primary
+                                }))
+                                .fill(if active { p.accent } else { p.floating })
+                                .stroke(if active {
+                                    Stroke::NONE
+                                } else {
+                                    p.border_stroke()
                                 })
-                                .corner_radius(4.0)
+                                .corner_radius(8.0)
                                 .min_size(egui::vec2(88.0, 32.0)),
                             )
                             .clicked()
@@ -1535,58 +1307,56 @@ impl SkyApp {
                 });
                 if let Some(fps) = picked_fps {
                     self.set_screen_fps(fps);
+                    self.play_sound(SoundEffect::UiClick);
                 }
 
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new(
-                        "Changes apply live even while sharing. Use 720p 60 FPS for fastest motion or 1080p for sharp text.",
+                        "Join a voice call first, then click Share Screen inside the call dock. Changes apply live.",
                     )
                     .small()
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_muted),
                 );
             });
     }
 
     fn ui_settings_keybinds(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            RichText::new("Keybinds")
-                .size(20.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
+        let p = theme::of(ui.ctx());
+        ui.label(theme::semibold("Keyboard Shortcuts", 20.0).color(p.text_primary));
         ui.add_space(12.0);
         let bindings = [
-            ("Ctrl + K", "Jump to Quick DM Search"),
+            ("Ctrl + K", "Search conversations"),
             ("Escape", "Close modal, popup, search, or cancel reply/edit"),
             ("Arrow Up", "Edit your last sent message (when input is empty)"),
             ("Ctrl + Shift + M", "Toggle Microphone Mute"),
             ("Ctrl + Shift + D", "Toggle Audio Deafen"),
-            ("Ctrl + /", "Open Keyboard Shortcuts"),
+            ("Ctrl + /", "Open Shortcuts"),
         ];
         for (keys, desc) in bindings {
             egui::Frame::new()
-                .fill(theme::BG_SECONDARY)
-                .corner_radius(6.0)
+                .fill(p.surface)
+                .stroke(p.border_stroke())
+                .corner_radius(10.0)
                 .inner_margin(egui::Margin::symmetric(12, 10))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(desc).color(theme::TEXT_PRIMARY));
+                        ui.label(RichText::new(desc).color(p.text_primary));
                         ui.with_layout(
                             egui::Layout::right_to_left(egui::Align::Center),
                             |ui| {
                                 egui::Frame::new()
-                                    .fill(theme::BG_TERTIARY)
-                                    .stroke(theme::border())
-                                    .corner_radius(4.0)
+                                    .fill(p.floating)
+                                    .stroke(p.border_stroke())
+                                    .corner_radius(6.0)
                                     .inner_margin(egui::Margin::symmetric(8, 3))
                                     .show(ui, |ui| {
                                         ui.label(
                                             RichText::new(keys)
                                                 .monospace()
                                                 .small()
-                                                .color(theme::TEXT_PRIMARY),
+                                                .color(p.text_primary),
                                         );
                                     });
                             },
@@ -1597,13 +1367,12 @@ impl SkyApp {
         }
     }
 
-    /// #9 Top-right Discord Toast Notifications:
-    /// 250ms slide-in (-16px, scale 0.97 -> 1), 2px #5865f2 4s progress bar (pauses on hover),
-    /// and 200ms slide-out (-8px, fade out).
+    /// Top-right Toast Notifications (250ms slide-in, 4s progress bar pausing on hover, 200ms slide-out).
     pub(crate) fn ui_toasts(&mut self, ctx: &Context) {
         if self.toasts.is_empty() {
             return;
         }
+        let p = theme::of(ctx);
         let now = Self::now_secs();
         let dt = ctx.input(|i| i.unstable_dt).clamp(0.001, 0.1);
         let reduced = self.config.reduced_motion;
@@ -1626,13 +1395,13 @@ impl SkyApp {
 
             let w = base_w * scale;
             let h = base_h * scale;
-            let base_y = 58.0 + (idx as f32) * 78.0;
+            let base_y = 64.0 + (idx as f32) * 78.0;
             let pos = egui::pos2(
                 (screen.right() - base_w - 16.0).max(16.0) + (base_w - w) * 0.5,
                 base_y + y_off + (base_h - h) * 0.5,
             );
 
-            egui::Area::new(egui::Id::new(("discord_toast", idx, toast.channel_id)))
+            egui::Area::new(egui::Id::new(("wireline_toast", idx, toast.channel_id)))
                 .order(egui::Order::Tooltip)
                 .fixed_pos(pos)
                 .show(ctx, |ui| {
@@ -1642,7 +1411,6 @@ impl SkyApp {
                     let (rect, resp) =
                         ui.allocate_exact_size(egui::vec2(w, h), Sense::click());
 
-                    // Hover pauses the 4s progress countdown (animation-play-state: paused)
                     if !resp.hovered() && toast.closing_at.is_none() {
                         toast.remaining_secs = (toast.remaining_secs - dt).max(0.0);
                         if toast.remaining_secs <= 0.0 {
@@ -1650,21 +1418,12 @@ impl SkyApp {
                         }
                     }
 
-                    ui.painter().rect_filled(rect, 8.0, theme::BG_FLOATING);
+                    ui.painter().rect_filled(rect, 12.0, p.floating);
                     ui.painter().rect_stroke(
                         rect,
-                        8.0,
-                        theme::border(),
+                        12.0,
+                        p.border_stroke(),
                         egui::StrokeKind::Inside,
-                    );
-                    // Left accent stripe
-                    ui.painter().rect_filled(
-                        Rect::from_min_max(
-                            rect.left_top() + egui::vec2(0.0, 6.0),
-                            rect.left_bottom() + egui::vec2(3.0, -8.0),
-                        ),
-                        1.5,
-                        theme::ACCENT,
                     );
 
                     let av_c = rect.left_center() + egui::vec2(26.0, -1.0);
@@ -1681,7 +1440,7 @@ impl SkyApp {
                         av_c,
                         Align2::CENTER_CENTER,
                         init,
-                        FontId::proportional(13.0),
+                        FontId::new(13.0, theme::semibold_family()),
                         Color32::WHITE,
                     );
 
@@ -1689,8 +1448,8 @@ impl SkyApp {
                         rect.left_top() + egui::vec2(52.0, 12.0),
                         Align2::LEFT_TOP,
                         &toast.sender,
-                        FontId::proportional(13.5),
-                        theme::TEXT_PRIMARY,
+                        FontId::new(13.5, theme::semibold_family()),
+                        p.text_primary,
                     );
                     let snippet: String = if toast.preview.chars().count() > 34 {
                         format!(
@@ -1705,18 +1464,17 @@ impl SkyApp {
                         Align2::LEFT_TOP,
                         snippet,
                         FontId::proportional(12.5),
-                        theme::TEXT_SECONDARY,
+                        p.text_secondary,
                     );
 
-                    // 2px #5865f2 progress bar shrinking 100% -> 0% over 4s
                     let frac = (toast.remaining_secs / 4.0).clamp(0.0, 1.0);
-                    let bar_w = (rect.width() - 8.0) * frac;
+                    let bar_w = (rect.width() - 16.0) * frac;
                     if bar_w > 0.5 {
                         let pbar = Rect::from_min_max(
-                            egui::pos2(rect.left() + 4.0, rect.bottom() - 3.0),
-                            egui::pos2(rect.left() + 4.0 + bar_w, rect.bottom() - 1.0),
+                            egui::pos2(rect.left() + 8.0, rect.bottom() - 4.0),
+                            egui::pos2(rect.left() + 8.0 + bar_w, rect.bottom() - 2.0),
                         );
-                        ui.painter().rect_filled(pbar, 1.0, theme::ACCENT);
+                        ui.painter().rect_filled(pbar, 1.0, p.accent);
                     }
 
                     if resp.clicked() && toast.closing_at.is_none() {
@@ -1755,5 +1513,6 @@ impl SkyApp {
             status,
             anchor,
         });
+        self.play_sound(SoundEffect::UiClick);
     }
 }

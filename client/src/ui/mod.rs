@@ -16,6 +16,7 @@ use crate::config::{Config, SavedSession};
 use crate::events::UiEvent;
 use crate::net;
 use crate::screen::ScreenShare;
+use crate::sounds::{self, SoundEffect};
 use crate::{native, theme, updater};
 use eframe::egui;
 use egui::{Color32, Context, Pos2, RichText, TextureOptions, Ui};
@@ -318,6 +319,15 @@ impl SkyApp {
         });
     }
 
+    pub(crate) fn play_sound(&mut self, effect: SoundEffect) {
+        if !self.config.ui_sounds || self.deafened {
+            return;
+        }
+        let audio = self.audio.get_or_insert_with(AudioEngine::start);
+        let clip = sounds::synthesize(effect);
+        audio.play_sfx(&clip);
+    }
+
     #[cfg(target_os = "windows")]
     fn init_tray() -> (
         Option<TrayIcon>,
@@ -499,6 +509,7 @@ impl SkyApp {
         self.friend_query.clear();
         self.friend_error.clear();
         self.friend_busy = true;
+        self.play_sound(SoundEffect::FriendAction);
         self.rt.spawn(async move {
             match api.friend_request(&token, &FriendRequest { query }).await {
                 Ok(response) => {
@@ -519,6 +530,11 @@ impl SkyApp {
         let api = self.api();
         let tx = self.events_tx.clone();
         self.friend_busy = true;
+        if accept {
+            self.play_sound(SoundEffect::FriendAction);
+        } else {
+            self.play_sound(SoundEffect::UiClick);
+        }
         self.rt.spawn(async move {
             match api
                 .friend_respond(
@@ -627,6 +643,7 @@ impl SkyApp {
         self.typing_fade = 0.0;
         self.last_typing_text.clear();
         self.refocus_draft = true;
+        self.play_sound(SoundEffect::UiClick);
         self.load_messages(channel_id, None);
     }
 
@@ -647,6 +664,7 @@ impl SkyApp {
             });
             self.draft.clear();
             self.refocus_draft = true;
+            self.play_sound(SoundEffect::MessageSend);
         } else {
             self.notice = "Not connected to the relay".to_string();
         }
@@ -659,6 +677,7 @@ impl SkyApp {
                 message_id,
                 emoji,
             });
+            self.play_sound(SoundEffect::Reaction);
         }
     }
 
@@ -784,6 +803,7 @@ impl SkyApp {
                 self.skip_join_chimes = true;
                 self.call_started_at = Some(Self::now_secs());
                 self.notice = format!("Calling {}", channel.name);
+                self.play_sound(SoundEffect::CallJoin);
             }
             Err(e) => {
                 self.notice = e;
@@ -793,6 +813,7 @@ impl SkyApp {
     }
 
     pub(crate) fn leave_voice(&mut self) {
+        let was_in_voice = self.in_voice;
         if let Some(ws) = &self.ws_tx {
             let _ = ws.send(WsClientMsg::LeaveVoice);
         }
@@ -813,6 +834,9 @@ impl SkyApp {
         self.voice_participants_seen.clear();
         self.skip_join_chimes = false;
         self.call_started_at = None;
+        if was_in_voice {
+            self.play_sound(SoundEffect::CallLeave);
+        }
     }
 
     pub(crate) fn toggle_mute(&mut self) {
@@ -821,6 +845,11 @@ impl SkyApp {
             audio.set_muted(self.muted);
         }
         self.send_voice_state();
+        self.play_sound(if self.muted {
+            SoundEffect::Mute
+        } else {
+            SoundEffect::Unmute
+        });
     }
 
     pub(crate) fn toggle_deafen(&mut self) {
@@ -829,6 +858,15 @@ impl SkyApp {
             audio.set_deafened(self.deafened);
         }
         self.send_voice_state();
+        if self.config.ui_sounds {
+            let audio = self.audio.get_or_insert_with(AudioEngine::start);
+            let clip = sounds::synthesize(if self.deafened {
+                SoundEffect::Deafen
+            } else {
+                SoundEffect::Undeafen
+            });
+            audio.play_sfx(&clip);
+        }
     }
 
     pub(crate) fn send_voice_state(&self) {
@@ -860,6 +898,7 @@ impl SkyApp {
                 self.screen_owner = None;
                 self.screen_fullscreen = false;
             }
+            self.play_sound(SoundEffect::ScreenShareStop);
             return;
         }
         let room = self.voice_room.clone().unwrap_or_default();
@@ -885,6 +924,7 @@ impl SkyApp {
         ));
         self.sharing = true;
         self.call_expanded = true;
+        self.play_sound(SoundEffect::ScreenShareStart);
     }
 
     pub(crate) fn set_screen_fps(&mut self, fps: u32) {
@@ -1066,6 +1106,9 @@ impl SkyApp {
                         if !self.config.reduced_motion {
                             self.new_message_anims.insert(message.id, Self::now_secs());
                         }
+                        if !mine {
+                            self.play_sound(SoundEffect::MessageReceive);
+                        }
                         self.messages.push(message);
                         if self.messages.len() > 300 {
                             let excess = self.messages.len() - 300;
@@ -1074,7 +1117,7 @@ impl SkyApp {
                     } else if !mine && !self.is_blocked(message.user_id) {
                         *self.unread.entry(message.channel_id).or_insert(0) += 1;
                         if !self.is_channel_muted(message.channel_id) {
-                            native::message_chime();
+                            self.play_sound(SoundEffect::MessageReceive);
                             let body = format!("{}: {}", message.username, message.content);
                             native::notify("Wireline", &body);
                             // Push in-app Discord toast (stack up to 3, 4s progress bar)
@@ -1205,7 +1248,7 @@ impl SkyApp {
                                 if !already_ringing {
                                     self.incoming_call =
                                         Some((ch_id, caller.username.clone()));
-                                    native::voice_join_chime();
+                                    self.play_sound(SoundEffect::CallIncoming);
                                     native::notify(
                                         "Wireline",
                                         &format!("{} is calling you", caller.username),
@@ -1226,7 +1269,7 @@ impl SkyApp {
                         p.user_id != me_id && !self.voice_participants_seen.contains(&p.user_id)
                     });
                     if new_joiner && !self.skip_join_chimes {
-                        native::voice_join_chime();
+                        self.play_sound(SoundEffect::CallJoin);
                     }
                     self.voice_participants_seen = participants
                         .iter()
@@ -1521,8 +1564,9 @@ impl SkyApp {
     }
 
     fn ui_main_stage(&mut self, ctx: &Context) {
+        let p = theme::of(ctx);
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG_PRIMARY))
+            .frame(egui::Frame::new().fill(p.canvas))
             .show(ctx, |ui| {
                 if self.selected_channel.is_none() {
                     self.ui_friends_home(ui);
@@ -1536,10 +1580,11 @@ impl SkyApp {
         if self.notice.is_empty() {
             return;
         }
+        let p = theme::of(ui.ctx());
         let color = if self.notice.starts_with("HTTP") || self.notice.contains("failed") {
-            theme::DANGER
+            p.danger
         } else {
-            theme::TEXT_SECONDARY
+            p.text_secondary
         };
         ui.label(RichText::new(&self.notice).color(color).small());
     }

@@ -41,6 +41,10 @@ pub struct Config {
     pub reduced_motion: bool,
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
+    #[serde(default = "default_ui_sounds")]
+    pub ui_sounds: bool,
+    #[serde(default = "default_call_stage_height")]
+    pub call_stage_height: f32,
     #[serde(default = "default_screen_fps")]
     pub screen_fps: u32,
     #[serde(default = "default_screen_max_height")]
@@ -71,6 +75,14 @@ fn default_auto_update() -> bool {
     true
 }
 
+fn default_ui_sounds() -> bool {
+    true
+}
+
+fn default_call_stage_height() -> f32 {
+    280.0
+}
+
 fn default_screen_fps() -> u32 {
     30
 }
@@ -90,6 +102,8 @@ impl Default for Config {
             compact_mode: false,
             reduced_motion: false,
             auto_update: default_auto_update(),
+            ui_sounds: default_ui_sounds(),
+            call_stage_height: default_call_stage_height(),
             screen_fps: default_screen_fps(),
             screen_max_height: default_screen_max_height(),
             last_installed_update: None,

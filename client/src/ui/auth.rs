@@ -1,18 +1,24 @@
-//! Clean Discord-style authentication screen (#313338 card on #1e1f22 canvas).
+//! Clean Wireline authentication screen (100% Dynamic Dark & Light Mode).
 
 use super::{AuthStep, AuthTab, SkyApp};
 use crate::events::UiEvent;
-use crate::theme;
+use crate::theme::{self, Palette};
 use eframe::egui;
-use egui::{Color32, Context, RichText, Stroke, Ui};
+use egui::{Color32, Context, RichText, Ui};
 use skypeline_shared::{LoginRequest, RegisterRequest, ResendCodeRequest, VerifyCodeRequest};
 
 impl SkyApp {
-    fn auth_field(ui: &mut Ui, value: &mut String, hint: &str, password: bool) -> egui::Response {
+    fn auth_field(
+        ui: &mut Ui,
+        p: Palette,
+        value: &mut String,
+        hint: &str,
+        password: bool,
+    ) -> egui::Response {
         egui::Frame::new()
-            .fill(theme::BG_TERTIARY)
-            .stroke(Stroke::NONE)
-            .corner_radius(4.0)
+            .fill(p.input_bg)
+            .stroke(p.border_stroke())
+            .corner_radius(10.0)
             .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -27,28 +33,28 @@ impl SkyApp {
             .inner
     }
 
-    fn auth_label(ui: &mut Ui, text: &str) {
-        ui.label(theme::semibold(text, 11.5).color(theme::TEXT_SECONDARY));
+    fn auth_label(ui: &mut Ui, p: Palette, text: &str) {
+        ui.label(theme::semibold(text, 11.5).color(p.text_secondary));
     }
 
-    fn auth_link(ui: &mut Ui, label: &str) -> bool {
+    fn auth_link(ui: &mut Ui, p: Palette, label: &str) -> bool {
         ui.add(
-            egui::Button::new(RichText::new(label).color(theme::TEXT_LINK).size(13.0))
-                .frame(false),
+            egui::Button::new(RichText::new(label).color(p.accent).size(13.0)).frame(false),
         )
         .clicked()
     }
 
     pub(crate) fn ui_login(&mut self, ctx: &Context) {
+        let p = theme::of(ctx);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(theme::BG_TERTIARY)
+                    .fill(p.sidebar)
                     .inner_margin(egui::Margin::same(24)),
             )
             .show(ctx, |ui| {
                 let page_rect = ui.available_rect_before_wrap();
-                let card_width = page_rect.width().min(440.0_f32);
+                let card_width = page_rect.width().min(430.0_f32);
                 let content_width = (card_width - 64.0_f32).max(200.0_f32);
                 let estimated_card_height = 420.0_f32;
                 let top_space = (page_rect.height() - estimated_card_height).max(0.0) * 0.45;
@@ -59,6 +65,7 @@ impl SkyApp {
                 );
 
                 let fill_shape = ui.painter().add(egui::Shape::Noop);
+                let stroke_shape = ui.painter().add(egui::Shape::Noop);
 
                 let content = ui.allocate_new_ui(
                     egui::UiBuilder::new()
@@ -73,28 +80,30 @@ impl SkyApp {
                                 AuthTab::Login => {
                                     ui.vertical_centered(|ui| {
                                         ui.label(
-                                            theme::semibold("Welcome back!", 22.0)
-                                                .color(theme::TEXT_PRIMARY),
+                                            theme::semibold("Sign in to Wireline", 22.0)
+                                                .color(p.text_primary),
                                         );
                                         ui.label(
-                                            RichText::new("We're so excited to see you again!")
-                                                .size(14.0)
-                                                .color(theme::TEXT_SECONDARY),
+                                            RichText::new("Private chats, voice calls & screen sharing.")
+                                                .size(13.5)
+                                                .color(p.text_muted),
                                         );
                                     });
                                     ui.add_space(16.0);
 
-                                    Self::auth_label(ui, "EMAIL");
+                                    Self::auth_label(ui, p, "EMAIL");
                                     Self::auth_field(
                                         ui,
+                                        p,
                                         &mut self.login_email,
                                         "you@example.com",
                                         false,
                                     );
                                     ui.add_space(8.0);
-                                    Self::auth_label(ui, "PASSWORD");
+                                    Self::auth_label(ui, p, "PASSWORD");
                                     let pw = Self::auth_field(
                                         ui,
+                                        p,
                                         &mut self.login_password,
                                         "",
                                         true,
@@ -104,10 +113,10 @@ impl SkyApp {
                                     let enter = pw.lost_focus()
                                         && ui.input(|i| i.key_pressed(egui::Key::Enter));
                                     let sign_in = egui::Button::new(
-                                        theme::semibold("Log In", 14.5).color(Color32::WHITE),
+                                        theme::semibold("Sign In", 14.5).color(Color32::WHITE),
                                     )
-                                    .fill(theme::ACCENT)
-                                    .corner_radius(4.0)
+                                    .fill(p.accent)
+                                    .corner_radius(10.0)
                                     .min_size([content_width, 42.0].into());
                                     if (ui.add_enabled(!self.busy, sign_in).clicked() || enter)
                                         && !self.busy
@@ -117,11 +126,13 @@ impl SkyApp {
                                     ui.add_space(8.0);
                                     ui.horizontal(|ui| {
                                         ui.label(
-                                            RichText::new("Need an account?")
+                                            RichText::new("New here?")
                                                 .size(13.0)
-                                                .color(theme::TEXT_MUTED),
+                                                .color(p.text_muted),
                                         );
-                                        if Self::auth_link(ui, "Register") && !self.busy {
+                                        if Self::auth_link(ui, p, "Create an account")
+                                            && !self.busy
+                                        {
                                             self.auth_tab = AuthTab::Register;
                                             self.notice.clear();
                                         }
@@ -130,31 +141,34 @@ impl SkyApp {
                                 AuthTab::Register => {
                                     ui.vertical_centered(|ui| {
                                         ui.label(
-                                            theme::semibold("Create an account", 22.0)
-                                                .color(theme::TEXT_PRIMARY),
+                                            theme::semibold("Create your account", 22.0)
+                                                .color(p.text_primary),
                                         );
                                     });
                                     ui.add_space(12.0);
 
-                                    Self::auth_label(ui, "EMAIL");
+                                    Self::auth_label(ui, p, "EMAIL");
                                     Self::auth_field(
                                         ui,
+                                        p,
                                         &mut self.register_email,
                                         "you@example.com",
                                         false,
                                     );
                                     ui.add_space(6.0);
-                                    Self::auth_label(ui, "USERNAME");
+                                    Self::auth_label(ui, p, "USERNAME");
                                     Self::auth_field(
                                         ui,
+                                        p,
                                         &mut self.register_username,
                                         "Username",
                                         false,
                                     );
                                     ui.add_space(6.0);
-                                    Self::auth_label(ui, "PASSWORD");
+                                    Self::auth_label(ui, p, "PASSWORD");
                                     let pw = Self::auth_field(
                                         ui,
+                                        p,
                                         &mut self.register_password,
                                         "8+ characters",
                                         true,
@@ -166,8 +180,8 @@ impl SkyApp {
                                     let create = egui::Button::new(
                                         theme::semibold("Continue", 14.5).color(Color32::WHITE),
                                     )
-                                    .fill(theme::ACCENT)
-                                    .corner_radius(4.0)
+                                    .fill(p.accent)
+                                    .corner_radius(10.0)
                                     .min_size([content_width, 42.0].into());
                                     if (ui.add_enabled(!self.busy, create).clicked() || enter)
                                         && !self.busy
@@ -175,7 +189,7 @@ impl SkyApp {
                                         self.submit_register();
                                     }
                                     ui.add_space(8.0);
-                                    if Self::auth_link(ui, "Already have an account?")
+                                    if Self::auth_link(ui, p, "Already have an account?")
                                         && !self.busy
                                     {
                                         self.auth_tab = AuthTab::Login;
@@ -187,26 +201,28 @@ impl SkyApp {
                                 ui.vertical_centered(|ui| {
                                     ui.label(
                                         theme::semibold("Confirm your email", 22.0)
-                                            .color(theme::TEXT_PRIMARY),
+                                            .color(p.text_primary),
                                     );
                                     ui.label(
                                         RichText::new("Enter the 6-digit verification code.")
-                                            .size(14.0)
-                                            .color(theme::TEXT_SECONDARY),
+                                            .size(13.5)
+                                            .color(p.text_muted),
                                     );
                                 });
                                 ui.add_space(14.0);
-                                Self::auth_label(ui, "EMAIL");
+                                Self::auth_label(ui, p, "EMAIL");
                                 Self::auth_field(
                                     ui,
+                                    p,
                                     &mut self.verify_email,
                                     "you@example.com",
                                     false,
                                 );
                                 ui.add_space(6.0);
-                                Self::auth_label(ui, "VERIFICATION CODE");
+                                Self::auth_label(ui, p, "VERIFICATION CODE");
                                 let code_field = Self::auth_field(
                                     ui,
+                                    p,
                                     &mut self.verify_code,
                                     "6-digit code",
                                     false,
@@ -215,10 +231,10 @@ impl SkyApp {
                                 let enter = code_field.lost_focus()
                                     && ui.input(|i| i.key_pressed(egui::Key::Enter));
                                 let verify = egui::Button::new(
-                                    theme::semibold("Verify & Log In", 14.5).color(Color32::WHITE),
+                                    theme::semibold("Verify & Sign In", 14.5).color(Color32::WHITE),
                                 )
-                                .fill(theme::ACCENT)
-                                .corner_radius(4.0)
+                                .fill(p.accent)
+                                .corner_radius(10.0)
                                 .min_size([content_width, 42.0].into());
                                 if (ui.add_enabled(!self.busy, verify).clicked() || enter)
                                     && !self.busy
@@ -227,13 +243,15 @@ impl SkyApp {
                                 }
                                 ui.add_space(8.0);
                                 ui.horizontal(|ui| {
-                                    if Self::auth_link(ui, "Resend code") && !self.busy {
+                                    if Self::auth_link(ui, p, "Resend code") && !self.busy {
                                         self.resend_code();
                                     }
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if Self::auth_link(ui, "Back to Log In") && !self.busy {
+                                            if Self::auth_link(ui, p, "Back to Sign In")
+                                                && !self.busy
+                                            {
                                                 self.auth_step = AuthStep::Credentials;
                                                 self.auth_tab = AuthTab::Login;
                                                 self.verify_code.clear();
@@ -256,7 +274,16 @@ impl SkyApp {
                 let card_rect = content.response.rect.expand2(egui::vec2(32.0, 0.0));
                 ui.painter().set(
                     fill_shape,
-                    egui::Shape::rect_filled(card_rect, 6.0, theme::BG_PRIMARY),
+                    egui::Shape::rect_filled(card_rect, 16.0, p.canvas),
+                );
+                ui.painter().set(
+                    stroke_shape,
+                    egui::Shape::rect_stroke(
+                        card_rect,
+                        16.0,
+                        p.border_stroke(),
+                        egui::StrokeKind::Outside,
+                    ),
                 );
             });
     }

@@ -1,4 +1,4 @@
-//! Authentic Discord dark UI palette, native OS typography (Segoe UI / system sans),
+//! Original Wireline dynamic Dark & Light theme system, native OS typography,
 //! and Phosphor icon font registration.
 
 use eframe::egui::{
@@ -7,47 +7,129 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
-// Exact Discord dark tokens
-pub const BG_PRIMARY: Color32 = Color32::from_rgb(0x31, 0x33, 0x38); // main chat area
-pub const BG_SECONDARY: Color32 = Color32::from_rgb(0x2B, 0x2D, 0x31); // left sidebar
-pub const BG_USER_PANEL: Color32 = Color32::from_rgb(0x23, 0x24, 0x28); // bottom user dock & voice bar
-pub const BG_TERTIARY: Color32 = Color32::from_rgb(0x1E, 0x1F, 0x22); // darkest canvas / inputs / code blocks
-pub const BG_FLOATING: Color32 = Color32::from_rgb(0x11, 0x12, 0x14); // modals, popups, menus, toasts
-pub const BG_HOVER: Color32 = Color32::from_rgb(0x35, 0x37, 0x3C);
-pub const BG_ACTIVE: Color32 = Color32::from_rgb(0x40, 0x42, 0x49);
-pub const MESSAGE_HOVER: Color32 = Color32::from_rgb(0x2E, 0x30, 0x35);
-
-pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(0xF2, 0xF3, 0xF5);
-pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xB5, 0xBA, 0xC1);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x94, 0x9B, 0xA4);
-pub const TEXT_LINK: Color32 = Color32::from_rgb(0x00, 0xA8, 0xFC);
-
-pub const ACCENT: Color32 = Color32::from_rgb(0x58, 0x65, 0xF2); // Discord Blurple
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(0x3B, 0x40, 0x69);
-pub const DANGER: Color32 = Color32::from_rgb(0xDA, 0x37, 0x3C); // authentic Discord red
-pub const SUCCESS: Color32 = Color32::from_rgb(0x23, 0xA5, 0x59); // online green
-pub const WARNING: Color32 = Color32::from_rgb(0xF0, 0xB2, 0x32); // idle amber
-
-pub const INPUT_BG: Color32 = Color32::from_rgb(0x38, 0x3A, 0x40);
-pub const INPUT_BORDER: Color32 = Color32::from_rgb(0x1E, 0x1F, 0x22);
-pub const HEADER_HAIRLINE: Color32 = Color32::from_rgb(0x22, 0x24, 0x28);
-pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(0x3F, 0x41, 0x47);
-
-pub fn border() -> Stroke {
-    Stroke::new(1.0_f32, BORDER_SUBTLE)
+/// Complete dynamic theme palette — automatically switches every surface, border,
+/// bubble, and text color between Wireline Midnight (Dark) and Wireline Daylight (Light).
+#[derive(Clone, Copy, Debug)]
+pub struct Palette {
+    pub dark: bool,
+    pub canvas: Color32,
+    pub sidebar: Color32,
+    pub surface: Color32,
+    pub surface_alt: Color32,
+    pub floating: Color32,
+    pub hover: Color32,
+    pub active: Color32,
+    pub input_bg: Color32,
+    pub border: Color32,
+    pub hairline: Color32,
+    pub text_primary: Color32,
+    pub text_secondary: Color32,
+    pub text_muted: Color32,
+    pub text_link: Color32,
+    pub accent: Color32,
+    pub accent_soft: Color32,
+    pub own_bubble: Color32,
+    pub own_bubble_text: Color32,
+    pub peer_bubble: Color32,
+    pub success: Color32,
+    pub warning: Color32,
+    pub danger: Color32,
+    pub call_canvas: Color32,
+    pub call_tile: Color32,
 }
 
-pub fn hairline() -> Stroke {
-    Stroke::new(1.0_f32, HEADER_HAIRLINE)
+pub const DARK: Palette = Palette {
+    dark: true,
+    canvas: Color32::from_rgb(0x0E, 0x10, 0x16),
+    sidebar: Color32::from_rgb(0x14, 0x17, 0x20),
+    surface: Color32::from_rgb(0x1B, 0x1F, 0x2C),
+    surface_alt: Color32::from_rgb(0x23, 0x28, 0x38),
+    floating: Color32::from_rgb(0x14, 0x17, 0x22),
+    hover: Color32::from_rgb(0x1F, 0x24, 0x34),
+    active: Color32::from_rgb(0x27, 0x2D, 0x42),
+    input_bg: Color32::from_rgb(0x19, 0x1D, 0x29),
+    border: Color32::from_rgb(0x26, 0x2C, 0x3E),
+    hairline: Color32::from_rgb(0x1E, 0x23, 0x31),
+    text_primary: Color32::from_rgb(0xF3, 0xF5, 0xFA),
+    text_secondary: Color32::from_rgb(0xA6, 0xB0, 0xC6),
+    text_muted: Color32::from_rgb(0x6E, 0x78, 0x91),
+    text_link: Color32::from_rgb(0x60, 0xA5, 0xFA),
+    accent: Color32::from_rgb(0x63, 0x66, 0xF1), // Electric Indigo
+    accent_soft: Color32::from_rgb(0x24, 0x28, 0x52),
+    own_bubble: Color32::from_rgb(0x4F, 0x46, 0xE5),
+    own_bubble_text: Color32::WHITE,
+    peer_bubble: Color32::from_rgb(0x1B, 0x1F, 0x2C),
+    success: Color32::from_rgb(0x22, 0xC5, 0x5E),
+    warning: Color32::from_rgb(0xF5, 0x9E, 0x0B),
+    danger: Color32::from_rgb(0xEF, 0x44, 0x44),
+    call_canvas: Color32::from_rgb(0x0A, 0x0C, 0x12),
+    call_tile: Color32::from_rgb(0x17, 0x1B, 0x26),
+};
+
+pub const LIGHT: Palette = Palette {
+    dark: false,
+    canvas: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    sidebar: Color32::from_rgb(0xF4, 0xF6, 0xFA),
+    surface: Color32::from_rgb(0xEE, 0xF1, 0xF7),
+    surface_alt: Color32::from_rgb(0xE3, 0xE8, 0xF2),
+    floating: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    hover: Color32::from_rgb(0xE9, 0xED, 0xF5),
+    active: Color32::from_rgb(0xDF, 0xE5, 0xF7),
+    input_bg: Color32::from_rgb(0xF1, 0xF4, 0xF9),
+    border: Color32::from_rgb(0xDC, 0xE2, 0xEE),
+    hairline: Color32::from_rgb(0xE5, 0xEA, 0xF2),
+    text_primary: Color32::from_rgb(0x0F, 0x17, 0x2A),
+    text_secondary: Color32::from_rgb(0x47, 0x55, 0x69),
+    text_muted: Color32::from_rgb(0x64, 0x74, 0x8B),
+    text_link: Color32::from_rgb(0x25, 0x63, 0xEB),
+    accent: Color32::from_rgb(0x4F, 0x46, 0xE5),
+    accent_soft: Color32::from_rgb(0xE0, 0xE7, 0xFF),
+    own_bubble: Color32::from_rgb(0x4F, 0x46, 0xE5),
+    own_bubble_text: Color32::WHITE,
+    peer_bubble: Color32::from_rgb(0xF1, 0xF5, 0xF9),
+    success: Color32::from_rgb(0x16, 0xA3, 0x4A),
+    warning: Color32::from_rgb(0xD9, 0x77, 0x06),
+    danger: Color32::from_rgb(0xDC, 0x26, 0x26),
+    call_canvas: Color32::from_rgb(0x0F, 0x13, 0x1C),
+    call_tile: Color32::from_rgb(0x1B, 0x20, 0x2E),
+};
+
+impl Palette {
+    pub fn border_stroke(self) -> Stroke {
+        Stroke::new(1.0_f32, self.border)
+    }
+
+    pub fn hairline_stroke(self) -> Stroke {
+        Stroke::new(1.0_f32, self.hairline)
+    }
+
+    pub fn focus_stroke(self) -> Stroke {
+        Stroke::new(1.5_f32, self.accent)
+    }
+
+    pub fn shadow(self) -> egui::Shadow {
+        egui::Shadow {
+            offset: [0, 8],
+            blur: 24,
+            spread: 0,
+            color: Color32::from_black_alpha(if self.dark { 130 } else { 36 }),
+        }
+    }
 }
 
-pub fn input_border() -> Stroke {
-    Stroke::new(1.0_f32, INPUT_BORDER)
+pub fn of(ctx: &Context) -> Palette {
+    if ctx.style().visuals.dark_mode {
+        DARK
+    } else {
+        LIGHT
+    }
 }
 
-pub fn focus_border() -> Stroke {
-    Stroke::new(1.25_f32, ACCENT)
-}
+pub const ACCENT: Color32 = DARK.accent;
+pub const SUCCESS: Color32 = DARK.success;
+pub const WARNING: Color32 = DARK.warning;
+pub const DANGER: Color32 = DARK.danger;
+pub const TEXT_MUTED: Color32 = DARK.text_muted;
 
 pub fn semibold_family() -> FontFamily {
     FontFamily::Name("semibold".into())
@@ -70,12 +152,11 @@ fn load_first_font(paths: &[&str]) -> Option<Arc<FontData>> {
     None
 }
 
-/// Registers crisp OS UI fonts (Segoe UI / system sans + SemiBold), emoji symbol fallback,
+/// Registers crisp OS UI fonts (Segoe UI / system sans + SemiBold), symbol fallback,
 /// and the Phosphor vector icon font (`egui-phosphor`).
 pub fn setup_fonts(ctx: &Context) {
     let mut fonts = FontDefinitions::default();
 
-    // 1. Phosphor crisp vector icon font
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
     fonts.font_data.insert(
         "phosphor-fill".into(),
@@ -85,7 +166,6 @@ pub fn setup_fonts(ctx: &Context) {
         .families
         .insert(icon_family(), vec!["phosphor".into(), "phosphor-fill".into()]);
 
-    // 2. Native clean sans-serif UI font (replaces egui's thin Ubuntu-Light default)
     #[cfg(target_os = "windows")]
     let regular_paths: &[&str] = &[
         "C:\\Windows\\Fonts\\segoeui.ttf",
@@ -140,7 +220,6 @@ pub fn setup_fonts(ctx: &Context) {
     }
     fonts.families.insert(semibold_family(), sb_list);
 
-    // 3. Clean symbol fallback on Windows so emoji/symbols never render as boxes
     #[cfg(target_os = "windows")]
     if let Some(sym) = load_first_font(&["C:\\Windows\\Fonts\\seguisym.ttf"]) {
         fonts.font_data.insert("ui-symbols".into(), sym);
@@ -154,49 +233,24 @@ pub fn setup_fonts(ctx: &Context) {
 
 pub fn apply(ctx: &Context, dark_mode: bool, font_size: f32) {
     let base_font = font_size.clamp(12.0, 20.0);
+    let p = if dark_mode { DARK } else { LIGHT };
     let mut visuals = if dark_mode {
         Visuals::dark()
     } else {
         Visuals::light()
     };
 
-    let (primary, panel, window, card, hover) = if dark_mode {
-        (
-            TEXT_PRIMARY,
-            BG_SECONDARY,
-            BG_PRIMARY,
-            BG_SECONDARY,
-            BG_HOVER,
-        )
-    } else {
-        (
-            Color32::from_rgb(0x06, 0x06, 0x07),
-            Color32::from_rgb(0xF2, 0xF3, 0xF5),
-            Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            Color32::from_rgb(0xEB, 0xED, 0xEF),
-            Color32::from_rgb(0xDF, 0xE1, 0xE5),
-        )
-    };
-
-    visuals.override_text_color = Some(primary);
-    visuals.panel_fill = panel;
-    visuals.window_fill = window;
-    visuals.window_stroke = Stroke::new(1.0_f32, HEADER_HAIRLINE);
-    visuals.extreme_bg_color = INPUT_BG;
-    visuals.faint_bg_color = card;
-    visuals.code_bg_color = BG_TERTIARY;
-    visuals.selection.bg_fill = ACCENT;
-    visuals.selection.stroke.color = ACCENT;
-    visuals.hyperlink_color = TEXT_LINK;
-    visuals.widgets.hovered.bg_fill = hover;
-    visuals.widgets.active.bg_fill = ACCENT;
-    visuals.widgets.open.bg_fill = card;
-    visuals.popup_shadow = egui::Shadow {
-        offset: [0, 8],
-        blur: 16,
-        spread: 0,
-        color: Color32::from_black_alpha(110),
-    };
+    visuals.override_text_color = Some(p.text_primary);
+    visuals.panel_fill = p.sidebar;
+    visuals.window_fill = p.floating;
+    visuals.window_stroke = p.border_stroke();
+    visuals.extreme_bg_color = p.input_bg;
+    visuals.faint_bg_color = p.surface;
+    visuals.code_bg_color = p.surface;
+    visuals.selection.bg_fill = p.accent;
+    visuals.selection.stroke.color = p.accent;
+    visuals.hyperlink_color = p.text_link;
+    visuals.popup_shadow = p.shadow();
 
     for widget in [
         &mut visuals.widgets.noninteractive,
@@ -205,14 +259,14 @@ pub fn apply(ctx: &Context, dark_mode: bool, font_size: f32) {
         &mut visuals.widgets.active,
         &mut visuals.widgets.open,
     ] {
-        widget.bg_fill = card;
-        widget.weak_bg_fill = card;
+        widget.bg_fill = p.surface;
+        widget.weak_bg_fill = p.surface;
         widget.bg_stroke = Stroke::NONE;
-        widget.fg_stroke.color = primary;
-        widget.corner_radius = 4.0.into();
+        widget.fg_stroke.color = p.text_primary;
+        widget.corner_radius = 8.0.into();
     }
-    visuals.widgets.hovered.bg_fill = hover;
-    visuals.widgets.active.bg_fill = ACCENT;
+    visuals.widgets.hovered.bg_fill = p.hover;
+    visuals.widgets.active.bg_fill = p.accent;
 
     ctx.set_visuals(visuals);
     ctx.style_mut(|style| {
@@ -222,17 +276,20 @@ pub fn apply(ctx: &Context, dark_mode: bool, font_size: f32) {
         style
             .text_styles
             .insert(TextStyle::Body, FontId::proportional(base_font));
-        style
-            .text_styles
-            .insert(TextStyle::Button, FontId::new((base_font - 0.5).max(12.5), semibold_family()));
-        style
-            .text_styles
-            .insert(TextStyle::Heading, FontId::new(base_font + 5.0, semibold_family()));
-        style
-            .text_styles
-            .insert(TextStyle::Monospace, FontId::monospace((base_font - 1.5).max(11.5)));
+        style.text_styles.insert(
+            TextStyle::Button,
+            FontId::new((base_font - 0.5).max(12.5), semibold_family()),
+        );
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(base_font + 5.0, semibold_family()),
+        );
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::monospace((base_font - 1.5).max(11.5)),
+        );
         style.spacing.item_spacing = egui::vec2(8.0, 4.0);
         style.spacing.scroll.bar_width = 5.0;
-        style.visuals.window_corner_radius = 8.0.into();
+        style.visuals.window_corner_radius = 12.0.into();
     });
 }
