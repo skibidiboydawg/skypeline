@@ -34,7 +34,7 @@ pub async fn request(
             .await
             .map_err(internal)?
     } else {
-        sqlx::query("SELECT id FROM users WHERE lower(username) = lower($1)")
+        sqlx::query("SELECT id FROM users WHERE lower(username) = lower($1) ORDER BY id DESC LIMIT 1")
             .bind(query)
             .fetch_optional(&state.db)
             .await
@@ -66,18 +66,55 @@ pub async fn request(
             return Err((StatusCode::CONFLICT, "you are already friends".to_string()));
         }
         if status == "pending" {
-            return if owner_id == claims.sub {
-                Ok(Json(StatusResponse {
+            if owner_id == claims.sub {
+                return Ok(Json(StatusResponse {
                     ok: true,
                     message: "Friend request already sent.".to_string(),
-                }))
+                }));
             } else {
-                Err((
-                    StatusCode::CONFLICT,
-                    "this user already sent you a friend request; accept it from requests"
-                        .to_string(),
-                ))
-            };
+                // Mutual friend request: auto-accept immediately like Discord!
+                sqlx::query(
+                    "UPDATE friendships SET status = 'accepted', updated_at = NOW()
+                     WHERE user_id = $1 AND friend_id = $2",
+                )
+                .bind(target_id)
+                .bind(claims.sub)
+                .execute(&state.db)
+                .await
+                .map_err(internal)?;
+                sqlx::query(
+                    "INSERT INTO friendships (user_id, friend_id, status) VALUES ($1, $2, 'accepted')
+                     ON CONFLICT (user_id, friend_id) DO UPDATE
+                     SET status = 'accepted', updated_at = NOW()",
+                )
+                .bind(claims.sub)
+                .bind(target_id)
+                .execute(&state.db)
+                .await
+                .map_err(internal)?;
+
+                for user_id in [claims.sub, target_id] {
+                    let ids = db::accepted_friend_ids(&state.db, user_id)
+                        .await
+                        .map_err(internal)?;
+                    state.hub.refresh_friends(user_id, ids);
+                }
+                state.hub.broadcast_presence();
+                state.hub.send(
+                    crate::hub::Scope::Users(vec![claims.sub, target_id]),
+                    None,
+                    &WsServerMsg::FriendsUpdated,
+                );
+                state.hub.send(
+                    crate::hub::Scope::Users(vec![claims.sub, target_id]),
+                    None,
+                    &WsServerMsg::ChannelsUpdated,
+                );
+                return Ok(Json(StatusResponse {
+                    ok: true,
+                    message: "Friend request accepted!".to_string(),
+                }));
+            }
         }
     }
 
@@ -117,6 +154,35 @@ pub async fn respond(
         ));
     }
 
+    if !req.accept {
+        // Decline an incoming request OR cancel our own outgoing pending request.
+        let res = sqlx::query(
+            "DELETE FROM friendships
+             WHERE status = 'pending'
+               AND ((user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1))",
+        )
+        .bind(req.requester_id)
+        .bind(claims.sub)
+        .execute(&state.db)
+        .await
+        .map_err(internal)?;
+        if res.rows_affected() == 0 {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "friend request not found".to_string(),
+            ));
+        }
+        state.hub.send(
+            crate::hub::Scope::Users(vec![req.requester_id]),
+            None,
+            &WsServerMsg::FriendsUpdated,
+        );
+        return Ok(Json(StatusResponse {
+            ok: true,
+            message: "Friend request removed.".to_string(),
+        }));
+    }
+
     let row = sqlx::query("SELECT status FROM friendships WHERE user_id = $1 AND friend_id = $2")
         .bind(req.requester_id)
         .bind(claims.sub)
@@ -136,60 +202,46 @@ pub async fn respond(
         ));
     }
 
-    if req.accept {
-        sqlx::query("UPDATE friendships SET status = 'accepted', updated_at = NOW() WHERE user_id = $1 AND friend_id = $2")
-            .bind(req.requester_id)
-            .bind(claims.sub)
-            .execute(&state.db)
+    sqlx::query(
+        "UPDATE friendships SET status = 'accepted', updated_at = NOW() WHERE user_id = $1 AND friend_id = $2",
+    )
+    .bind(req.requester_id)
+    .bind(claims.sub)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+    sqlx::query(
+        "INSERT INTO friendships (user_id, friend_id, status) VALUES ($1, $2, 'accepted')
+         ON CONFLICT (user_id, friend_id) DO UPDATE
+         SET status = 'accepted', updated_at = NOW()",
+    )
+    .bind(claims.sub)
+    .bind(req.requester_id)
+    .execute(&state.db)
+    .await
+    .map_err(internal)?;
+
+    for user_id in [claims.sub, req.requester_id] {
+        let ids = db::accepted_friend_ids(&state.db, user_id)
             .await
             .map_err(internal)?;
-        sqlx::query(
-            "INSERT INTO friendships (user_id, friend_id, status) VALUES ($1, $2, 'accepted')
-             ON CONFLICT (user_id, friend_id) DO UPDATE
-             SET status = 'accepted', updated_at = NOW()",
-        )
-        .bind(claims.sub)
-        .bind(req.requester_id)
-        .execute(&state.db)
-        .await
-        .map_err(internal)?;
-
-        for user_id in [claims.sub, req.requester_id] {
-            let ids = db::accepted_friend_ids(&state.db, user_id)
-                .await
-                .map_err(internal)?;
-            state.hub.refresh_friends(user_id, ids);
-        }
-        state.hub.broadcast_presence();
-        state.hub.send(
-            crate::hub::Scope::Users(vec![req.requester_id]),
-            None,
-            &WsServerMsg::FriendsUpdated,
-        );
-        state.hub.send(
-            crate::hub::Scope::Users(vec![req.requester_id]),
-            None,
-            &WsServerMsg::ChannelsUpdated,
-        );
-        Ok(Json(StatusResponse {
-            ok: true,
-            message: "Friend request accepted.".to_string(),
-        }))
-    } else {
-        sqlx::query(
-            "DELETE FROM friendships
-             WHERE user_id = $1 AND friend_id = $2 AND status = 'pending'",
-        )
-        .bind(req.requester_id)
-        .bind(claims.sub)
-        .execute(&state.db)
-        .await
-        .map_err(internal)?;
-        Ok(Json(StatusResponse {
-            ok: true,
-            message: "Friend request declined.".to_string(),
-        }))
+        state.hub.refresh_friends(user_id, ids);
     }
+    state.hub.broadcast_presence();
+    state.hub.send(
+        crate::hub::Scope::Users(vec![req.requester_id]),
+        None,
+        &WsServerMsg::FriendsUpdated,
+    );
+    state.hub.send(
+        crate::hub::Scope::Users(vec![req.requester_id]),
+        None,
+        &WsServerMsg::ChannelsUpdated,
+    );
+    Ok(Json(StatusResponse {
+        ok: true,
+        message: "Friend request accepted.".to_string(),
+    }))
 }
 
 fn direction_rank(info: &FriendInfo) -> u8 {

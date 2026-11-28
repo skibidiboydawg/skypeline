@@ -749,13 +749,51 @@ impl SkyApp {
                                 }
                             }
                         } else {
-                            row_painter.text(
-                                egui::pos2(shifted_rect.right() - 12.0, cy),
-                                Align2::RIGHT_CENTER,
-                                "Pending",
-                                FontId::proportional(12.5),
-                                theme::TEXT_MUTED.gamma_multiply(row_alpha),
+                            // Cancel outgoing friend request X button (triggers 250ms slideOutRight)
+                            let xr = Rect::from_center_size(
+                                egui::pos2(right_x, cy),
+                                egui::vec2(36.0, 36.0),
                             );
+                            let xresp = ui.interact(
+                                xr,
+                                ui.id().with(("cancel_out", friend.user_id)),
+                                if is_removing {
+                                    Sense::hover()
+                                } else {
+                                    Sense::click()
+                                },
+                            );
+                            row_painter.circle_filled(
+                                xr.center(),
+                                18.0,
+                                (if !is_removing && xresp.hovered() {
+                                    theme::DANGER
+                                } else {
+                                    theme::BG_SECONDARY
+                                })
+                                .gamma_multiply(row_alpha),
+                            );
+                            icons::paint_x(
+                                &row_painter,
+                                xr.center(),
+                                16.0,
+                                (if !is_removing && xresp.hovered() {
+                                    Color32::WHITE
+                                } else {
+                                    theme::TEXT_SECONDARY
+                                })
+                                .gamma_multiply(row_alpha),
+                            );
+                            if !is_removing
+                                && xresp.on_hover_text("Cancel Friend Request").clicked()
+                            {
+                                if reduced {
+                                    self.respond_friend(friend.user_id, false);
+                                } else {
+                                    self.removing_friends.insert(friend.user_id, (now, false));
+                                    self.animating = true;
+                                }
+                            }
                         }
                     } else {
                         // #7 Hover: Action buttons slide in from right (+8px -> 0, opacity 0 -> 1, 150ms)
