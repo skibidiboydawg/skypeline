@@ -16,7 +16,7 @@ use crate::config::{Config, SavedSession};
 use crate::events::UiEvent;
 use crate::net;
 use crate::screen::ScreenShare;
-use crate::{native, theme};
+use crate::{native, theme, updater};
 use eframe::egui;
 use egui::{Color32, Context, Pos2, RichText, TextureOptions, Ui};
 use skypeline_shared::{
@@ -295,7 +295,17 @@ impl SkyApp {
             window_visible: true,
         };
         app.restore_session();
+        app.check_for_updates(false);
         app
+    }
+
+    pub(crate) fn check_for_updates(&self, manual: bool) {
+        let auto = self.config.auto_update;
+        let last = self.config.last_installed_update.clone();
+        let tx = self.events_tx.clone();
+        self.rt.spawn(async move {
+            updater::check_for_update(auto, last, manual, tx).await;
+        });
     }
 
     #[cfg(target_os = "windows")]
@@ -1281,6 +1291,26 @@ impl SkyApp {
                         }
                         self.load_friends();
                         self.load_channels();
+                    }
+                }
+                UiEvent::UpdateSynced(ts) => {
+                    if self.config.last_installed_update.as_deref() != Some(ts.as_str()) {
+                        self.config.last_installed_update = Some(ts);
+                        self.config.save();
+                    }
+                }
+                UiEvent::UpdateReady {
+                    asset_updated_at,
+                    installer_path,
+                } => {
+                    self.config.last_installed_update = Some(asset_updated_at);
+                    self.config.save();
+                    if updater::launch_silent_install_and_relaunch(&installer_path) {
+                        #[cfg(target_os = "windows")]
+                        {
+                            self.allow_close = true;
+                        }
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }
             }

@@ -12,6 +12,7 @@ mod net;
 mod screen;
 mod theme;
 mod ui;
+mod updater;
 
 use eframe::egui;
 

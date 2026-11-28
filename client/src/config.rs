@@ -39,6 +39,10 @@ pub struct Config {
     pub compact_mode: bool,
     #[serde(default)]
     pub reduced_motion: bool,
+    #[serde(default = "default_auto_update")]
+    pub auto_update: bool,
+    #[serde(default)]
+    pub last_installed_update: Option<String>,
     #[serde(default = "default_font_size")]
     pub font_size: f32,
     #[serde(default)]
@@ -59,6 +63,10 @@ fn default_dark_mode() -> bool {
     true
 }
 
+fn default_auto_update() -> bool {
+    true
+}
+
 fn default_font_size() -> f32 {
     15.0
 }
@@ -69,6 +77,8 @@ impl Default for Config {
             dark_mode: default_dark_mode(),
             compact_mode: false,
             reduced_motion: false,
+            auto_update: default_auto_update(),
+            last_installed_update: None,
             font_size: default_font_size(),
             muted_channels: Vec::new(),
             blocked_users: Vec::new(),

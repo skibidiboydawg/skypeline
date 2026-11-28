@@ -88,4 +88,11 @@ pub enum UiEvent {
     Disconnected,
     /// A WebSocket connection was re-established after a drop.
     Reconnected,
+    /// Recorded the latest GitHub Release asset timestamp when already up-to-date.
+    UpdateSynced(String),
+    /// A newer Windows installer finished downloading and is ready to silently install & relaunch.
+    UpdateReady {
+        asset_updated_at: String,
+        installer_path: String,
+    },
 }

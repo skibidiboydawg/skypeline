@@ -1318,6 +1318,51 @@ impl SkyApp {
                 }
             }
         });
+
+        ui.add_space(18.0);
+        ui.label(
+            RichText::new("UPDATES")
+                .size(11.5)
+                .strong()
+                .color(theme::TEXT_MUTED),
+        );
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            for (au, label) in [(true, "Auto-Install Updates"), (false, "Manual Only")] {
+                let active = self.config.auto_update == au;
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(label).color(if active {
+                            Color32::WHITE
+                        } else {
+                            theme::TEXT_SECONDARY
+                        }))
+                        .fill(if active {
+                            theme::ACCENT
+                        } else {
+                            theme::BG_SECONDARY
+                        })
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(142.0, 34.0)),
+                    )
+                    .clicked()
+                {
+                    self.config.auto_update = au;
+                    self.config.save();
+                }
+            }
+            if ui
+                .add(
+                    egui::Button::new(RichText::new("Check Now").color(theme::TEXT_PRIMARY))
+                        .fill(theme::BG_ACTIVE)
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(96.0, 34.0)),
+                )
+                .clicked()
+            {
+                self.check_for_updates(true);
+            }
+        });
     }
 
     fn ui_settings_voice(&mut self, ui: &mut egui::Ui) {
