@@ -17,7 +17,7 @@ use crate::events::UiEvent;
 use crate::net;
 use crate::screen::ScreenShare;
 use crate::sounds::{self, SoundEffect};
-use crate::{native, theme, updater};
+use crate::{theme, updater};
 use eframe::egui;
 use egui::{Color32, Context, Pos2, RichText, TextureOptions, Ui};
 use skypeline_shared::{
@@ -1236,9 +1236,7 @@ impl SkyApp {
                         *self.unread.entry(message.channel_id).or_insert(0) += 1;
                         if !self.is_channel_muted(message.channel_id) {
                             self.play_sound(SoundEffect::MessageReceive);
-                            let body = format!("{}: {}", message.username, message.content);
-                            native::notify("Wireline", &body);
-                            // Push in-app Discord toast (stack up to 3, 4s progress bar)
+                            // Push non-intrusive in-app toast (stack up to 3, 4s progress bar)
                             self.toasts.push(ToastItem {
                                 channel_id: message.channel_id,
                                 sender: message.username.clone(),
@@ -1386,10 +1384,6 @@ impl SkyApp {
                                     self.incoming_call =
                                         Some((ch_id, caller.username.clone()));
                                     self.play_sound(SoundEffect::CallIncoming);
-                                    native::notify(
-                                        "Wireline",
-                                        &format!("{} is calling you", caller.username),
-                                    );
                                 }
                             } else if self
                                 .incoming_call
@@ -1737,11 +1731,11 @@ pub(crate) fn avatar_color(name: &str, mine: bool) -> Color32 {
         h = h.wrapping_mul(16777619);
     }
     let palette = [
-        Color32::from_rgb(0x58, 0x65, 0xF2),
-        Color32::from_rgb(0x23, 0xA5, 0x59),
-        Color32::from_rgb(0xF0, 0xB2, 0x32),
-        Color32::from_rgb(0xEB, 0x45, 0x9E),
-        Color32::from_rgb(0x00, 0xA8, 0xFC),
+        Color32::from_rgb(0x0E, 0xA5, 0xE9),
+        Color32::from_rgb(0x14, 0xB8, 0xA6),
+        Color32::from_rgb(0xF5, 0x9E, 0x0B),
+        Color32::from_rgb(0xF4, 0x3F, 0x5E),
+        Color32::from_rgb(0x3B, 0x82, 0xF6),
     ];
     palette[(h as usize) % palette.len()]
 }
@@ -1780,6 +1774,7 @@ pub(crate) fn format_day_label(unix_secs: i64, now_secs: i64) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn format_discord_timestamp(unix_secs: i64, now_secs: i64) -> String {
     let day = format_day_label(unix_secs, now_secs);
     if day == "Today" || day == "Yesterday" {

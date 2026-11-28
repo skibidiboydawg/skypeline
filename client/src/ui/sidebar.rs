@@ -19,7 +19,7 @@ impl SkyApp {
         }
 
         egui::SidePanel::left("left_sidebar")
-            .exact_width(278.0)
+            .exact_width(272.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
@@ -501,7 +501,7 @@ impl SkyApp {
             .unwrap_or(PresenceStatus::Offline);
 
         let (rect, resp) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 58.0), Sense::click());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::click());
         let bg = if selected {
             p.active
         } else if resp.hovered() {
@@ -509,23 +509,20 @@ impl SkyApp {
         } else {
             Color32::TRANSPARENT
         };
-        ui.painter().rect_filled(rect, 11.0, bg);
-        if selected || resp.hovered() {
-            ui.painter().rect_stroke(
-                rect,
-                11.0,
-                if selected {
-                    Stroke::new(1.0_f32, p.accent.gamma_multiply(0.45))
-                } else {
-                    p.border_stroke()
-                },
-                egui::StrokeKind::Inside,
+        ui.painter().rect_filled(rect, 8.0, bg);
+        if selected {
+            ui.painter()
+                .rect_stroke(rect, 8.0, p.border_stroke(), egui::StrokeKind::Inside);
+            let bar = Rect::from_min_max(
+                egui::pos2(rect.left(), rect.top() + 9.0),
+                egui::pos2(rect.left() + 2.5, rect.bottom() - 9.0),
             );
+            ui.painter().rect_filled(bar, 2.0, p.accent);
         }
 
         let ar = Rect::from_center_size(
-            egui::pos2(rect.left() + 28.0, rect.center().y),
-            egui::vec2(38.0, 38.0),
+            egui::pos2(rect.left() + 26.0, rect.center().y),
+            egui::vec2(34.0, 34.0),
         );
         let ring_bg = if selected {
             p.active

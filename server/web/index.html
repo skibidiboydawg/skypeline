@@ -6,56 +6,56 @@
 <title>Wireline</title>
 <style>
 :root, [data-theme="dark"] {
-  --canvas: #0e1016;
-  --sidebar: #131620;
-  --surface: #1b1f2d;
-  --surface-alt: #23293b;
-  --floating: #151925;
-  --hover: #202637;
-  --active: #282f46;
-  --input-bg: #181c28;
-  --border: rgba(255, 255, 255, 0.08);
+  --canvas: #0c0d10;
+  --sidebar: #111216;
+  --surface: #17191f;
+  --surface-alt: #20232b;
+  --floating: #14161c;
+  --hover: #1b1e25;
+  --active: #1d2129;
+  --row-hover: rgba(255, 255, 255, 0.028);
+  --input-bg: #12141a;
+  --border: rgba(255, 255, 255, 0.09);
   --hairline: rgba(255, 255, 255, 0.06);
-  --text-primary: #f5f7fc;
-  --text-secondary: #c5cee0;
-  --text-muted: #94a0b8;
-  --text-link: #60a5fa;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-soft: #252a56;
-  --own-bubble: #4f46e5;
+  --text-primary: #f4f4f6;
+  --text-secondary: #b4b8c4;
+  --text-muted: #848a99;
+  --text-link: #38bdf8;
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-soft: rgba(16, 185, 129, 0.14);
+  --accent-ring: rgba(16, 185, 129, 0.22);
   --own-text: #ffffff;
-  --peer-bubble: #1b1f2d;
   --success: #22c55e;
   --warning: #f59e0b;
   --danger: #ef4444;
-  --shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.56);
 }
 [data-theme="light"] {
   --canvas: #ffffff;
-  --sidebar: #f4f6fa;
-  --surface: #eef1f7;
-  --surface-alt: #e3e8f2;
+  --sidebar: #f7f7f8;
+  --surface: #f1f2f5;
+  --surface-alt: #e6e8ee;
   --floating: #ffffff;
-  --hover: #e9edf5;
-  --active: #dfe5f7;
-  --input-bg: #f1f4f9;
-  --border: #dce2ee;
-  --hairline: #e5eaf2;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-link: #2563eb;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #e0e7ff;
-  --own-bubble: #4f46e5;
+  --hover: #eceef2;
+  --active: #e6f4ef;
+  --row-hover: rgba(15, 23, 42, 0.03);
+  --input-bg: #f8f9fb;
+  --border: #e2e4ea;
+  --hairline: #eceef2;
+  --text-primary: #111318;
+  --text-secondary: #4b5162;
+  --text-muted: #6d7385;
+  --text-link: #0284c7;
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-soft: #d1fae5;
+  --accent-ring: rgba(5, 150, 105, 0.2);
   --own-text: #ffffff;
-  --peer-bubble: #f1f5f9;
   --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
-  --shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  --shadow: 0 10px 28px rgba(15, 23, 42, 0.10);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
@@ -180,19 +180,19 @@ button { cursor: pointer; border: none; background: transparent; }
 .notice { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
 .notice.err { color: var(--danger); }
 
-/* App Shell */
+/* App Shell — Crisp Wireline Studio (Linear / Raycast aesthetic) */
 .shell { display: flex; height: 100%; width: 100%; overflow: hidden; }
 .sidebar {
-  width: 282px; flex-shrink: 0; background: var(--sidebar);
+  width: 272px; flex-shrink: 0; background: var(--sidebar);
   border-right: 1px solid var(--hairline); display: flex; flex-direction: column;
 }
 .profile-top {
-  height: 64px; padding: 0 12px; border-bottom: 1px solid var(--hairline);
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  height: 58px; padding: 0 10px; border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
 .profile-chip {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
-  padding: 5px 8px; border-radius: 10px; cursor: pointer;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px;
+  padding: 5px 7px; border-radius: 8px; cursor: pointer;
   border: 1px solid transparent; transition: background 140ms, border-color 140ms;
 }
 .profile-chip:hover { background: var(--hover); border-color: var(--border); }
@@ -205,11 +205,11 @@ button { cursor: pointer; border: none; background: transparent; }
   width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
 }
 .status-dot {
-  position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px;
-  border-radius: 50%; border: 2.5px solid var(--sidebar);
+  position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px;
+  border-radius: 50%; border: 2px solid var(--sidebar);
 }
 .icon-btn {
-  width: 36px; height: 36px; border-radius: 10px; display: inline-flex;
+  width: 32px; height: 32px; border-radius: 7px; display: inline-flex;
   align-items: center; justify-content: center; color: var(--text-secondary);
   border: 1px solid transparent; transition: background 140ms, color 140ms, border-color 140ms; flex-shrink: 0;
 }
@@ -218,232 +218,274 @@ button { cursor: pointer; border: none; background: transparent; }
 .icon-btn.danger { background: var(--danger); color: #fff; }
 .icon-btn.success { background: var(--success); color: #fff; }
 
-.side-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px; gap: 10px; }
+.side-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
 .seg-switch {
-  display: flex; background: var(--surface); border-radius: 10px; padding: 3px; gap: 3px;
+  display: flex; background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px; padding: 3px; gap: 3px;
 }
 .seg-btn {
-  flex: 1; height: 30px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  flex: 1; height: 28px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
   color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 6px;
   transition: background 140ms, color 140ms;
 }
 .seg-btn.active { background: var(--floating); color: var(--text-primary); border: 1px solid var(--border); }
-.seg-btn:not(.active):hover { background: var(--hover); }
+.seg-btn:not(.active):hover { background: var(--hover); color: var(--text-primary); }
 .pill-badge {
-  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 99px;
-  background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 700;
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 5px;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
   display: inline-flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
-.pill-badge.green { background: var(--success); }
+.pill-badge.green { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(16, 185, 129, 0.45); }
 
 .search-pill {
-  display: flex; align-items: center; gap: 8px; background: var(--input-bg);
-  border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px;
+  display: flex; align-items: center; gap: 7px; background: var(--input-bg);
+  border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px;
+  transition: border-color 140ms;
 }
-.search-pill input { flex: 1; border: none; background: transparent; outline: none; font-size: 13px; }
+.search-pill:focus-within { border-color: var(--accent); }
+.search-pill input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; }
+.kbd-hint {
+  font-family: ui-monospace, Consolas, monospace; font-size: 10px; font-weight: 600;
+  color: var(--text-muted); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px; flex-shrink: 0; user-select: none;
+}
 .sec-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
-.sec-label { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; }
+.sec-label { font-size: 10.5px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.06em; text-transform: uppercase; }
 
-.dm-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.dm-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .dm-card {
-  height: 58px; padding: 0 11px; border-radius: 11px; display: flex; align-items: center;
-  gap: 11px; cursor: pointer; border: 1px solid transparent;
-  transition: background 140ms, border-color 140ms; flex-shrink: 0;
+  position: relative; height: 52px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center;
+  gap: 10px; cursor: pointer; border: 1px solid transparent;
+  transition: background 120ms, border-color 120ms; flex-shrink: 0;
 }
-.dm-card:hover { background: var(--hover); border-color: var(--border); }
-.dm-card.active { background: var(--active); border-color: rgba(99, 102, 241, 0.4); }
+.dm-card:hover { background: var(--hover); }
+.dm-card.active { background: var(--active); border-color: var(--border); }
+.dm-card.active::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 2.5px;
+  border-radius: 0 3px 3px 0; background: var(--accent);
+}
 .dm-meta { flex: 1; min-width: 0; }
 .dm-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.dm-name { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dm-time { font-size: 11.5px; color: var(--text-muted); flex-shrink: 0; }
-.dm-prev { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.dm-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-time { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dm-prev { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 
 .call-float-card {
-  margin: 0 10px 10px; padding: 12px; background: var(--floating);
-  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  margin: 0 10px 10px; padding: 11px; background: var(--floating);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
 }
-.call-float-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.call-float-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 9px; }
 .call-float-btns button {
-  height: 34px; border-radius: 8px; background: var(--surface); color: var(--text-primary);
+  height: 32px; border-radius: 7px; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);
   display: flex; align-items: center; justify-content: center;
 }
 .call-float-btns button:hover { background: var(--hover); }
-.call-float-btns button.on-danger { background: var(--danger); color: #fff; }
-.call-float-btns button.on-success { background: var(--success); color: #fff; }
+.call-float-btns button.on-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.call-float-btns button.on-success { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Main Workspace */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--canvas); }
 .topbar {
-  height: 60px; padding: 0 22px; border-bottom: 1px solid var(--hairline);
+  height: 58px; padding: 0 24px; border-bottom: 1px solid var(--hairline);
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;
 }
-.topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topbar-left { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 .call-pill-btn {
-  height: 36px; padding: 0 15px; border-radius: 10px; background: var(--surface);
-  border: 1px solid var(--border); color: var(--text-primary); font-size: 13.5px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 7px; transition: all 150ms ease;
+  height: 32px; padding: 0 13px; border-radius: 7px; background: var(--surface);
+  border: 1px solid var(--border); color: var(--text-primary); font-size: 13px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 7px; transition: all 140ms ease;
 }
-.call-pill-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25); }
-.call-pill-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35); }
-.call-pill-btn.in-call { background: var(--success); border-color: var(--success); color: #fff; }
+.call-pill-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 3px var(--accent-ring); }
+.call-pill-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+.call-pill-btn.in-call { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* Scalable Call Stage */
-.call-stage-wrap { padding: 10px 16px 0; flex-shrink: 0; }
+.call-stage-wrap { padding: 12px 24px 0; flex-shrink: 0; }
 .call-stage {
-  background: #0a0c12; color: #f3f5fa; border-radius: 14px; border: 1px solid #23293a;
+  background: #08090c; color: #f4f4f6; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.09);
   display: flex; flex-direction: column; overflow: hidden; position: relative;
 }
 .call-stage-hdr {
-  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .live-pill {
-  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
-  padding: 2px 8px; border-radius: 99px; letter-spacing: 0.04em;
+  background: var(--danger); color: #fff; font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.06em;
 }
 .mini-pill {
-  height: 24px; padding: 0 8px; border-radius: 6px; background: #1e2332; color: #d5dceb;
+  height: 24px; padding: 0 8px; border-radius: 5px; background: #17191f; border: 1px solid rgba(255,255,255,0.08);
+  color: #c8cdd8; font-family: ui-monospace, Consolas, monospace;
   font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
 }
-.mini-pill:hover { background: #2b3247; }
-.mini-pill.active { background: var(--accent); color: #fff; }
+.mini-pill:hover { background: #222630; color: #fff; }
+.mini-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .call-stage-body {
   flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
-  padding: 4px 16px; gap: 14px; overflow: hidden;
+  padding: 8px 16px; gap: 14px; overflow: hidden;
 }
 .screen-view {
-  max-width: 100%; max-height: 100%; border-radius: 10px; object-fit: contain; background: #000;
-  border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  max-width: 100%; max-height: 100%; border-radius: 8px; object-fit: contain; background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 .p-tile {
-  width: 164px; height: 108px; border-radius: 12px; background: #171b26;
+  width: 164px; height: 106px; border-radius: 9px; background: #14161c;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  position: relative; border: 2px solid transparent; transition: border-color 150ms;
+  position: relative; border: 1.5px solid rgba(255,255,255,0.08); transition: border-color 150ms;
 }
-.p-tile.speaking { border-color: var(--success); }
+.p-tile.speaking { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25); }
 .p-tile-name { position: absolute; left: 10px; bottom: 8px; font-size: 12px; font-weight: 600; }
 .call-stage-dock {
-  padding: 8px 0 12px; display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 8px 0 11px; display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 .call-circle {
-  width: 42px; height: 42px; border-radius: 50%; background: #1e2332; color: #fff;
+  width: 38px; height: 36px; border-radius: 8px; background: #17191f; border: 1px solid rgba(255,255,255,0.1); color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: background 140ms, transform 140ms;
+  transition: background 140ms, border-color 140ms;
 }
-.call-circle:hover { background: #2b3247; transform: scale(1.05); }
-.call-circle.on-white { background: #fff; color: #0a0c12; }
-.call-circle.on-green { background: var(--success); color: #fff; }
-.call-circle.on-red { background: var(--danger); color: #fff; }
+.call-circle:hover { background: #242833; }
+.call-circle.on-white { background: #f4f4f6; border-color: #f4f4f6; color: #0c0d10; }
+.call-circle.on-green { background: var(--accent); border-color: var(--accent); color: #fff; }
+.call-circle.on-red { background: var(--danger); border-color: var(--danger); color: #fff; }
 .resize-grip {
   height: 12px; display: flex; align-items: center; justify-content: center; cursor: ns-resize;
 }
 .resize-grip span {
-  width: 48px; height: 4px; border-radius: 2px; background: var(--border); transition: background 120ms;
+  width: 44px; height: 3px; border-radius: 2px; background: var(--border); transition: background 120ms;
 }
 .resize-grip:hover span { background: var(--accent); }
 
-/* Chat Stream — full-width conversation feed with crisp 24px (px-6) horizontal padding */
-.msg-scroll { flex: 1; overflow-y: auto; padding: 14px 24px; }
-.msg-column { width: 100%; display: flex; flex-direction: column; gap: 2px; }
-.date-pill {
-  align-self: center; margin: 12px 0; padding: 4px 13px; border-radius: 99px;
-  background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);
-  font-size: 12px; font-weight: 600;
+/* Chat Stream — Crisp Left-Aligned Wireline Studio Feed (Linear / Raycast aesthetic) */
+.msg-scroll { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+.msg-column { width: 100%; display: flex; flex-direction: column; }
+.chat-intro {
+  padding: 20px 24px 18px; border-bottom: 1px solid var(--hairline); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 14px;
 }
+.date-sep {
+  display: flex; align-items: center; gap: 12px; margin: 16px 24px 10px;
+  color: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.date-sep::before, .date-sep::after { content: ''; flex: 1; height: 1px; background: var(--hairline); }
 .call-event-card {
-  align-self: center; margin: 10px 0; padding: 7px 15px; border-radius: 14px;
-  background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);
-  font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;
+  margin: 6px 24px; padding: 8px 12px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);
+  font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
-.call-event-card.missed { border-color: rgba(239, 68, 68, 0.45); }
+.call-event-card.missed { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.06); }
+.call-event-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.call-event-ts { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--text-muted); flex-shrink: 0; }
+
 .msg-row {
-  position: relative; display: flex; flex-direction: column; padding: 1.5px 0;
+  position: relative; display: flex; align-items: flex-start; gap: 12px;
+  padding: 4px 24px; transition: background 100ms ease;
 }
-.msg-row.mine { align-items: flex-end; }
-.msg-row.theirs { align-items: flex-start; }
-.msg-inner { display: flex; align-items: flex-start; gap: 11px; max-width: min(72%, 680px); }
-.msg-row.mine .msg-inner { flex-direction: row-reverse; }
-.bubble {
-  padding: 9px 14px; border-radius: 18px; line-height: 1.46; word-break: break-word;
-  overflow-wrap: anywhere; font-size: var(--chat-font-size, 15.5px);
+.msg-row:hover { background: var(--row-hover); }
+.msg-row.grouped { padding-top: 2px; padding-bottom: 2px; }
+.msg-row.mine::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: transparent; transition: background 120ms ease;
 }
-.msg-row.mine .bubble {
-  background: linear-gradient(135deg, #5d56f6 0%, #4f46e5 100%);
-  color: var(--own-text);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 3px rgba(0, 0, 0, 0.22);
-  border-bottom-right-radius: 5px;
+.msg-row.mine:hover::before { background: var(--accent); }
+.msg-gutter {
+  width: 36px; flex-shrink: 0; display: flex; justify-content: center; padding-top: 2px;
 }
-.msg-row.mine.grouped .bubble { border-top-right-radius: 6px; }
-.msg-row.mine.has-next .bubble { border-bottom-right-radius: 6px; }
-.msg-row.theirs .bubble {
-  background: var(--peer-bubble); color: var(--text-primary);
-  border: 1px solid var(--border); border-top-left-radius: 5px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+.msg-hover-ts {
+  font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--text-muted);
+  opacity: 0; transition: opacity 100ms ease; user-select: none; line-height: 22px; font-variant-numeric: tabular-nums;
 }
-.msg-row.theirs.grouped .bubble { border-top-left-radius: 6px; }
-.msg-row.theirs.has-next .bubble { border-bottom-left-radius: 6px; }
-.msg-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 6px; align-items: center; }
+.msg-row:hover .msg-hover-ts { opacity: 1; }
+.msg-content { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.msg-hdr {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; flex-wrap: wrap;
+}
+.msg-author { font-size: 14.5px; font-weight: 600; color: var(--text-primary); }
+.msg-row.mine .msg-author { color: var(--accent); }
+.msg-you-tag {
+  font-family: ui-monospace, Consolas, monospace; font-size: 10px; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.msg-ts {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.msg-edited { font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+.msg-body {
+  font-size: var(--chat-font-size, 15.5px); line-height: 1.52; color: var(--text-primary);
+  word-break: break-word; overflow-wrap: anywhere; max-width: 82ch; width: 100%;
+}
 .reply-chip {
-  font-size: 12px; color: var(--text-secondary); background: var(--surface);
-  border-left: 2.5px solid var(--accent);
-  padding: 4px 10px; border-radius: 6px 10px 10px 6px; margin-bottom: 4px; max-width: min(380px, 100%);
+  font-size: 12.5px; color: var(--text-secondary); background: var(--surface);
+  border: 1px solid var(--hairline); border-left: 2.5px solid var(--accent);
+  padding: 4px 10px; border-radius: 4px 7px 7px 4px; margin-bottom: 5px; max-width: min(520px, 100%);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.reply-chip b { color: var(--accent); }
-.reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.reply-chip b { color: var(--accent); margin-right: 4px; }
+.reactions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .react-pill {
-  padding: 2px 8px; border-radius: 10px; background: var(--surface);
+  padding: 2px 8px; border-radius: 6px; background: var(--surface);
   border: 1px solid var(--border); font-size: 12.5px; color: var(--text-secondary);
+  transition: background 120ms, border-color 120ms;
 }
+.react-pill:hover { background: var(--hover); }
 .react-pill.mine { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
 .hover-bar {
-  position: absolute; top: -10px; background: var(--floating); border: 1px solid var(--border);
-  border-radius: 8px; padding: 2px; display: none; gap: 2px; box-shadow: var(--shadow); z-index: 4;
+  position: absolute; top: -12px; right: 24px; background: var(--floating); border: 1px solid var(--border);
+  border-radius: 7px; padding: 2px; display: none; gap: 2px; box-shadow: var(--shadow); z-index: 4;
 }
 .msg-row:hover .hover-bar { display: flex; }
-.msg-row.mine .hover-bar { left: 8px; }
-.msg-row.theirs .hover-bar { right: 8px; }
-.hover-bar button { width: 26px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+.hover-bar button { width: 26px; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
 .hover-bar button:hover { background: var(--hover); color: var(--text-primary); }
 .hover-bar button.del:hover { background: var(--danger); color: #fff; }
-.spoiler { background: var(--surface-alt); color: transparent; border-radius: 4px; padding: 0 4px; cursor: pointer; }
+.spoiler { background: var(--surface-alt); color: transparent; border-radius: 4px; padding: 1px 5px; cursor: pointer; }
 .spoiler.open { color: inherit; background: rgba(128,128,128,0.18); }
-.code-inline { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,0.22); }
-.code-block { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.28); overflow-x: auto; margin: 4px 0; white-space: pre; }
+.code-inline {
+  font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; padding: 1px 6px;
+  border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);
+}
+.code-block {
+  font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; padding: 10px 12px;
+  border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
+  overflow-x: auto; margin: 6px 0; white-space: pre; max-width: 100%;
+}
 .mention { background: var(--accent-soft); color: var(--accent); padding: 0 4px; border-radius: 4px; font-weight: 600; }
-.msg-row.mine .mention { background: rgba(255,255,255,0.22); color: #fff; }
 
-/* Composer — full width matching 24px (px-6) horizontal padding of the message feed */
-.composer-dock { padding: 6px 24px 14px; border-top: 1px solid var(--hairline); flex-shrink: 0; }
+/* Composer — Crisp Rectangular Studio Box (Linear / Raycast style, NO Instagram pill) */
+.composer-dock { padding: 6px 24px 16px; border-top: 1px solid var(--hairline); flex-shrink: 0; background: var(--canvas); }
 .composer-inner { width: 100%; }
-.typing-row { height: 20px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); padding-left: 8px; opacity: 0; transition: opacity 200ms ease; }
+.typing-row { height: 20px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); padding-left: 2px; opacity: 0; transition: opacity 200ms ease; }
 .typing-row.show { opacity: 1; }
 .reply-banner {
   background: var(--surface); border: 1px solid var(--border); border-bottom: none;
-  border-radius: 14px 14px 0 0; padding: 6px 14px; display: flex; align-items: center;
+  border-radius: 9px 9px 0 0; padding: 6px 12px; display: flex; align-items: center;
   justify-content: space-between; font-size: 12.5px; color: var(--text-secondary);
 }
-.composer-pill {
+.composer-box {
   display: flex; align-items: center; gap: 8px; background: var(--input-bg);
-  border: 1px solid var(--border); border-radius: 22px; padding: 7px 9px 7px 14px;
-  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+  border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
-.composer-pill:hover { border-color: rgba(255, 255, 255, 0.16); }
-.composer-pill.has-reply { border-radius: 0 0 22px 22px; }
-.composer-pill:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.24); }
-.composer-pill input {
-  flex: 1; border: none; background: transparent; outline: none; font-size: var(--chat-font-size, 15.5px); height: 30px;
+.composer-box:hover { border-color: rgba(255, 255, 255, 0.16); }
+.composer-box.has-reply { border-radius: 0 0 10px 10px; }
+.composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.composer-box input {
+  flex: 1; min-width: 0; border: none; background: transparent; outline: none;
+  font-size: var(--chat-font-size, 15.5px); height: 32px; padding: 0 4px;
 }
-.send-circle {
-  width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff;
-  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+.send-btn {
+  height: 32px; padding: 0 12px; border-radius: 7px; background: var(--accent); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 13px; font-weight: 600; flex-shrink: 0; transition: background 140ms ease;
 }
-.send-circle:disabled { background: var(--surface-alt); color: var(--text-muted); cursor: default; }
+.send-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.send-btn:disabled { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); cursor: default; }
 
 /* People Page */
 .tabs-bar { position: relative; display: flex; align-items: center; gap: 6px; height: 100%; }
 .tab-btn {
-  height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
+  height: 30px; padding: 0 11px; border-radius: 7px; font-size: 13px; font-weight: 600;
   color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px;
 }
 .tab-btn:hover { background: var(--hover); color: var(--text-primary); }
@@ -451,24 +493,24 @@ button { cursor: pointer; border: none; background: transparent; }
 .tab-btn.add-btn { background: var(--accent); color: #fff; }
 .tab-btn.add-btn.active { background: var(--accent-soft); color: var(--accent); }
 .tab-indicator {
-  position: absolute; bottom: 0; height: 2.5px; background: var(--accent);
+  position: absolute; bottom: 0; height: 2px; background: var(--accent);
   border-radius: 2px; transition: left 150ms cubic-bezier(0.4, 0, 0.2, 1), width 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .people-body { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; align-items: center; }
-.people-col { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 10px; }
+.people-col { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 8px; }
 .friend-card {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 14px; border-radius: 12px; background: var(--surface);
-  border: 1px solid var(--border); transition: background 120ms;
+  padding: 11px 14px; border-radius: 9px; background: var(--surface);
+  border: 1px solid var(--border); transition: background 120ms, border-color 120ms;
 }
-.friend-card:hover { background: var(--hover); }
+.friend-card:hover { background: var(--hover); border-color: rgba(255,255,255,0.14); }
 .friend-actions { display: flex; gap: 6px; }
 .friend-card.hover-slide .friend-actions {
-  opacity: 0.65; transform: translateX(3px); transition: opacity 150ms ease, transform 150ms ease;
+  opacity: 0.72; transform: translateX(2px); transition: opacity 140ms ease, transform 140ms ease;
 }
 .friend-card.hover-slide:hover .friend-actions { opacity: 1; transform: translateX(0); }
 .circle-act {
-  width: 34px; height: 34px; border-radius: 50%; background: var(--floating);
+  width: 32px; height: 32px; border-radius: 7px; background: var(--floating);
   border: 1px solid var(--border); color: var(--text-primary);
   display: inline-flex; align-items: center; justify-content: center;
 }
@@ -531,9 +573,14 @@ button { cursor: pointer; border: none; background: transparent; }
   }
   .main { width: 100%; }
   .topbar { padding: 0 12px !important; }
-  .msg-scroll { padding: 12px 14px; }
+  .call-stage-wrap { padding: 8px 12px 0; }
+  .chat-intro { padding: 14px; }
+  .date-sep { margin: 12px 14px 8px; }
+  .call-event-card { margin: 6px 14px; }
+  .msg-row { padding: 4px 14px; gap: 10px; }
+  .hover-bar { right: 12px; }
   .composer-dock { padding: 6px 12px 12px; }
-  .msg-inner { max-width: 88%; }
+  .send-btn .send-lbl { display: none; }
   .settings-modal { flex-direction: column; width: calc(100vw - 20px); height: calc(100vh - 24px); }
   .settings-nav { width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--hairline); padding: 10px 12px; }
   .settings-content { padding: 18px 16px; }
@@ -680,10 +727,10 @@ button { cursor: pointer; border: none; background: transparent; }
   savePrefs();
 
   function avColor(name, mine) {
-    if (mine) return '#6366f1';
+    if (mine) return '#10b981';
     let h = 2166136261;
     for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619); }
-    const pal = ['#6366f1','#22c55e','#f59e0b','#ec4899','#06b6d4'];
+    const pal = ['#0ea5e9','#14b8a6','#f59e0b','#f43f5e','#3b82f6'];
     return pal[Math.abs(h) % pal.length];
   }
   function esc(s) {
@@ -1245,7 +1292,7 @@ button { cursor: pointer; border: none; background: transparent; }
               <button class="seg-btn ${!onPeople ? 'active' : ''}" id="nav-chats">${SVG.chat} Chats</button>
               <button class="seg-btn ${onPeople ? 'active' : ''}" id="nav-people">${SVG.users} People ${pendingIn > 0 ? `<span class="pill-badge badge-pop">${pendingIn}</span>` : ''}</button>
             </div>
-            <div class="search-pill">${SVG.search}<input id="side-search" placeholder="Search conversations..." value="${esc(state.chatSearch)}" /></div>
+            <div class="search-pill">${SVG.search}<input id="side-search" placeholder="Search conversations..." value="${esc(state.chatSearch)}" /><span class="kbd-hint">Ctrl K</span></div>
             <div class="sec-row">
               <span class="sec-label">CONVERSATIONS</span>
               <button class="icon-btn" style="width:24px;height:24px" id="btn-new-dm" title="New Chat">${SVG.plus}</button>
@@ -1257,7 +1304,7 @@ button { cursor: pointer; border: none; background: transparent; }
                 const un = state.unread[c.id] || 0;
                 const callUsers = state.activeCalls[c.id] || [];
                 return `<div class="dm-card ${state.selectedChannel === c.id ? 'active' : ''}" data-ch="${c.id}">
-                  ${avatarHtml(c.peer_user_id, c.name, 38, false, `<span class="status-dot dot-${st}"></span>`)}
+                  ${avatarHtml(c.peer_user_id, c.name, 34, false, `<span class="status-dot dot-${st}"></span>`)}
                   <div class="dm-meta">
                     <div class="dm-top">
                       <span class="dm-name">${esc(c.name)}</span>
@@ -1327,26 +1374,23 @@ button { cursor: pointer; border: none; background: transparent; }
     let lastDay = '';
     const msgHtml = msgs.map((m, i) => {
       const day = fmtDay(m.created_at);
-      const sep = day !== lastDay ? `<div class="date-pill">${esc(day)}</div>` : '';
+      const sep = day !== lastDay ? `<div class="date-sep"><span>${esc(day)}</span></div>` : '';
       lastDay = day;
       if (m.content.startsWith('[[call:') && m.content.endsWith(']]')) {
         const isMissed = m.content === '[[call:missed]]';
         const isStart = m.content === '[[call:started]]';
         const label = isStart
-          ? `${m.username} started a call · ${fmtTime(m.created_at)}`
+          ? `${m.username} started a voice call`
           : isMissed
-            ? `Missed call from ${m.username} · ${fmtTime(m.created_at)}`
-            : `Call ended · ${m.content.slice(13, -2)} · ${fmtTime(m.created_at)}`;
-        const col = isStart ? 'var(--success)' : isMissed ? 'var(--danger)' : 'var(--text-secondary)';
-        return `${sep}<div class="call-event-card ${isMissed ? 'missed' : ''}"><span style="color:${col};display:inline-flex">${isMissed ? SVG.phoneOff : SVG.phone}</span><span>${esc(label)}</span></div>`;
+            ? `Missed voice call from ${m.username}`
+            : `Voice call ended · ${m.content.slice(13, -2)}`;
+        const col = isStart ? 'var(--accent)' : isMissed ? 'var(--danger)' : 'var(--text-secondary)';
+        return `${sep}<div class="call-event-card ${isMissed ? 'missed' : ''}"><div class="call-event-left"><span style="color:${col};display:inline-flex">${isMissed ? SVG.phoneOff : SVG.phone}</span><span>${esc(label)}</span></div><span class="call-event-ts">${fmtTime(m.created_at)}</span></div>`;
       }
       const mine = m.user_id === me.user_id;
       const prev = msgs[i - 1];
-      const next = msgs[i + 1];
       const prevWasCall = prev && prev.content.startsWith('[[call:') && prev.content.endsWith(']]');
-      const nextIsCall = next && next.content.startsWith('[[call:') && next.content.endsWith(']]');
       const grouped = !sep && !prevWasCall && !m.reply_to_id && prev && prev.user_id === m.user_id && Math.abs(m.created_at - prev.created_at) < 300;
-      const hasNextInGroup = !nextIsCall && next && !next.reply_to_id && next.user_id === m.user_id && fmtDay(next.created_at) === day && Math.abs(next.created_at - m.created_at) < 300;
       const refMsg = m.reply_to_id ? state.messages.find(x => x.id === m.reply_to_id) : null;
       const newCls = m._isNew ? 'msg-new' : '';
       if (m._isNew) m._isNew = false;
@@ -1355,27 +1399,25 @@ button { cursor: pointer; border: none; background: transparent; }
         `<button class="react-pill ${r.user_ids.includes(me.user_id) ? 'mine' : ''}" data-react-msg="${m.id}" data-react-em="${esc(r.emoji)}">${esc(r.emoji)} ${r.user_ids.length}</button>`
       ).join('')}</div>` : '';
 
-      return `${sep}<div class="msg-row ${mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${hasNextInGroup ? 'has-next' : ''} ${newCls}" style="${!grouped && i > 0 ? 'margin-top:9px' : ''}">
+      return `${sep}<div class="msg-row ${mine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''} ${newCls}" style="${!grouped && i > 0 ? 'margin-top:10px' : ''}">
         <div class="hover-bar">
           <button data-open-em="${m.id}" title="React">${SVG.smile}</button>
           <button data-reply="${m.id}" title="Reply">${SVG.reply}</button>
           ${mine ? `<button data-edit="${m.id}" title="Edit">${SVG.edit}</button><button class="del" data-del="${m.id}" title="Delete">${SVG.trash}</button>` : ''}
         </div>
-        <div class="msg-inner">
-          ${!mine ? (grouped ? '<div style="width:38px;flex-shrink:0"></div>' : avatarHtml(m.user_id, m.username, 38, false)) : ''}
-          <div style="display:flex;flex-direction:column;align-items:${mine ? 'flex-end' : 'flex-start'};min-width:0">
-            ${!mine && !grouped ? `<div class="msg-meta" style="margin-bottom:3px"><strong style="color:var(--text-primary);font-size:14px">${esc(m.username)}</strong><span>${fmtTime(m.created_at)}</span></div>` : ''}
-            ${m.reply_to_id ? `<div class="reply-chip">${refMsg ? `<b>${esc(refMsg.username)}</b> ${esc(refMsg.content.length > 52 ? refMsg.content.slice(0, 52).trimEnd() + '…' : refMsg.content)}` : 'Original message deleted'}</div>` : ''}
-            ${state.editingId === m.id ? `
-              <div style="display:flex;gap:6px;align-items:center">
-                <input class="text-input" id="edit-input" style="width:280px;padding:6px 10px" value="${esc(state.editDraft)}" />
-                <button id="save-edit" class="opt-btn active" style="padding:6px 10px">Save</button>
-                <button id="cancel-edit" class="opt-btn" style="padding:6px 10px">Cancel</button>
-              </div>` : `<div class="bubble">${renderMd(m.content)}</div>`}
-            ${reacts}
-            ${mine && (!hasNextInGroup || m.edited_at) ? `<div class="msg-meta">${m.edited_at ? '<span>(edited)</span>' : ''}<span>${fmtTime(m.created_at)}</span></div>` : ''}
-            ${!mine && m.edited_at ? `<div class="msg-meta">(edited)</div>` : ''}
-          </div>
+        <div class="msg-gutter">
+          ${grouped ? `<span class="msg-hover-ts">${fmtTime(m.created_at)}</span>` : avatarHtml(m.user_id, m.username, 36, mine)}
+        </div>
+        <div class="msg-content">
+          ${!grouped ? `<div class="msg-hdr"><span class="msg-author">${esc(m.username)}</span>${mine ? '<span class="msg-you-tag">you</span>' : ''}<span class="msg-ts">${fmtTime(m.created_at)}</span></div>` : ''}
+          ${m.reply_to_id ? `<div class="reply-chip">${refMsg ? `<b>${esc(refMsg.username)}</b>${esc(refMsg.content.length > 68 ? refMsg.content.slice(0, 68).trimEnd() + '…' : refMsg.content)}` : 'Original message deleted'}</div>` : ''}
+          ${state.editingId === m.id ? `
+            <div style="display:flex;gap:6px;align-items:center;width:100%;max-width:520px;margin-top:2px">
+              <input class="text-input" id="edit-input" style="flex:1;padding:6px 10px" value="${esc(state.editDraft)}" />
+              <button id="save-edit" class="opt-btn active" style="padding:6px 12px">Save</button>
+              <button id="cancel-edit" class="opt-btn" style="padding:6px 12px">Cancel</button>
+            </div>` : `<div class="msg-body">${renderMd(m.content)}${m.edited_at ? '<span class="msg-edited">(edited)</span>' : ''}</div>`}
+          ${reacts}
         </div>
       </div>`;
     }).join('');
@@ -1467,10 +1509,12 @@ button { cursor: pointer; border: none; background: transparent; }
 
       <div class="msg-scroll" id="msg-scroll">
         <div class="msg-column">
-          <div style="text-align:center;padding:24px 0 12px;display:flex;flex-direction:column;align-items:center">
-            ${avatarHtml(ch.peer_user_id, ch.name, 68, false)}
-            <div style="font-size:20px;font-weight:600;margin-top:10px">${esc(ch.name)}</div>
-            <div style="font-size:13.5px;color:var(--text-muted);margin-top:2px">Start of your private conversation with ${esc(ch.name)}.</div>
+          <div class="chat-intro">
+            ${avatarHtml(ch.peer_user_id, ch.name, 52, false)}
+            <div style="min-width:0">
+              <div style="font-size:18px;font-weight:600;letter-spacing:-0.01em">${esc(ch.name)}</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">Direct conversation with ${esc(ch.name)} · Wireline</div>
+            </div>
           </div>
           ${msgHtml}
         </div>
@@ -1480,17 +1524,17 @@ button { cursor: pointer; border: none; background: transparent; }
         <div class="composer-inner">
           <div class="typing-row" id="typing-row"></div>
           ${state.replyTo ? `<div class="reply-banner"><span>Replying to <b>${esc(state.replyTo.user)}</b>: ${esc(state.replyTo.text.slice(0,50))}</span><button id="cancel-reply">${SVG.x}</button></div>` : ''}
-          <div class="composer-pill ${state.replyTo ? 'has-reply' : ''}" style="position:relative">
-            <button class="icon-btn" id="btn-composer-plus" style="width:32px;height:32px;border-radius:50%" title="Insert formatting / code block">${SVG.plus}</button>
+          <div class="composer-box ${state.replyTo ? 'has-reply' : ''}" style="position:relative">
+            <button class="icon-btn" id="btn-composer-plus" title="Insert formatting / code block">${SVG.plus}</button>
             ${state.showAttachMenu ? `
-              <div class="popover ${animAttach ? 'modal-enter' : ''}" style="position:absolute;left:0;bottom:48px;width:190px;padding:6px" onclick="event.stopPropagation()">
+              <div class="popover ${animAttach ? 'modal-enter' : ''}" style="position:absolute;left:0;bottom:48px;width:196px;padding:6px" onclick="event.stopPropagation()">
                 <button class="opt-btn" data-insert-fmt="code" style="width:100%;text-align:left;border:none;background:transparent">Insert Code Block</button>
                 <button class="opt-btn" data-insert-fmt="spoiler" style="width:100%;text-align:left;border:none;background:transparent">Insert Spoiler ||...||</button>
                 <button class="opt-btn" data-insert-fmt="bold" style="width:100%;text-align:left;border:none;background:transparent">Insert Bold **...**</button>
               </div>` : ''}
-            <input id="draft-input" value="${esc(state.draft)}" placeholder="Write to ${esc(ch.name)}..." autocomplete="off" />
-            <button class="icon-btn" id="btn-composer-emoji" style="width:32px;height:32px" title="Emoji">${SVG.smile}</button>
-            <button class="send-circle" id="btn-send" ${state.draft.trim() ? '' : 'disabled'} title="Send">${SVG.send}</button>
+            <input id="draft-input" value="${esc(state.draft)}" placeholder="Message ${esc(ch.name)}..." autocomplete="off" />
+            <button class="icon-btn" id="btn-composer-emoji" title="Emoji">${SVG.smile}</button>
+            <button class="send-btn" id="btn-send" ${state.draft.trim() ? '' : 'disabled'} title="Send">${SVG.send}<span class="send-lbl">Send</span></button>
           </div>
         </div>
       </div>`;

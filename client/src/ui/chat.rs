@@ -4,7 +4,7 @@
 //! replies, reactions, floating hover actions, animated typing dots, and pill composer.
 
 use super::{
-    anim, avatar_color, day_index, format_day_label, format_discord_timestamp, format_hhmm, icons,
+    anim, avatar_color, day_index, format_day_label, format_hhmm, icons,
     SkyApp,
 };
 use crate::sounds::SoundEffect;
@@ -416,12 +416,12 @@ impl SkyApp {
                         .fill(p.surface)
                         .stroke(p.border_stroke())
                         .corner_radius(egui::CornerRadius {
-                            nw: 14,
-                            ne: 14,
+                            nw: 9,
+                            ne: 9,
                             sw: 0,
                             se: 0,
                         })
-                        .inner_margin(egui::Margin::symmetric(14, 6))
+                        .inner_margin(egui::Margin::symmetric(12, 6))
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             ui.horizontal(|ui| {
@@ -464,8 +464,8 @@ impl SkyApp {
                         });
                 }
 
-                // Floating Pill Composer (20px radius, subtle focus glow + integrated Send button)
-                let top_radius = if self.reply_to.is_some() { 0 } else { 20 };
+                // Crisp Rectangular Studio Composer (10px radius, emerald focus ring, rectangular Send button)
+                let top_radius = if self.reply_to.is_some() { 0 } else { 10 };
                 let draft_id = egui::Id::new(("chat_draft_input", channel.id));
                 let has_focus = ui.memory(|m| m.has_focus(draft_id));
                 let composer_resp = egui::Frame::new()
@@ -478,23 +478,23 @@ impl SkyApp {
                     .corner_radius(egui::CornerRadius {
                         nw: top_radius,
                         ne: top_radius,
-                        sw: 20,
-                        se: 20,
+                        sw: 10,
+                        se: 10,
                     })
-                    .inner_margin(egui::Margin::symmetric(12, 7))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
                             // Left "+" button (insert code block)
                             let (pr, presp) =
-                                ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::click());
+                                ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::click());
                             if presp.hovered() {
-                                ui.painter().circle_filled(pr.center(), 14.0, p.hover);
+                                ui.painter().rect_filled(pr, 7.0, p.hover);
                             }
                             icons::paint_plus_circle(
                                 ui.painter(),
                                 pr.center(),
-                                20.0,
+                                19.0,
                                 if presp.hovered() {
                                     p.text_primary
                                 } else {
@@ -506,13 +506,13 @@ impl SkyApp {
                                 self.refocus_draft = true;
                             }
 
-                            let input_w = (ui.available_width() - 80.0).max(120.0);
+                            let input_w = (ui.available_width() - 126.0).max(120.0);
                             let field = ui.add_sized(
-                                [input_w, 28.0],
+                                [input_w, 30.0],
                                 egui::TextEdit::singleline(&mut self.draft)
                                     .id(draft_id)
                                     .frame(false)
-                                    .hint_text(format!("Write to {}...", channel.name)),
+                                    .hint_text(format!("Message {}...", channel.name)),
                             );
                             if self.refocus_draft {
                                 field.request_focus();
@@ -588,14 +588,14 @@ impl SkyApp {
 
                             // Emoji picker button
                             let (er, eresp) =
-                                ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::click());
+                                ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::click());
                             if eresp.hovered() || self.emoji_picker_target == Some(None) {
-                                ui.painter().circle_filled(er.center(), 14.0, p.hover);
+                                ui.painter().rect_filled(er, 7.0, p.hover);
                             }
                             icons::paint_smile(
                                 ui.painter(),
                                 er.center(),
-                                18.5,
+                                18.0,
                                 if eresp.hovered() || self.emoji_picker_target == Some(None) {
                                     p.warning
                                 } else {
@@ -611,24 +611,40 @@ impl SkyApp {
                                     };
                             }
 
-                            // Crisp circular Send button
+                            // Crisp rectangular Send button (7px radius)
                             let can_send = !self.draft.trim().is_empty();
                             let (sr, sresp) =
-                                ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::click());
-                            ui.painter().circle_filled(
-                                sr.center(),
-                                15.0,
-                                if can_send { p.accent } else { p.surface_alt },
+                                ui.allocate_exact_size(egui::vec2(74.0, 32.0), Sense::click());
+                            ui.painter().rect_filled(
+                                sr,
+                                7.0,
+                                if can_send { p.accent } else { p.surface },
                             );
+                            if !can_send {
+                                ui.painter().rect_stroke(
+                                    sr,
+                                    7.0,
+                                    p.border_stroke(),
+                                    egui::StrokeKind::Inside,
+                                );
+                            }
+                            let send_fg = if can_send {
+                                Color32::WHITE
+                            } else {
+                                p.text_muted
+                            };
                             icons::paint_send(
                                 ui.painter(),
-                                sr.center() + egui::vec2(1.0, 0.0),
-                                15.0,
-                                if can_send {
-                                    Color32::WHITE
-                                } else {
-                                    p.text_muted
-                                },
+                                sr.left_center() + egui::vec2(17.0, 0.0),
+                                13.5,
+                                send_fg,
+                            );
+                            ui.painter().text(
+                                sr.left_center() + egui::vec2(30.0, 0.0),
+                                Align2::LEFT_CENTER,
+                                "Send",
+                                FontId::new(13.0, theme::semibold_family()),
+                                send_fg,
                             );
                             if sresp.on_hover_text("Send message").clicked() && can_send {
                                 self.send_message();
@@ -643,10 +659,10 @@ impl SkyApp {
                             egui::CornerRadius {
                                 nw: top_radius.saturating_add(2),
                                 ne: top_radius.saturating_add(2),
-                                sw: 22,
-                                se: 22,
+                                sw: 12,
+                                se: 12,
                             },
-                            Stroke::new(2.0_f32, p.accent.gamma_multiply(0.28)),
+                            Stroke::new(2.0_f32, p.accent.gamma_multiply(0.24)),
                             egui::StrokeKind::Outside,
                         );
                     }
@@ -706,39 +722,60 @@ impl SkyApp {
                             });
                             ui.add_space(10.0);
                         } else {
-                            // Clean centered Wireline conversation start hero
-                            ui.add_space(28.0);
-                            ui.vertical_centered(|ui| {
-                                let (av_r, av_resp) =
-                                    ui.allocate_exact_size(egui::vec2(68.0, 68.0), Sense::click());
-                                self.paint_user_avatar(
-                                    ui,
-                                    av_r,
-                                    channel.peer_user_id.unwrap_or(-1),
-                                    &channel.name,
-                                    false,
-                                );
-                                if av_resp.clicked() {
-                                    if let Some(peer_id) = channel.peer_user_id {
-                                        pending_profile = Some((
-                                            peer_id,
-                                            channel.name.clone(),
-                                            av_r.right_top(),
-                                        ));
-                                    }
-                                }
-                                ui.add_space(8.0);
-                                ui.label(theme::semibold(&channel.name, 20.0).color(p.text_primary));
-                                ui.label(
-                                    RichText::new(format!(
-                                        "Start of your private conversation with {}.",
-                                        channel.name
-                                    ))
-                                    .size(13.5)
-                                    .color(p.text_muted),
-                                );
-                            });
-                            ui.add_space(18.0);
+                            // Crisp left-aligned Studio workspace intro header
+                            egui::Frame::new()
+                                .inner_margin(egui::Margin {
+                                    left: 24,
+                                    right: 24,
+                                    top: 20,
+                                    bottom: 16,
+                                })
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        let (av_r, av_resp) = ui.allocate_exact_size(
+                                            egui::vec2(52.0, 52.0),
+                                            Sense::click(),
+                                        );
+                                        self.paint_user_avatar(
+                                            ui,
+                                            av_r,
+                                            channel.peer_user_id.unwrap_or(-1),
+                                            &channel.name,
+                                            false,
+                                        );
+                                        if av_resp.clicked() {
+                                            if let Some(peer_id) = channel.peer_user_id {
+                                                pending_profile = Some((
+                                                    peer_id,
+                                                    channel.name.clone(),
+                                                    av_r.right_top(),
+                                                ));
+                                            }
+                                        }
+                                        ui.add_space(6.0);
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                theme::semibold(&channel.name, 18.5)
+                                                    .color(p.text_primary),
+                                            );
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "Direct conversation with {} · Wireline",
+                                                    channel.name
+                                                ))
+                                                .size(13.0)
+                                                .color(p.text_muted),
+                                            );
+                                        });
+                                    });
+                                });
+                            let (sep_r, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 1.0),
+                                Sense::hover(),
+                            );
+                            ui.painter().rect_filled(sep_r, 0.0, p.hairline);
+                            ui.add_space(6.0);
                         }
 
                         let visible_indices: Vec<usize> = all_messages
@@ -903,220 +940,161 @@ impl SkyApp {
                                                         }
                                                     });
                                                 } else {
-                                                    // Original Wireline Modern Bubble Layout
-                                                    let max_bubble_w =
-                                                        (ui.available_width() * 0.72).clamp(220.0, 560.0);
-
-                                                    if mine {
-                                                        // Right-aligned own indigo bubble!
-                                                        ui.with_layout(
-                                                            egui::Layout::top_down(egui::Align::Max),
-                                                            |ui| {
-                                                                if let Some(reply_id) =
-                                                                    message.reply_to_id
-                                                                {
-                                                                    Self::ui_reply_quote(
-                                                                        ui,
-                                                                        p,
-                                                                        &all_messages,
-                                                                        reply_id,
-                                                                    );
-                                                                }
-                                                                egui::Frame::new()
-                                                                    .fill(p.own_bubble)
-                                                                    .corner_radius(
-                                                                        egui::CornerRadius {
-                                                                            nw: 16,
-                                                                            ne: if grouped { 6 } else { 16 },
-                                                                            sw: 16,
-                                                                            se: 4,
-                                                                        },
-                                                                    )
-                                                                    .inner_margin(
-                                                                        egui::Margin::symmetric(
-                                                                            14, 9,
-                                                                        ),
-                                                                    )
-                                                                    .show(ui, |ui| {
-                                                                        ui.set_max_width(
-                                                                            max_bubble_w,
-                                                                        );
-                                                                        if is_editing {
-                                                                            if let Some((
-                                                                                _,
-                                                                                ref mut buf,
-                                                                            )) =
-                                                                                self.editing_message
-                                                                            {
-                                                                                Self::ui_inline_editor(
-                                                                                    ui,
-                                                                                    p,
-                                                                                    message.id,
-                                                                                    buf,
-                                                                                    &mut pending_save_edit,
-                                                                                    &mut pending_cancel_edit,
-                                                                                );
-                                                                            }
-                                                                        } else {
-                                                                            Self::render_rich_message(
-                                                                                ui,
-                                                                                p,
-                                                                                message,
-                                                                                font_sz,
-                                                                                p.own_bubble_text,
-                                                                                true,
-                                                                                &mut self
-                                                                                    .revealed_spoilers,
-                                                                            );
-                                                                        }
-                                                                    });
-                                                                if !grouped || message.edited_at.is_some() {
-                                                                    ui.horizontal(|ui| {
-                                                                        if message.edited_at.is_some() {
-                                                                            ui.label(
-                                                                                RichText::new("(edited)")
-                                                                                    .size(11.5)
-                                                                                    .color(p.text_muted),
-                                                                            );
-                                                                        }
-                                                                        ui.label(
-                                                                            RichText::new(format_hhmm(
-                                                                                message.created_at,
-                                                                            ))
-                                                                            .size(11.5)
-                                                                            .color(p.text_muted),
-                                                                        );
-                                                                    });
-                                                                }
-                                                                Self::ui_reactions_row(
-                                                                    ui,
-                                                                    p,
-                                                                    message,
-                                                                    me_id,
-                                                                    &mut pending_toggle_reaction,
-                                                                    &mut pending_open_emoji_for,
+                                                    // Crisp Left-Aligned Wireline Studio Feed (Linear / Raycast style)
+                                                    let max_text_w =
+                                                        (ui.available_width() - 56.0).clamp(200.0, 760.0);
+                                                    ui.horizontal_top(|ui| {
+                                                        if grouped {
+                                                            let (gutter_r, _) = ui
+                                                                .allocate_exact_size(
+                                                                    egui::vec2(36.0, 20.0),
+                                                                    Sense::hover(),
                                                                 );
-                                                            },
-                                                        );
-                                                    } else {
-                                                        // Left-aligned peer bubble with 38px circular avatar
-                                                        ui.horizontal_top(|ui| {
-                                                            if grouped {
-                                                                ui.add_space(48.0);
-                                                            } else {
-                                                                let (av_r, av_resp) =
-                                                                    ui.allocate_exact_size(
-                                                                        egui::vec2(38.0, 38.0),
-                                                                        Sense::click(),
-                                                                    );
-                                                                self.paint_user_avatar(
-                                                                    ui,
-                                                                    av_r,
-                                                                    message.user_id,
-                                                                    &message.username,
-                                                                    false,
+                                                            let row_hov = ui.ctx().input(|i| {
+                                                                i.pointer.hover_pos().is_some_and(
+                                                                    |pos| {
+                                                                        pos.y >= gutter_r.top() - 4.0
+                                                                            && pos.y
+                                                                                <= gutter_r.bottom()
+                                                                                    + 12.0
+                                                                    },
+                                                                )
+                                                            });
+                                                            if row_hov {
+                                                                ui.painter().text(
+                                                                    gutter_r.center(),
+                                                                    Align2::CENTER_CENTER,
+                                                                    format_hhmm(message.created_at),
+                                                                    FontId::monospace(10.5),
+                                                                    p.text_muted,
                                                                 );
-                                                                if av_resp.clicked() {
-                                                                    pending_profile = Some((
-                                                                        message.user_id,
-                                                                        message.username.clone(),
-                                                                        av_r.right_top(),
-                                                                    ));
-                                                                }
-                                                                ui.add_space(10.0);
                                                             }
+                                                            ui.add_space(12.0);
+                                                        } else {
+                                                            let (av_r, av_resp) =
+                                                                ui.allocate_exact_size(
+                                                                    egui::vec2(36.0, 36.0),
+                                                                    Sense::click(),
+                                                                );
+                                                            self.paint_user_avatar(
+                                                                ui,
+                                                                av_r,
+                                                                message.user_id,
+                                                                &message.username,
+                                                                mine,
+                                                            );
+                                                            if av_resp.clicked() {
+                                                                pending_profile = Some((
+                                                                    message.user_id,
+                                                                    message.username.clone(),
+                                                                    av_r.right_top(),
+                                                                ));
+                                                            }
+                                                            ui.add_space(12.0);
+                                                        }
 
-                                                            ui.vertical(|ui| {
-                                                                if !grouped {
-                                                                    ui.horizontal(|ui| {
-                                                                        let u_resp = ui.add(
-                                                                            egui::Label::new(
-                                                                                theme::semibold(
-                                                                                    &message.username,
-                                                                                    14.0,
-                                                                                )
-                                                                                .color(p.text_primary),
+                                                        ui.vertical(|ui| {
+                                                            ui.set_max_width(max_text_w);
+                                                            if !grouped {
+                                                                ui.horizontal(|ui| {
+                                                                    let u_resp = ui.add(
+                                                                        egui::Label::new(
+                                                                            theme::semibold(
+                                                                                &message.username,
+                                                                                14.5,
                                                                             )
-                                                                            .sense(Sense::click()),
-                                                                        );
-                                                                        if u_resp.clicked() {
-                                                                            pending_profile = Some((
-                                                                                message.user_id,
-                                                                                message.username.clone(),
-                                                                                u_resp.rect.right_top(),
-                                                                            ));
-                                                                        }
-                                                                        ui.label(
-                                                                            RichText::new(
-                                                                                format_discord_timestamp(
-                                                                                    message.created_at,
-                                                                                    now_i64,
+                                                                            .color(if mine {
+                                                                                p.accent
+                                                                            } else {
+                                                                                p.text_primary
+                                                                            }),
+                                                                        )
+                                                                        .sense(Sense::click()),
+                                                                    );
+                                                                    if u_resp.clicked() {
+                                                                        pending_profile = Some((
+                                                                            message.user_id,
+                                                                            message.username.clone(),
+                                                                            u_resp.rect.right_top(),
+                                                                        ));
+                                                                    }
+                                                                    if mine {
+                                                                        egui::Frame::new()
+                                                                            .fill(p.accent_soft)
+                                                                            .corner_radius(4.0)
+                                                                            .inner_margin(
+                                                                                egui::Margin::symmetric(
+                                                                                    5, 1,
                                                                                 ),
                                                                             )
-                                                                            .size(12.0)
-                                                                            .color(p.text_muted),
-                                                                        );
-                                                                    });
-                                                                }
-                                                                if let Some(reply_id) =
-                                                                    message.reply_to_id
+                                                                            .show(ui, |ui| {
+                                                                                ui.label(
+                                                                                    RichText::new("YOU")
+                                                                                        .font(FontId::monospace(9.5))
+                                                                                        .color(p.accent),
+                                                                                );
+                                                                            });
+                                                                    }
+                                                                    ui.label(
+                                                                        RichText::new(format_hhmm(
+                                                                            message.created_at,
+                                                                        ))
+                                                                        .font(FontId::monospace(11.5))
+                                                                        .color(p.text_muted),
+                                                                    );
+                                                                });
+                                                            }
+                                                            if let Some(reply_id) =
+                                                                message.reply_to_id
+                                                            {
+                                                                Self::ui_reply_quote(
+                                                                    ui,
+                                                                    p,
+                                                                    &all_messages,
+                                                                    reply_id,
+                                                                );
+                                                            }
+                                                            if is_editing {
+                                                                if let Some((_, ref mut buf)) =
+                                                                    self.editing_message
                                                                 {
-                                                                    Self::ui_reply_quote(
+                                                                    Self::ui_inline_editor(
                                                                         ui,
                                                                         p,
-                                                                        &all_messages,
-                                                                        reply_id,
+                                                                        message.id,
+                                                                        buf,
+                                                                        &mut pending_save_edit,
+                                                                        &mut pending_cancel_edit,
                                                                     );
                                                                 }
-                                                                egui::Frame::new()
-                                                                    .fill(p.peer_bubble)
-                                                                    .stroke(p.border_stroke())
-                                                                    .corner_radius(
-                                                                        egui::CornerRadius {
-                                                                            nw: if grouped { 6 } else { 4 },
-                                                                            ne: 16,
-                                                                            sw: 16,
-                                                                            se: 16,
-                                                                        },
-                                                                    )
-                                                                    .inner_margin(
-                                                                        egui::Margin::symmetric(
-                                                                            14, 9,
-                                                                        ),
-                                                                    )
-                                                                    .show(ui, |ui| {
-                                                                        ui.set_max_width(
-                                                                            max_bubble_w,
-                                                                        );
-                                                                        Self::render_rich_message(
-                                                                            ui,
-                                                                            p,
-                                                                            message,
-                                                                            font_sz,
-                                                                            p.text_primary,
-                                                                            false,
-                                                                            &mut self
-                                                                                .revealed_spoilers,
-                                                                        );
-                                                                    });
-                                                                if message.edited_at.is_some() {
-                                                                    ui.label(
-                                                                        RichText::new("(edited)")
-                                                                            .size(10.5)
-                                                                            .color(p.text_muted),
-                                                                    );
-                                                                }
-                                                                Self::ui_reactions_row(
+                                                            } else {
+                                                                Self::render_rich_message(
                                                                     ui,
                                                                     p,
                                                                     message,
-                                                                    me_id,
-                                                                    &mut pending_toggle_reaction,
-                                                                    &mut pending_open_emoji_for,
+                                                                    font_sz,
+                                                                    p.text_primary,
+                                                                    false,
+                                                                    &mut self.revealed_spoilers,
                                                                 );
-                                                            });
+                                                            }
+                                                            if message.edited_at.is_some() {
+                                                                ui.label(
+                                                                    RichText::new("(edited)")
+                                                                        .size(11.0)
+                                                                        .color(p.text_muted),
+                                                                );
+                                                            }
+                                                            Self::ui_reactions_row(
+                                                                ui,
+                                                                p,
+                                                                message,
+                                                                me_id,
+                                                                &mut pending_toggle_reaction,
+                                                                &mut pending_open_emoji_for,
+                                                            );
                                                         });
-                                                    }
+                                                    });
                                                 }
                                             });
                                     },
@@ -1133,15 +1111,21 @@ impl SkyApp {
                                     .is_some_and(|pos| row_rect.contains(pos))
                             });
 
-                            // Floating pill hover action bar (cleanly placed on top-right or top-left)
+                            // Floating Studio hover action bar (always cleanly docked on top-right)
                             if pointer_in_row && !is_editing {
+                                if mine {
+                                    ui.painter().rect_filled(
+                                        Rect::from_min_max(
+                                            row_rect.left_top(),
+                                            egui::pos2(row_rect.left() + 2.0, row_rect.bottom()),
+                                        ),
+                                        0.0,
+                                        p.accent,
+                                    );
+                                }
                                 let bar_btns = if mine { 4 } else { 2 };
                                 let bar_w = (bar_btns as f32) * 30.0 + 8.0;
-                                let bar_x = if mine && !compact {
-                                    row_rect.left() + 24.0
-                                } else {
-                                    row_rect.right() - bar_w - 20.0
-                                };
+                                let bar_x = row_rect.right() - bar_w - 24.0;
                                 let bar_rect = Rect::from_min_size(
                                     egui::pos2(
                                         bar_x,
@@ -1317,80 +1301,95 @@ impl SkyApp {
     fn ui_call_event_card(ui: &mut Ui, p: Palette, message: &MessageDto) {
         let content = message.content.as_str();
         let (icon_col, text) = if content == "[[call:started]]" {
-            (
-                p.success,
-                format!(
-                    "{} started a call · {}",
-                    message.username,
-                    format_hhmm(message.created_at)
-                ),
-            )
+            (p.accent, format!("{} started a voice call", message.username))
         } else if content == "[[call:missed]]" {
             (
                 p.danger,
-                format!(
-                    "Missed call from {} · {}",
-                    message.username,
-                    format_hhmm(message.created_at)
-                ),
+                format!("Missed voice call from {}", message.username),
             )
         } else if let Some(dur) = content
             .strip_prefix("[[call:ended:")
             .and_then(|s| s.strip_suffix("]]"))
         {
-            (
-                p.text_secondary,
-                format!(
-                    "Call ended · {} · {}",
-                    dur,
-                    format_hhmm(message.created_at)
-                ),
-            )
+            (p.text_secondary, format!("Voice call ended · {dur}"))
         } else {
             (p.text_secondary, content.to_string())
         };
         let is_missed = content == "[[call:missed]]";
-        ui.vertical_centered(|ui| {
-            egui::Frame::new()
-                .fill(p.surface)
-                .stroke(Stroke::new(
-                    1.0_f32,
-                    if is_missed {
-                        p.danger.gamma_multiply(0.4)
-                    } else {
-                        p.border
-                    },
-                ))
-                .corner_radius(14.0)
-                .inner_margin(egui::Margin::symmetric(14, 7))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let (ir, _) =
-                            ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+        let ts = format_hhmm(message.created_at);
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(24, 2))
+            .show(ui, |ui| {
+                egui::Frame::new()
+                    .fill(p.surface)
+                    .stroke(Stroke::new(
+                        1.0_f32,
                         if is_missed {
-                            icons::paint_phone_off(ui.painter(), ir.center(), 15.0, icon_col);
+                            p.danger.gamma_multiply(0.4)
                         } else {
-                            icons::paint_phone(ui.painter(), ir.center(), 15.0, icon_col);
-                        }
-                        ui.label(theme::semibold(text, 13.0).color(p.text_primary));
+                            p.border
+                        },
+                    ))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let (ir, _) =
+                                ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+                            if is_missed {
+                                icons::paint_phone_off(ui.painter(), ir.center(), 15.0, icon_col);
+                            } else {
+                                icons::paint_phone(ui.painter(), ir.center(), 15.0, icon_col);
+                            }
+                            ui.label(RichText::new(text).size(13.0).color(p.text_secondary));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(ts)
+                                            .font(FontId::monospace(11.5))
+                                            .color(p.text_muted),
+                                    );
+                                },
+                            );
+                        });
                     });
-                });
-        });
+            });
     }
 
     fn ui_date_pill(ui: &mut Ui, label: &str, p: Palette) {
         ui.add_space(12.0);
-        ui.vertical_centered(|ui| {
-            egui::Frame::new()
-                .fill(p.surface)
-                .stroke(p.border_stroke())
-                .corner_radius(12.0)
-                .inner_margin(egui::Margin::symmetric(12, 4))
-                .show(ui, |ui| {
-                    ui.label(theme::semibold(label, 12.0).color(p.text_secondary));
-                });
-        });
-        ui.add_space(10.0);
+        let (r, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), Sense::hover());
+        let upper = label.to_ascii_uppercase();
+        let galley = ui.painter().layout_no_wrap(
+            upper,
+            FontId::new(11.0, theme::semibold_family()),
+            p.text_muted,
+        );
+        let text_w = galley.size().x;
+        let cy = r.center().y;
+        let left_end = (r.center().x - text_w * 0.5 - 12.0).max(r.left() + 24.0);
+        let right_start = (r.center().x + text_w * 0.5 + 12.0).min(r.right() - 24.0);
+        if left_end > r.left() + 24.0 {
+            ui.painter().line_segment(
+                [egui::pos2(r.left() + 24.0, cy), egui::pos2(left_end, cy)],
+                p.hairline_stroke(),
+            );
+        }
+        if right_start < r.right() - 24.0 {
+            ui.painter().line_segment(
+                [egui::pos2(right_start, cy), egui::pos2(r.right() - 24.0, cy)],
+                p.hairline_stroke(),
+            );
+        }
+        ui.painter().galley(
+            egui::pos2(r.center().x - text_w * 0.5, cy - galley.size().y * 0.5),
+            galley,
+            p.text_muted,
+        );
+        ui.add_space(6.0);
     }
 
     fn ui_reply_quote(ui: &mut Ui, p: Palette, all_messages: &[MessageDto], reply_id: i64) {

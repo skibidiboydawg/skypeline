@@ -42,12 +42,12 @@ impl SkyApp {
         );
         let painter = ui.painter_at(stage_rect);
 
-        // Sleek rounded studio call container
-        painter.rect_filled(stage_rect, 14.0, p.call_canvas);
+        // Sleek obsidian studio call container
+        painter.rect_filled(stage_rect, 10.0, p.call_canvas);
         painter.rect_stroke(
             stage_rect,
-            14.0,
-            Stroke::new(1.0_f32, Color32::from_rgb(0x23, 0x29, 0x3A)),
+            10.0,
+            Stroke::new(1.0_f32, Color32::from_rgb(0x27, 0x2A, 0x33)),
             egui::StrokeKind::Inside,
         );
 
@@ -94,9 +94,9 @@ impl SkyApp {
         // Top-right controls: [Hide] [Expand] [L][M][S] + live FPS/Res pills when sharing
         let mut rx = stage_rect.right() - 14.0;
         let top_y = stage_rect.top() + 10.0;
-        let dark_btn = Color32::from_rgb(0x1E, 0x23, 0x32);
-        let dark_btn_hov = Color32::from_rgb(0x2B, 0x32, 0x47);
-        let light_txt = Color32::from_rgb(0xD5, 0xDC, 0xEB);
+        let dark_btn = Color32::from_rgb(0x17, 0x19, 0x1F);
+        let dark_btn_hov = Color32::from_rgb(0x24, 0x28, 0x33);
+        let light_txt = Color32::from_rgb(0xC8, 0xCD, 0xD8);
 
         // Hide button
         rx -= 56.0;
