@@ -23,14 +23,14 @@ impl SkyApp {
         let badge_scale = self.pending_badge_scale(pending_count);
         let reduced = self.config.reduced_motion;
 
-        // 1. 48px Top Header Bar (--bg-primary, border-bottom 1px subtle)
+        // 1. 48px Top Header Bar (--bg-primary, subtle Discord #222428 hairline)
         let (header_rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::hover());
         ui.painter()
             .rect_filled(header_rect, 0.0, theme::BG_PRIMARY);
         ui.painter().line_segment(
             [header_rect.left_bottom(), header_rect.right_bottom()],
-            theme::border(),
+            theme::hairline(),
         );
 
         let mut active_tab_rect: Option<Rect> = None;
@@ -41,13 +41,8 @@ impl SkyApp {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
             |ui| {
                 let (ir, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), Sense::hover());
-                icons::paint_users(ui.painter(), ir.center(), 18.0, theme::TEXT_MUTED);
-                ui.label(
-                    RichText::new("Friends")
-                        .size(16.0)
-                        .strong()
-                        .color(theme::TEXT_PRIMARY),
-                );
+                icons::paint_users(ui.painter(), ir.center(), 19.0, theme::TEXT_MUTED);
+                ui.label(theme::semibold("Friends", 15.5).color(theme::TEXT_PRIMARY));
                 ui.add_space(6.0);
                 let (div_r, _) = ui.allocate_exact_size(egui::vec2(1.0, 22.0), Sense::hover());
                 ui.painter().rect_filled(div_r, 0.0, theme::BORDER_SUBTLE);
@@ -348,6 +343,7 @@ impl SkyApp {
             })
         });
 
+        let q = self.friends_search.trim().to_ascii_lowercase();
         let filtered: Vec<_> = match self.friends_tab {
             FriendsTab::Online => friends
                 .into_iter()
@@ -355,6 +351,7 @@ impl SkyApp {
                     f.status == FriendshipStatus::Accepted
                         && f.online
                         && !self.is_blocked(f.user_id)
+                        && (q.is_empty() || f.username.to_ascii_lowercase().contains(&q))
                 })
                 .collect(),
             FriendsTab::All => friends
@@ -362,15 +359,22 @@ impl SkyApp {
                 .filter(|f| {
                     (f.status == FriendshipStatus::Accepted || f.direction == "mutual")
                         && !self.is_blocked(f.user_id)
+                        && (q.is_empty() || f.username.to_ascii_lowercase().contains(&q))
                 })
                 .collect(),
             FriendsTab::Pending => friends
                 .into_iter()
-                .filter(|f| f.status == FriendshipStatus::Pending)
+                .filter(|f| {
+                    f.status == FriendshipStatus::Pending
+                        && (q.is_empty() || f.username.to_ascii_lowercase().contains(&q))
+                })
                 .collect(),
             FriendsTab::Blocked => friends
                 .into_iter()
-                .filter(|f| self.is_blocked(f.user_id))
+                .filter(|f| {
+                    self.is_blocked(f.user_id)
+                        && (q.is_empty() || f.username.to_ascii_lowercase().contains(&q))
+                })
                 .collect(),
             FriendsTab::AddFriend => Vec::new(),
         };
@@ -385,63 +389,86 @@ impl SkyApp {
         let pulse = self.pulse_time(ui.ctx());
 
         egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(24, 16))
+            .inner_margin(egui::Margin::symmetric(28, 16))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
 
+                // Discord inline Search bar inside Friends list
+                egui::Frame::new()
+                    .fill(theme::BG_TERTIARY)
+                    .corner_radius(4.0)
+                    .inner_margin(egui::Margin::symmetric(12, 7))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let w = (ui.available_width() - 24.0).max(120.0);
+                            ui.add_sized(
+                                [w, 20.0],
+                                egui::TextEdit::singleline(&mut self.friends_search)
+                                    .frame(false)
+                                    .hint_text("Search"),
+                            );
+                            let (sr, sresp) =
+                                ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::click());
+                            if self.friends_search.is_empty() {
+                                icons::paint_search(
+                                    ui.painter(),
+                                    sr.center(),
+                                    16.0,
+                                    theme::TEXT_MUTED,
+                                );
+                            } else {
+                                icons::paint_x(
+                                    ui.painter(),
+                                    sr.center(),
+                                    15.0,
+                                    theme::TEXT_SECONDARY,
+                                );
+                                if sresp.clicked() {
+                                    self.friends_search.clear();
+                                }
+                            }
+                        });
+                    });
+                ui.add_space(16.0);
+
                 if filtered.is_empty() {
-                    ui.add_space(72.0);
+                    ui.add_space(64.0);
                     ui.vertical_centered(|ui| {
-                        let (icon_r, _) =
-                            ui.allocate_exact_size(egui::vec2(64.0, 64.0), Sense::hover());
-                        ui.painter()
-                            .circle_filled(icon_r.center(), 32.0, theme::BG_SECONDARY);
-                        icons::paint_users(
-                            ui.painter(),
-                            icon_r.center(),
-                            30.0,
-                            theme::TEXT_MUTED,
-                        );
-                        ui.add_space(16.0);
                         let (title, sub) = match self.friends_tab {
                             FriendsTab::Online => (
-                                "It's quiet for now...",
-                                "When a friend starts an activity or comes online, we'll show it here!",
+                                "No one's around right now.",
+                                "When your friends come online, they'll show up here.",
                             ),
                             FriendsTab::All => (
-                                "It's quiet for now...",
-                                "Make some noise by adding a friend or starting a conversation!",
+                                "No friends found.",
+                                "Add a friend using their username or email to start chatting.",
                             ),
                             FriendsTab::Pending => (
                                 "There are no pending friend requests.",
-                                "Incoming and outgoing friend requests will appear here.",
+                                "Incoming and outgoing requests will appear here.",
                             ),
                             FriendsTab::Blocked => (
                                 "You haven't blocked anyone.",
-                                "Blocked users won't be able to send you notifications.",
+                                "Blocked users won't appear in your DMs or notifications.",
                             ),
                             FriendsTab::AddFriend => ("", ""),
                         };
-                        ui.label(
-                            RichText::new(title)
-                                .size(16.0)
-                                .strong()
-                                .color(theme::TEXT_PRIMARY),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(RichText::new(sub).size(14.0).color(theme::TEXT_MUTED));
-                        if matches!(self.friends_tab, FriendsTab::Online | FriendsTab::All) {
-                            ui.add_space(16.0);
+                        ui.label(theme::semibold(title, 15.5).color(theme::TEXT_PRIMARY));
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(sub).size(13.5).color(theme::TEXT_MUTED));
+                        if matches!(self.friends_tab, FriendsTab::Online | FriendsTab::All)
+                            && self.friends_search.is_empty()
+                        {
+                            ui.add_space(14.0);
                             if ui
                                 .add(
                                     egui::Button::new(
-                                        RichText::new("Add Friend")
-                                            .strong()
-                                            .color(Color32::WHITE),
+                                        theme::semibold("Add Friend", 13.5).color(Color32::WHITE),
                                     )
                                     .fill(theme::ACCENT)
                                     .corner_radius(4.0)
-                                    .min_size(egui::vec2(120.0, 34.0)),
+                                    .min_size(egui::vec2(116.0, 34.0)),
                                 )
                                 .clicked()
                             {
@@ -452,12 +479,7 @@ impl SkyApp {
                     return;
                 }
 
-                ui.label(
-                    RichText::new(header_label)
-                        .size(12.0)
-                        .strong()
-                        .color(theme::TEXT_MUTED),
-                );
+                ui.label(theme::semibold(&header_label, 12.0).color(theme::TEXT_MUTED));
                 ui.add_space(8.0);
 
                 for friend in filtered {
@@ -598,7 +620,7 @@ impl SkyApp {
                         egui::pos2(tx, shifted_rect.center().y - 2.0),
                         Align2::LEFT_BOTTOM,
                         &friend.username,
-                        FontId::proportional(15.0),
+                        FontId::new(14.5, theme::semibold_family()),
                         theme::TEXT_PRIMARY.gamma_multiply(row_alpha),
                     );
                     let sub_text = if self.is_blocked(friend.user_id) {

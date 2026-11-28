@@ -113,6 +113,7 @@ pub struct SkyApp {
     pub(crate) last_messages: HashMap<i64, (String, i64)>,
     pub(crate) online: Vec<OnlineUser>,
     pub(crate) friends: Vec<FriendInfo>,
+    pub(crate) friends_search: String,
     pub(crate) friend_query: String,
     pub(crate) friend_error: String,
     pub(crate) friend_busy: bool,
@@ -195,6 +196,7 @@ pub struct SkyApp {
 impl SkyApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let config = Config::load();
+        theme::setup_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, config.dark_mode, config.font_size);
         let (events_tx, events_rx) = mpsc::channel();
         #[cfg(target_os = "windows")]
@@ -223,6 +225,7 @@ impl SkyApp {
             last_messages: HashMap::new(),
             online: Vec::new(),
             friends: Vec::new(),
+            friends_search: String::new(),
             friend_query: String::new(),
             friend_error: String::new(),
             friend_busy: false,
@@ -836,9 +839,20 @@ impl SkyApp {
             self.voice_hint = "Join a call before sharing your screen".into();
             return;
         }
+        let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
+        let me_name = self
+            .me
+            .as_ref()
+            .map(|m| m.username.clone())
+            .unwrap_or_else(|| "You".into());
         if let Some(share) = self.screen_share.take() {
             share.stop();
             self.sharing = false;
+            if self.screen_owner == Some(me_id) {
+                self.screen_texture = None;
+                self.screen_owner = None;
+                self.screen_fullscreen = false;
+            }
             return;
         }
         let room = self.voice_room.clone().unwrap_or_default();
@@ -852,8 +866,9 @@ impl SkyApp {
             return;
         };
         let events = self.events_tx.clone();
-        self.screen_share = Some(ScreenShare::start(room, ws, frames, events));
+        self.screen_share = Some(ScreenShare::start(room, me_id, me_name, ws, frames, events));
         self.sharing = true;
+        self.call_expanded = true;
     }
 
     pub(crate) fn set_presence(&mut self, status: PresenceStatus) {

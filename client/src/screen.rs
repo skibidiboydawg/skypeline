@@ -36,6 +36,8 @@ pub struct ScreenShare {
 impl ScreenShare {
     pub fn start(
         room: String,
+        local_user_id: i64,
+        local_username: String,
         ws: tmpsc::UnboundedSender<WsClientMsg>,
         frames: tmpsc::Sender<WsClientMsg>,
         events: mpsc::Sender<UiEvent>,
@@ -53,7 +55,15 @@ impl ScreenShare {
             while !task_stop.load(Ordering::Acquire) {
                 let captured = catch_unwind(AssertUnwindSafe(capture_frame));
                 match captured {
-                    Ok(Some((jpeg, width, height))) => {
+                    Ok(Some((jpeg, rgba, width, height))) => {
+                        // Show live local preview immediately in our own call stage
+                        let _ = events.send(UiEvent::ScreenFrame {
+                            from: local_user_id,
+                            username: local_username.clone(),
+                            width,
+                            height,
+                            rgba,
+                        });
                         let jpeg_b64 = base64::engine::general_purpose::STANDARD.encode(jpeg);
                         // Drop the newest frame if the relay is behind. This
                         // keeps screen share best-effort without growing the
@@ -89,6 +99,9 @@ impl ScreenShare {
                 room,
                 active: false,
             });
+            let _ = events.send(UiEvent::ScreenStopped {
+                from: local_user_id,
+            });
         });
 
         Self {
@@ -105,7 +118,7 @@ impl ScreenShare {
     }
 }
 
-fn capture_frame() -> Option<(Vec<u8>, u32, u32)> {
+fn capture_frame() -> Option<(Vec<u8>, Vec<u8>, u32, u32)> {
     let monitors = xcap::Monitor::all().ok()?;
     let monitor = monitors
         .iter()
@@ -126,6 +139,7 @@ fn capture_frame() -> Option<(Vec<u8>, u32, u32)> {
     }
 
     let resized = image::imageops::resize(&image, width, height, FilterType::Triangle);
+    let rgba = resized.as_raw().clone();
     // JPEG does not support RGBA. Hand the encoder an RGB image instead of
     // silently failing on every frame.
     let rgb = image::DynamicImage::ImageRgba8(resized).to_rgb8();
@@ -140,7 +154,7 @@ fn capture_frame() -> Option<(Vec<u8>, u32, u32)> {
     if jpeg.is_empty() {
         return None;
     }
-    Some((jpeg, width, height))
+    Some((jpeg, rgba, width, height))
 }
 
 fn fit(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32) {

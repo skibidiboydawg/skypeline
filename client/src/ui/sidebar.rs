@@ -44,14 +44,14 @@ impl SkyApp {
                             .inner_margin(egui::Margin::same(0)),
                     )
                     .show_inside(ui, |ui| {
-                        // Top 48px search header (border-bottom 1px subtle)
+                        // Top 48px search header (authentic Discord #222428 hairline)
                         let (top_r, _) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), 48.0),
                             Sense::hover(),
                         );
                         ui.painter().line_segment(
                             [top_r.left_bottom(), top_r.right_bottom()],
-                            theme::border(),
+                            theme::hairline(),
                         );
                         let search_box = top_r.shrink2(egui::vec2(10.0, 10.0));
                         ui.painter()
@@ -385,57 +385,61 @@ impl SkyApp {
         });
     }
 
-    /// Persistent Voice Connected bar (52px, --bg-tertiary) above bottom user panel.
+    /// Persistent Voice Connected bar (56px, #232428) with Share Screen + Disconnect buttons.
     fn ui_active_call_banner(&mut self, ui: &mut Ui) {
         let elapsed = self
             .call_started_at
             .map(|s| (Self::now_secs() - s).max(0.0) as u64)
             .unwrap_or(0);
         let (bar_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::hover());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), Sense::hover());
         ui.painter()
-            .rect_filled(bar_rect, 0.0, theme::BG_TERTIARY);
+            .rect_filled(bar_rect, 0.0, theme::BG_USER_PANEL);
         ui.painter().line_segment(
             [bar_rect.left_top(), bar_rect.right_top()],
-            theme::border(),
+            theme::hairline(),
+        );
+        ui.painter().line_segment(
+            [bar_rect.left_bottom(), bar_rect.right_bottom()],
+            theme::hairline(),
         );
 
-        let sig_c = bar_rect.left_center() + egui::vec2(18.0, -6.0);
-        icons::paint_signal(ui.painter(), sig_c, 15.0, theme::SUCCESS);
+        let sig_c = bar_rect.left_top() + egui::vec2(18.0, 19.0);
+        icons::paint_signal(ui.painter(), sig_c, 16.0, theme::SUCCESS);
 
         ui.painter().text(
             bar_rect.left_top() + egui::vec2(32.0, 10.0),
             Align2::LEFT_TOP,
             "Voice Connected",
-            FontId::proportional(13.0),
+            FontId::new(13.0, theme::semibold_family()),
             theme::SUCCESS,
         );
         ui.painter().text(
-            bar_rect.left_top() + egui::vec2(32.0, 27.0),
+            bar_rect.left_top() + egui::vec2(32.0, 28.0),
             Align2::LEFT_TOP,
-            format!("{:02}:{:02} · Server Relay", elapsed / 60, elapsed % 60),
+            format!(
+                "{:02}:{:02}{}",
+                elapsed / 60,
+                elapsed % 60,
+                if self.sharing { " · Sharing" } else { "" }
+            ),
             FontId::proportional(11.5),
             theme::TEXT_MUTED,
         );
 
+        // Disconnect button (rightmost)
         let disc_r = Rect::from_center_size(
-            bar_rect.right_center() - egui::vec2(22.0, 0.0),
+            bar_rect.right_center() - egui::vec2(20.0, 0.0),
             egui::vec2(30.0, 30.0),
         );
         let disc_resp = ui.interact(disc_r, ui.id().with("voice_disc_btn"), Sense::click());
-        ui.painter().rect_filled(
-            disc_r,
-            4.0,
-            if disc_resp.hovered() {
-                theme::DANGER
-            } else {
-                theme::BG_HOVER
-            },
-        );
+        if disc_resp.hovered() {
+            ui.painter().rect_filled(disc_r, 4.0, theme::DANGER);
+        }
         icons::paint_phone_off(
             ui.painter(),
             disc_r.center(),
-            16.0,
+            17.0,
             if disc_resp.hovered() {
                 Color32::WHITE
             } else {
@@ -444,6 +448,46 @@ impl SkyApp {
         );
         if disc_resp.on_hover_text("Disconnect").clicked() {
             self.leave_voice();
+        }
+
+        // Dedicated Share Screen button right next to Disconnect!
+        let scr_r = Rect::from_center_size(
+            bar_rect.right_center() - egui::vec2(54.0, 0.0),
+            egui::vec2(30.0, 30.0),
+        );
+        let scr_resp = ui.interact(scr_r, ui.id().with("voice_screen_btn"), Sense::click());
+        if scr_resp.hovered() || self.sharing {
+            ui.painter().rect_filled(
+                scr_r,
+                4.0,
+                if self.sharing {
+                    theme::SUCCESS
+                } else {
+                    theme::BG_HOVER
+                },
+            );
+        }
+        icons::paint_screen_share(
+            ui.painter(),
+            scr_r.center(),
+            17.0,
+            if self.sharing {
+                Color32::WHITE
+            } else if scr_resp.hovered() {
+                theme::TEXT_PRIMARY
+            } else {
+                theme::TEXT_SECONDARY
+            },
+        );
+        if scr_resp
+            .on_hover_text(if self.sharing {
+                "Stop Sharing Screen"
+            } else {
+                "Share Your Screen"
+            })
+            .clicked()
+        {
+            self.toggle_screen_share();
         }
     }
 
@@ -603,7 +647,7 @@ impl SkyApp {
         let (dock_rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::hover());
         ui.painter()
-            .rect_filled(dock_rect, 0.0, theme::BG_TERTIARY);
+            .rect_filled(dock_rect, 0.0, theme::BG_USER_PANEL);
 
         let cy = dock_rect.center().y;
 
@@ -661,14 +705,14 @@ impl SkyApp {
         }
         let dot = avatar_rect.right_bottom() - egui::vec2(3.0, 3.0);
         let pulse = self.pulse_time(ui.ctx());
-        icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, theme::BG_TERTIARY, pulse);
+        icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, theme::BG_USER_PANEL, pulse);
 
         let text_x = avatar_rect.right() + 8.0;
         ui.painter().text(
             egui::pos2(text_x, cy - 1.0),
             Align2::LEFT_BOTTOM,
             &me_name,
-            FontId::proportional(13.5),
+            FontId::new(13.5, theme::semibold_family()),
             theme::TEXT_PRIMARY,
         );
         let sub = if !self.config.custom_status.trim().is_empty() {

@@ -20,13 +20,13 @@ impl SkyApp {
             return;
         };
 
-        // 1. 48px Top Bar (--bg-primary, border-bottom 1px subtle)
+        // 1. 48px Top Bar (--bg-primary, subtle Discord #222428 hairline)
         let (hdr_rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::hover());
         ui.painter().rect_filled(hdr_rect, 0.0, theme::BG_PRIMARY);
         ui.painter().line_segment(
             [hdr_rect.left_bottom(), hdr_rect.right_bottom()],
-            theme::border(),
+            theme::hairline(),
         );
 
         let hdr_inner = hdr_rect.shrink2(egui::vec2(16.0, 6.0));
@@ -42,15 +42,12 @@ impl SkyApp {
                 .max_rect(hdr_inner)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
             |ui| {
-                // Left: @ symbol + Name + Discord status dot
-                ui.label(RichText::new("@").size(19.0).strong().color(theme::TEXT_MUTED));
-                ui.add_space(2.0);
+                // Left: crisp Phosphor @ icon + SemiBold Name + Discord status dot
+                let (at_r, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::hover());
+                icons::paint_at(ui.painter(), at_r.center(), 18.0, theme::TEXT_MUTED);
                 let name_resp = ui.add(
                     egui::Label::new(
-                        RichText::new(&channel.name)
-                            .size(16.0)
-                            .strong()
-                            .color(theme::TEXT_PRIMARY),
+                        theme::semibold(&channel.name, 15.5).color(theme::TEXT_PRIMARY),
                     )
                     .sense(Sense::click()),
                 );
@@ -143,37 +140,48 @@ impl SkyApp {
                             self.notice = "No pinned messages in this conversation yet.".into();
                         }
 
-                        // Video / Screen share icon
-                        let (vr, vresp) =
-                            ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::click());
-                        if vresp.hovered() || (in_this_call && self.sharing) {
-                            ui.painter().rect_filled(
-                                vr,
-                                4.0,
-                                if in_this_call && self.sharing {
-                                    theme::ACCENT
-                                } else {
-                                    theme::BG_HOVER
-                                },
-                            );
-                        }
-                        icons::paint_video(
-                            ui.painter(),
-                            vr.center(),
-                            18.0,
-                            if in_this_call && self.sharing {
-                                Color32::WHITE
+                        // Unmistakable Screen Share button (crisp Phosphor MonitorArrowUp + label)
+                        let share_active = in_this_call && self.sharing;
+                        let (vr, vresp) = ui.allocate_exact_size(
+                            egui::vec2(if share_active { 104.0 } else { 112.0 }, 28.0),
+                            Sense::click(),
+                        );
+                        ui.painter().rect_filled(
+                            vr,
+                            4.0,
+                            if share_active {
+                                theme::SUCCESS
                             } else if vresp.hovered() {
-                                theme::TEXT_PRIMARY
+                                theme::BG_HOVER
                             } else {
-                                theme::TEXT_SECONDARY
+                                theme::BG_SECONDARY
                             },
                         );
+                        let v_fg = if share_active {
+                            Color32::WHITE
+                        } else if vresp.hovered() {
+                            theme::TEXT_PRIMARY
+                        } else {
+                            theme::TEXT_SECONDARY
+                        };
+                        icons::paint_screen_share(
+                            ui.painter(),
+                            vr.left_center() + egui::vec2(15.0, 0.0),
+                            16.0,
+                            v_fg,
+                        );
+                        ui.painter().text(
+                            vr.left_center() + egui::vec2(28.0, 0.0),
+                            Align2::LEFT_CENTER,
+                            if share_active { "Stop Share" } else { "Share Screen" },
+                            FontId::new(12.5, theme::semibold_family()),
+                            v_fg,
+                        );
                         if vresp
-                            .on_hover_text(if in_this_call && self.sharing {
-                                "Stop Screen Share"
+                            .on_hover_text(if share_active {
+                                "Stop Sharing Screen"
                             } else {
-                                "Start Video / Screen Share"
+                                "Share Your Screen"
                             })
                             .clicked()
                         {
@@ -202,7 +210,7 @@ impl SkyApp {
                         icons::paint_phone(
                             ui.painter(),
                             cr.center(),
-                            17.0,
+                            18.0,
                             if in_this_call {
                                 Color32::WHITE
                             } else if cresp.hovered() {
@@ -352,19 +360,19 @@ impl SkyApp {
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            // Left "+" button (circle)
+                            // Left "+" button (crisp Phosphor PlusCircle)
                             let (pr, presp) =
                                 ui.allocate_exact_size(egui::vec2(26.0, 26.0), Sense::click());
-                            ui.painter().circle_filled(
+                            icons::paint_plus_circle(
+                                ui.painter(),
                                 pr.center(),
-                                11.0,
+                                21.0,
                                 if presp.hovered() {
                                     theme::TEXT_PRIMARY
                                 } else {
                                     theme::TEXT_SECONDARY
                                 },
                             );
-                            icons::paint_plus(ui.painter(), pr.center(), 13.0, theme::INPUT_BG);
                             if presp.on_hover_text("Insert code block").clicked() {
                                 self.draft.push_str("```\n\n```");
                                 self.refocus_draft = true;
@@ -924,11 +932,10 @@ impl SkyApp {
                                                                 ui.horizontal(|ui| {
                                                                     let u_resp = ui.add(
                                                                         egui::Label::new(
-                                                                            RichText::new(
+                                                                            theme::semibold(
                                                                                 &message.username,
+                                                                                font_sz,
                                                                             )
-                                                                            .size(font_sz)
-                                                                            .strong()
                                                                             .color(
                                                                                 theme::TEXT_PRIMARY,
                                                                             ),
