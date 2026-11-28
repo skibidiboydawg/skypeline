@@ -850,7 +850,14 @@ button { cursor: pointer; border: none; background: transparent; }
       return;
     }
     try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: state.prefs.screenFps }, audio: false });
+      screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'always',
+          frameRate: { ideal: state.prefs.screenFps, max: 60 },
+          height: { ideal: state.prefs.screenRes, max: 1080 }
+        },
+        audio: false
+      });
       screenVideo = document.createElement('video');
       screenVideo.srcObject = screenStream; screenVideo.muted = true;
       await screenVideo.play();
@@ -875,17 +882,19 @@ button { cursor: pointer; border: none; background: transparent; }
       screenCanvas.width = w; screenCanvas.height = h;
       const ctx = screenCanvas.getContext('2d');
       ctx.drawImage(screenVideo, 0, 0, w, h);
-      const q = state.prefs.screenFps >= 60 ? 0.5 : state.prefs.screenFps >= 30 ? 0.6 : 0.72;
+      const q = state.prefs.screenFps >= 60 ? 0.42 : state.prefs.screenFps >= 30 ? 0.56 : 0.7;
       const dataUrl = screenCanvas.toDataURL('image/jpeg', q);
       const b64 = dataUrl.split(',')[1];
       state.screenSrc = dataUrl;
       state.screenMeta = `You · ${w}x${h} · ${state.prefs.screenFps} FPS`;
       const img = document.getElementById('live-screen-img');
       if (img) img.src = dataUrl;
-      wsSend({ type: 'screen_frame', room: state.voiceRoom, width: w, height: h, jpeg_b64: b64 });
+      if (ws && ws.readyState === 1 && ws.bufferedAmount < 262144) {
+        wsSend({ type: 'screen_frame', room: state.voiceRoom, width: w, height: h, jpeg_b64: b64 });
+      }
     }
     const interval = 1000 / state.prefs.screenFps;
-    const wait = Math.max(4, interval - (performance.now() - t0));
+    const wait = Math.max(1, interval - (performance.now() - t0));
     screenTimer = setTimeout(runScreenLoop, wait);
   }
   function stopScreenShare() {
@@ -1188,13 +1197,12 @@ button { cursor: pointer; border: none; background: transparent; }
                 ${state.sharing || state.screenSrc ? `<span class="live-pill">LIVE</span><span style="font-size:11.5px;color:#a6b0c6">${esc(state.screenMeta)}</span>` : ''}
               </div>
               <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-                ${state.sharing ? `
-                  <button class="mini-pill ${state.prefs.screenRes===720?'active':''}" data-res="720">720p</button>
-                  <button class="mini-pill ${state.prefs.screenRes===1080?'active':''}" data-res="1080">1080p</button>
-                  <button class="mini-pill ${state.prefs.screenFps===15?'active':''}" data-fps="15">15fps</button>
-                  <button class="mini-pill ${state.prefs.screenFps===30?'active':''}" data-fps="30">30fps</button>
-                  <button class="mini-pill ${state.prefs.screenFps===60?'active':''}" data-fps="60">60fps</button>
-                ` : ''}
+                <button class="mini-pill ${state.prefs.screenRes===480?'active':''}" data-res="480">480p</button>
+                <button class="mini-pill ${state.prefs.screenRes===720?'active':''}" data-res="720">720p</button>
+                <button class="mini-pill ${state.prefs.screenRes===1080?'active':''}" data-res="1080">1080p</button>
+                <button class="mini-pill ${state.prefs.screenFps===15?'active':''}" data-fps="15">15fps</button>
+                <button class="mini-pill ${state.prefs.screenFps===30?'active':''}" data-fps="30">30fps</button>
+                <button class="mini-pill ${state.prefs.screenFps===60?'active':''}" data-fps="60">60fps</button>
                 <button class="mini-pill" data-csz="200">S</button>
                 <button class="mini-pill" data-csz="320">M</button>
                 <button class="mini-pill" data-csz="480">L</button>
@@ -1320,7 +1328,7 @@ button { cursor: pointer; border: none; background: transparent; }
         <div class="settings-nav">
           <div class="sec-label" style="padding:4px 10px 8px">SETTINGS</div>
           <button class="${state.settingsTab==='appearance'?'active':''}" data-stab="appearance">Appearance</button>
-          <button class="${state.settingsTab==='voice'?'active':''}" data-stab="voice">Voice, Video & Audio</button>
+          <button class="${state.settingsTab==='voice'?'active':''}" data-stab="voice">Audio & Devices</button>
           <button style="margin-top:auto;color:var(--danger)" id="set-logout">Log Out</button>
         </div>
         <div class="settings-content">
@@ -1335,20 +1343,24 @@ button { cursor: pointer; border: none; background: transparent; }
             <div class="sec-label" style="margin-top:18px">FONT SIZE (${state.prefs.fontSize}px)</div>
             <input type="range" min="12" max="20" value="${state.prefs.fontSize}" id="font-slider" style="margin-top:8px;width:220px" />
           ` : `
-            <h2 style="font-size:20px;margin-bottom:16px">Voice, Video & Audio</h2>
-            <div class="sec-label">UI SOUND EFFECTS</div>
+            <h2 style="font-size:20px;margin-bottom:16px">Audio & Devices</h2>
+            <div class="sec-label">MICROPHONE (INPUT)</div>
+            <select class="text-input" id="sel-mic" style="margin-top:6px;max-width:360px">
+              <option value="">System Default</option>
+              ${(state.mics || []).map(d => `<option value="${esc(d.deviceId)}" ${state.prefs.micId===d.deviceId?'selected':''}>${esc(d.label || 'Microphone')}</option>`).join('')}
+            </select>
+            <div class="sec-label" style="margin-top:16px">SPEAKERS / HEADPHONES (OUTPUT)</div>
+            <select class="text-input" id="sel-spk" style="margin-top:6px;max-width:360px">
+              <option value="">System Default</option>
+              ${(state.speakers || []).map(d => `<option value="${esc(d.deviceId)}" ${state.prefs.spkId===d.deviceId?'selected':''}>${esc(d.label || 'Speaker')}</option>`).join('')}
+            </select>
+            <div class="sec-label" style="margin-top:18px">APP SOUND EFFECTS</div>
             <div class="pill-row">
               <button class="opt-btn ${state.prefs.sounds?'active':''}" data-set-sfx="1">Sounds On</button>
               <button class="opt-btn ${!state.prefs.sounds?'active':''}" data-set-sfx="0">Sounds Off</button>
+              <button class="opt-btn" id="btn-test-sfx">Test Sound</button>
             </div>
-            <div class="sec-label" style="margin-top:18px">SCREEN SHARE RESOLUTION (MAX 1080P)</div>
-            <div class="pill-row">
-              ${[480,720,1080].map(r => `<button class="opt-btn ${state.prefs.screenRes===r?'active':''}" data-res="${r}">${r}p</button>`).join('')}
-            </div>
-            <div class="sec-label" style="margin-top:18px">SCREEN SHARE FRAME RATE</div>
-            <div class="pill-row">
-              ${[15,30,60].map(f => `<button class="opt-btn ${state.prefs.screenFps===f?'active':''}" data-fps="${f}">${f} FPS</button>`).join('')}
-            </div>
+            <div style="margin-top:14px;font-size:12px;color:var(--text-muted)">Call & stream settings (Mute, Deafen, 480p/720p/1080p, 15/30/60 FPS) live directly inside the Call panel.</div>
           `}
         </div>
       </div>
@@ -1358,7 +1370,16 @@ button { cursor: pointer; border: none; background: transparent; }
   function bindEvents(activeCh) {
     const q = id => document.getElementById(id);
     if (q('btn-theme')) q('btn-theme').onclick = () => { state.prefs.theme = state.prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); SFX.click(); render(); };
-    if (q('btn-settings')) q('btn-settings').onclick = () => { state.showSettings = true; SFX.click(); render(); };
+    if (q('btn-settings')) q('btn-settings').onclick = () => {
+      state.showSettings = true; SFX.click(); render();
+      if (navigator.mediaDevices?.enumerateDevices) {
+        navigator.mediaDevices.enumerateDevices().then(devs => {
+          state.mics = devs.filter(d => d.kind === 'audioinput');
+          state.speakers = devs.filter(d => d.kind === 'audiooutput');
+          if (state.showSettings) render();
+        }).catch(() => {});
+      }
+    };
     if (q('btn-profile-pop')) q('btn-profile-pop').onclick = (e) => { e.stopPropagation(); state.showProfilePop = !state.showProfilePop; SFX.click(); render(); };
     if (q('nav-people')) q('nav-people').onclick = () => { state.selectedChannel = null; SFX.click(); render(); };
     if (q('nav-chats')) q('nav-chats').onclick = () => { if (!state.selectedChannel && state.channels.length) selectChannel(state.channels[0].id); };
@@ -1494,6 +1515,9 @@ button { cursor: pointer; border: none; background: transparent; }
     document.querySelectorAll('[data-res]').forEach(b => b.onclick = () => { state.prefs.screenRes = Number(b.dataset.res); savePrefs(); SFX.click(); render(); });
     document.querySelectorAll('[data-fps]').forEach(b => b.onclick = () => { state.prefs.screenFps = Number(b.dataset.fps); savePrefs(); SFX.click(); render(); });
     if (q('font-slider')) q('font-slider').oninput = e => { state.prefs.fontSize = Number(e.target.value); savePrefs(); render(); };
+    if (q('sel-mic')) q('sel-mic').onchange = e => { state.prefs.micId = e.target.value; savePrefs(); SFX.click(); };
+    if (q('sel-spk')) q('sel-spk').onchange = e => { state.prefs.spkId = e.target.value; savePrefs(); SFX.click(); };
+    if (q('btn-test-sfx')) q('btn-test-sfx').onclick = () => SFX.callJoin();
   }
 
   document.addEventListener('click', () => {

@@ -191,10 +191,10 @@ impl SkyApp {
             }
         }
 
-        // Live FPS & Resolution pills when sharing
+        // Stream FPS & Resolution pills right inside the Call panel (before & during sharing!)
         let mut new_fps: Option<u32> = None;
         let mut new_res: Option<u32> = None;
-        if self.sharing && stage_rect.width() > 540.0 {
+        if stage_rect.width() > 520.0 {
             rx -= 8.0;
             for &fps_val in &[60u32, 30u32, 15u32] {
                 let w = 42.0;
@@ -220,12 +220,12 @@ impl SkyApp {
                     FontId::new(10.5, theme::semibold_family()),
                     if active { Color32::WHITE } else { light_txt },
                 );
-                if resp.clicked() {
+                if resp.on_hover_text("Stream frame rate").clicked() {
                     new_fps = Some(fps_val);
                 }
             }
             rx -= 5.0;
-            for &res_val in &[1080u32, 720u32] {
+            for &res_val in &[1080u32, 720u32, 480u32] {
                 let w = if res_val == 1080 { 44.0 } else { 38.0 };
                 rx -= w + 3.0;
                 let r = Rect::from_min_size(egui::pos2(rx, top_y), egui::vec2(w, 24.0));
@@ -249,7 +249,7 @@ impl SkyApp {
                     FontId::new(10.5, theme::semibold_family()),
                     if active { Color32::WHITE } else { light_txt },
                 );
-                if resp.clicked() {
+                if resp.on_hover_text("Stream resolution (max 1080p)").clicked() {
                     new_res = Some(res_val);
                 }
             }

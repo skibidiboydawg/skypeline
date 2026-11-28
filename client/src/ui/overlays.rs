@@ -750,7 +750,7 @@ impl SkyApp {
                         ui.add_space(6.0);
                         self.settings_nav_item(ui, SettingsTab::MyAccount, "My Account");
                         self.settings_nav_item(ui, SettingsTab::Appearance, "Appearance");
-                        self.settings_nav_item(ui, SettingsTab::VoiceVideo, "Voice, Video & Audio");
+                        self.settings_nav_item(ui, SettingsTab::VoiceVideo, "Audio & Devices");
                         self.settings_nav_item(ui, SettingsTab::Keybinds, "Shortcuts");
 
                         ui.add_space(16.0);
@@ -1124,165 +1124,193 @@ impl SkyApp {
 
     fn ui_settings_voice(&mut self, ui: &mut egui::Ui) {
         let p = theme::of(ui.ctx());
-        ui.label(theme::semibold("Voice, Video & Audio", 20.0).color(p.text_primary));
-        ui.add_space(16.0);
+        if !self.devices_loaded {
+            self.refresh_audio_devices();
+        }
 
-        egui::Frame::new()
-            .fill(p.surface)
-            .stroke(p.border_stroke())
-            .corner_radius(12.0)
-            .inner_margin(egui::Margin::same(14))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.label(theme::semibold("MICROPHONE & SOUND EFFECTS", 11.0).color(p.text_muted));
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                theme::semibold(
-                                    if self.muted { "Unmute Mic" } else { "Mute Mic" },
-                                    13.0,
-                                )
-                                .color(Color32::WHITE),
-                            )
-                            .fill(if self.muted { p.danger } else { p.accent })
-                            .corner_radius(8.0)
-                            .min_size(egui::vec2(124.0, 34.0)),
+        ui.horizontal(|ui| {
+            ui.label(theme::semibold("Audio & Devices", 20.0).color(p.text_primary));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            theme::semibold("Refresh Devices", 12.0).color(p.text_primary),
                         )
-                        .clicked()
-                    {
-                        self.toggle_mute();
-                    }
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                theme::semibold(
-                                    if self.deafened { "Undeafen" } else { "Deafen" },
-                                    13.0,
-                                )
-                                .color(if self.deafened {
-                                    Color32::WHITE
-                                } else {
-                                    p.text_primary
-                                }),
-                            )
-                            .fill(if self.deafened { p.danger } else { p.floating })
-                            .stroke(if self.deafened {
-                                Stroke::NONE
-                            } else {
-                                p.border_stroke()
-                            })
-                            .corner_radius(8.0)
-                            .min_size(egui::vec2(110.0, 34.0)),
-                        )
-                        .clicked()
-                    {
-                        self.toggle_deafen();
-                    }
-                    let sfx_on = self.config.ui_sounds;
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                theme::semibold(
-                                    if sfx_on { "UI Sounds: On" } else { "UI Sounds: Off" },
-                                    13.0,
-                                )
-                                .color(if sfx_on {
-                                    Color32::WHITE
-                                } else {
-                                    p.text_primary
-                                }),
-                            )
-                            .fill(if sfx_on { p.success } else { p.floating })
-                            .stroke(if sfx_on {
-                                Stroke::NONE
-                            } else {
-                                p.border_stroke()
-                            })
-                            .corner_radius(8.0)
-                            .min_size(egui::vec2(124.0, 34.0)),
-                        )
-                        .clicked()
-                    {
-                        self.config.ui_sounds = !self.config.ui_sounds;
-                        self.config.save();
-                        if self.config.ui_sounds {
-                            self.play_sound(SoundEffect::Reaction);
-                        }
-                    }
-                });
-                ui.add_space(10.0);
-                ui.label(
-                    RichText::new(format!(
-                        "Relay: {}",
-                        if self.connected {
-                            "Connected (Opus 48kHz)"
-                        } else {
-                            "Reconnecting..."
-                        }
-                    ))
-                    .small()
-                    .color(if self.connected { p.success } else { p.warning }),
-                );
+                        .fill(p.surface)
+                        .stroke(p.border_stroke())
+                        .corner_radius(8.0)
+                        .min_size(egui::vec2(112.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    self.refresh_audio_devices();
+                    self.play_sound(SoundEffect::UiClick);
+                }
             });
-
+        });
         ui.add_space(16.0);
-        ui.label(theme::semibold("SCREEN SHARE", 11.5).color(p.text_muted));
-        ui.add_space(8.0);
 
+        // Hardware Input & Output Device Selectors
         egui::Frame::new()
             .fill(p.surface)
             .stroke(p.border_stroke())
             .corner_radius(12.0)
-            .inner_margin(egui::Margin::same(14))
+            .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
 
-                ui.label(theme::semibold("RESOLUTION (MAX 1080P)", 11.0).color(p.text_muted));
+                // Microphone Input Device
+                ui.label(theme::semibold("MICROPHONE (INPUT DEVICE)", 11.0).color(p.text_muted));
                 ui.add_space(6.0);
-                let mut picked_res: Option<u32> = None;
-                ui.horizontal(|ui| {
-                    for (h, label) in [(480u32, "480p"), (720u32, "720p"), (1080u32, "1080p")] {
-                        let active = self.config.screen_max_height == h;
+                let current_in = self
+                    .config
+                    .input_device
+                    .clone()
+                    .unwrap_or_else(|| "System Default".to_string());
+                let mut chosen_in: Option<Option<String>> = None;
+                egui::ComboBox::from_id_salt("settings_input_device")
+                    .selected_text(&current_in)
+                    .width((ui.available_width() - 8.0).max(220.0))
+                    .show_ui(ui, |ui| {
                         if ui
-                            .add(
-                                egui::Button::new(theme::semibold(label, 13.0).color(if active {
-                                    Color32::WHITE
-                                } else {
-                                    p.text_primary
-                                }))
-                                .fill(if active { p.accent } else { p.floating })
-                                .stroke(if active {
-                                    Stroke::NONE
-                                } else {
-                                    p.border_stroke()
-                                })
-                                .corner_radius(8.0)
-                                .min_size(egui::vec2(88.0, 32.0)),
-                            )
+                            .selectable_label(self.config.input_device.is_none(), "System Default")
                             .clicked()
                         {
-                            picked_res = Some(h);
+                            chosen_in = Some(None);
                         }
-                    }
-                });
-                if let Some(h) = picked_res {
-                    self.set_screen_resolution(h);
+                        for dev in &self.input_devices {
+                            let sel = self.config.input_device.as_deref() == Some(dev.as_str());
+                            if ui.selectable_label(sel, dev).clicked() {
+                                chosen_in = Some(Some(dev.clone()));
+                            }
+                        }
+                    });
+                if let Some(dev) = chosen_in {
+                    self.set_input_device(dev);
                     self.play_sound(SoundEffect::UiClick);
                 }
 
                 ui.add_space(14.0);
-                ui.label(theme::semibold("FRAME RATE", 11.0).color(p.text_muted));
+
+                // Speaker / Headphones Output Device
+                ui.label(
+                    theme::semibold("SPEAKERS / HEADPHONES (OUTPUT DEVICE)", 11.0)
+                        .color(p.text_muted),
+                );
                 ui.add_space(6.0);
-                let mut picked_fps: Option<u32> = None;
+                let current_out = self
+                    .config
+                    .output_device
+                    .clone()
+                    .unwrap_or_else(|| "System Default".to_string());
+                let mut chosen_out: Option<Option<String>> = None;
+                egui::ComboBox::from_id_salt("settings_output_device")
+                    .selected_text(&current_out)
+                    .width((ui.available_width() - 8.0).max(220.0))
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(self.config.output_device.is_none(), "System Default")
+                            .clicked()
+                        {
+                            chosen_out = Some(None);
+                        }
+                        for dev in &self.output_devices {
+                            let sel = self.config.output_device.as_deref() == Some(dev.as_str());
+                            if ui.selectable_label(sel, dev).clicked() {
+                                chosen_out = Some(Some(dev.clone()));
+                            }
+                        }
+                    });
+                if let Some(dev) = chosen_out {
+                    self.set_output_device(dev);
+                    self.play_sound(SoundEffect::Reaction);
+                }
+            });
+
+        ui.add_space(14.0);
+
+        // Volumes & Mic Sensitivity
+        egui::Frame::new()
+            .fill(p.surface)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::same(16))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                let mut in_pct = (self.config.input_volume * 100.0).round();
+                ui.label(
+                    theme::semibold(format!("INPUT VOLUME — {}%", in_pct as i32), 11.0)
+                        .color(p.text_muted),
+                );
+                ui.add_space(4.0);
+                if ui
+                    .add(
+                        egui::Slider::new(&mut in_pct, 0.0..=200.0)
+                            .step_by(5.0)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    self.set_input_volume(in_pct / 100.0);
+                }
+
+                ui.add_space(12.0);
+                let mut out_pct = (self.config.output_volume * 100.0).round();
+                ui.label(
+                    theme::semibold(format!("OUTPUT VOLUME — {}%", out_pct as i32), 11.0)
+                        .color(p.text_muted),
+                );
+                ui.add_space(4.0);
+                if ui
+                    .add(
+                        egui::Slider::new(&mut out_pct, 0.0..=200.0)
+                            .step_by(5.0)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    self.set_output_volume(out_pct / 100.0);
+                }
+
+                ui.add_space(12.0);
+                let mut vad_pct = (self.config.vad_threshold * 1000.0).round();
+                ui.label(
+                    theme::semibold(
+                        format!("VOICE DETECTION SENSITIVITY — {}", vad_pct as i32),
+                        11.0,
+                    )
+                    .color(p.text_muted),
+                );
+                ui.add_space(4.0);
+                if ui
+                    .add(egui::Slider::new(&mut vad_pct, 4.0..=60.0).step_by(1.0))
+                    .changed()
+                {
+                    self.set_vad_threshold(vad_pct / 1000.0);
+                }
+                ui.label(
+                    RichText::new("Lower values pick up quieter speech; higher values reduce background noise.")
+                        .small()
+                        .color(p.text_muted),
+                );
+            });
+
+        ui.add_space(14.0);
+
+        // App Sound Effects & Speaker Test
+        egui::Frame::new()
+            .fill(p.surface)
+            .stroke(p.border_stroke())
+            .corner_radius(12.0)
+            .inner_margin(egui::Margin::same(16))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(theme::semibold("APP SOUND EFFECTS", 11.0).color(p.text_muted));
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    for (fps, label) in [
-                        (15u32, "15 FPS"),
-                        (30u32, "30 FPS"),
-                        (60u32, "60 FPS"),
-                    ] {
-                        let active = self.config.screen_fps == fps;
+                    for (enabled, label) in [(true, "Sounds On"), (false, "Sounds Off")] {
+                        let active = self.config.ui_sounds == enabled;
                         if ui
                             .add(
                                 egui::Button::new(theme::semibold(label, 13.0).color(if active {
@@ -1297,23 +1325,37 @@ impl SkyApp {
                                     p.border_stroke()
                                 })
                                 .corner_radius(8.0)
-                                .min_size(egui::vec2(88.0, 32.0)),
+                                .min_size(egui::vec2(108.0, 32.0)),
                             )
                             .clicked()
                         {
-                            picked_fps = Some(fps);
+                            self.config.ui_sounds = enabled;
+                            self.config.save();
+                            if enabled {
+                                self.play_sound(SoundEffect::CallJoin);
+                            }
                         }
                     }
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                theme::semibold("Test Sound", 13.0).color(p.text_primary),
+                            )
+                            .fill(p.floating)
+                            .stroke(p.border_stroke())
+                            .corner_radius(8.0)
+                            .min_size(egui::vec2(104.0, 32.0)),
+                        )
+                        .clicked()
+                    {
+                        let clip = crate::sounds::synthesize(SoundEffect::CallJoin);
+                        self.ensure_audio().play_sfx(&clip);
+                    }
                 });
-                if let Some(fps) = picked_fps {
-                    self.set_screen_fps(fps);
-                    self.play_sound(SoundEffect::UiClick);
-                }
-
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new(
-                        "Join a voice call first, then click Share Screen inside the call dock. Changes apply live.",
+                        "Call controls (Mute, Deafen, Screen Share resolution & FPS) live inside the active Call panel.",
                     )
                     .small()
                     .color(p.text_muted),

@@ -43,6 +43,16 @@ pub struct Config {
     pub auto_update: bool,
     #[serde(default = "default_ui_sounds")]
     pub ui_sounds: bool,
+    #[serde(default)]
+    pub input_device: Option<String>,
+    #[serde(default)]
+    pub output_device: Option<String>,
+    #[serde(default = "default_volume")]
+    pub input_volume: f32,
+    #[serde(default = "default_volume")]
+    pub output_volume: f32,
+    #[serde(default = "default_vad_threshold")]
+    pub vad_threshold: f32,
     #[serde(default = "default_call_stage_height")]
     pub call_stage_height: f32,
     #[serde(default = "default_screen_fps")]
@@ -79,6 +89,14 @@ fn default_ui_sounds() -> bool {
     true
 }
 
+fn default_volume() -> f32 {
+    1.0
+}
+
+fn default_vad_threshold() -> f32 {
+    0.012
+}
+
 fn default_call_stage_height() -> f32 {
     280.0
 }
@@ -103,6 +121,11 @@ impl Default for Config {
             reduced_motion: false,
             auto_update: default_auto_update(),
             ui_sounds: default_ui_sounds(),
+            input_device: None,
+            output_device: None,
+            input_volume: default_volume(),
+            output_volume: default_volume(),
+            vad_threshold: default_vad_threshold(),
             call_stage_height: default_call_stage_height(),
             screen_fps: default_screen_fps(),
             screen_max_height: default_screen_max_height(),

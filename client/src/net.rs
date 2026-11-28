@@ -14,10 +14,84 @@ use skypeline_shared::{WsClientMsg, WsServerMsg};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::thread;
 use std::time::Duration;
 use tokio::sync::mpsc as tmpsc;
 use tokio_tungstenite::tungstenite::Message;
+
+struct RawScreenFrame {
+    from_user_id: i64,
+    from_username: String,
+    width: u32,
+    height: u32,
+    jpeg_b64: String,
+}
+
+#[derive(Default)]
+struct DecodeSlot {
+    latest: Option<RawScreenFrame>,
+    closed: bool,
+}
+
+struct ScreenDecoderWorker {
+    slot: Arc<(Mutex<DecodeSlot>, Condvar)>,
+}
+
+impl ScreenDecoderWorker {
+    fn start(events: mpsc::Sender<UiEvent>) -> Self {
+        let slot = Arc::new((Mutex::new(DecodeSlot::default()), Condvar::new()));
+        let worker_slot = Arc::clone(&slot);
+        thread::spawn(move || loop {
+            let frame = {
+                let (lock, cv) = &*worker_slot;
+                let mut guard = match lock.lock() {
+                    Ok(g) => g,
+                    Err(_) => break,
+                };
+                while guard.latest.is_none() && !guard.closed {
+                    guard = match cv.wait(guard) {
+                        Ok(g) => g,
+                        Err(_) => return,
+                    };
+                }
+                if guard.closed {
+                    break;
+                }
+                guard.latest.take()
+            };
+            if let Some(f) = frame {
+                handle_screen_frame(
+                    f.from_user_id,
+                    f.from_username,
+                    f.width,
+                    f.height,
+                    &f.jpeg_b64,
+                    &events,
+                );
+            }
+        });
+        Self { slot }
+    }
+
+    fn push(&self, frame: RawScreenFrame) {
+        let (lock, cv) = &*self.slot;
+        if let Ok(mut guard) = lock.lock() {
+            guard.latest = Some(frame);
+            cv.notify_one();
+        }
+    }
+}
+
+impl Drop for ScreenDecoderWorker {
+    fn drop(&mut self) {
+        let (lock, cv) = &*self.slot;
+        if let Ok(mut guard) = lock.lock() {
+            guard.closed = true;
+            cv.notify_all();
+        }
+    }
+}
 
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 15_000;
@@ -66,6 +140,7 @@ pub async fn run(
     let url = http_to_ws(&base, &token);
     let mut attempt: u32 = 0;
     let mut screen_open = true;
+    let screen_decoder = ScreenDecoderWorker::start(events.clone());
 
     while !outgoing.is_closed() {
         let status = if attempt == 0 {
@@ -107,10 +182,14 @@ pub async fn run(
                             }
                         }
                         screen_msg = screen_frames.recv(), if screen_open => {
-                            let Some(msg) = screen_msg else {
+                            let Some(mut msg) = screen_msg else {
                                 screen_open = false;
                                 continue;
                             };
+                            // Drain to the freshest queued frame so latency never builds up.
+                            while let Ok(newer) = screen_frames.try_recv() {
+                                msg = newer;
+                            }
                             let Ok(json) = serde_json::to_string(&msg) else { continue };
                             if socket.send(Message::Text(json.into())).await.is_err() {
                                 break;
@@ -130,7 +209,7 @@ pub async fn run(
                             let Ok(server_msg) = serde_json::from_str::<WsServerMsg>(&msg) else {
                                 continue;
                             };
-                            handle_server_msg(server_msg, &events, &mut decoders);
+                            handle_server_msg(server_msg, &events, &mut decoders, &screen_decoder);
                         }
                     }
                 }
@@ -157,6 +236,7 @@ fn handle_server_msg(
     msg: WsServerMsg,
     events: &mpsc::Sender<UiEvent>,
     decoders: &mut HashMap<i64, opus1::OpusDecoder>,
+    screen_decoder: &ScreenDecoderWorker,
 ) {
     match msg {
         WsServerMsg::NewMessage { message } => {
@@ -237,14 +317,13 @@ fn handle_server_msg(
             jpeg_b64,
             ..
         } => {
-            handle_screen_frame(
+            screen_decoder.push(RawScreenFrame {
                 from_user_id,
                 from_username,
                 width,
                 height,
-                &jpeg_b64,
-                events,
-            );
+                jpeg_b64,
+            });
         }
         WsServerMsg::ScreenShareStopped { from_user_id, .. } => {
             let _ = events.send(UiEvent::ScreenStopped { from: from_user_id });

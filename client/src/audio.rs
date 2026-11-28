@@ -16,7 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use skypeline_shared::WsClientMsg;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc as smpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -37,12 +37,45 @@ const CAPTURE_BUFFER_CAP: usize = OPUS_FRAME * 4;
 /// Commands sent from the UI thread to the thread that owns the cpal streams.
 enum AudioCommand {
     StartCapture {
+        device_name: Option<String>,
         pcm_tx: tmpsc::Sender<Vec<f32>>,
         stop: Arc<AtomicBool>,
         reply: smpsc::SyncSender<Result<(), String>>,
     },
+    SetOutputDevice(Option<String>),
     StopCapture,
     Shutdown,
+}
+
+fn device_display_name(dev: &cpal::Device) -> Option<String> {
+    let name = dev.description().ok()?.name().trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// Enumerates available hardware microphone inputs and speaker outputs.
+pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
+    let host = cpal::default_host();
+    let mut inputs = Vec::new();
+    if let Ok(devs) = host.input_devices() {
+        for dev in devs {
+            if let Some(name) = device_display_name(&dev) {
+                if !inputs.contains(&name) {
+                    inputs.push(name);
+                }
+            }
+        }
+    }
+    let mut outputs = Vec::new();
+    if let Ok(devs) = host.output_devices() {
+        for dev in devs {
+            if let Some(name) = device_display_name(&dev) {
+                if !outputs.contains(&name) {
+                    outputs.push(name);
+                }
+            }
+        }
+    }
+    (inputs, outputs)
 }
 
 #[derive(Default)]
@@ -113,6 +146,9 @@ pub struct AudioEngine {
     playback: Arc<Mutex<PlaybackState>>,
     muted: Arc<AtomicBool>,
     deafened: Arc<AtomicBool>,
+    input_gain: Arc<AtomicU32>,
+    output_gain: Arc<AtomicU32>,
+    vad_threshold: Arc<AtomicU32>,
     capture_stop: Arc<AtomicBool>,
     capture_notify: Option<Arc<Notify>>,
     capture_ws: Option<tmpsc::UnboundedSender<WsClientMsg>>,
@@ -122,17 +158,28 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     /// Start the playback stream. Microphone capture starts only on Join Voice.
-    pub fn start() -> Self {
+    pub fn start(
+        output_device: Option<String>,
+        input_volume: f32,
+        output_volume: f32,
+        vad_threshold: f32,
+    ) -> Self {
         let (control_tx, control_rx) = smpsc::sync_channel(CONTROL_CAP);
         let playback = Arc::new(Mutex::new(PlaybackState {
             out_rate: OPUS_RATE,
             ..PlaybackState::default()
         }));
+        let input_gain = Arc::new(AtomicU32::new(input_volume.clamp(0.0, 2.0).to_bits()));
+        let output_gain = Arc::new(AtomicU32::new(output_volume.clamp(0.0, 2.0).to_bits()));
+        let vad = Arc::new(AtomicU32::new(vad_threshold.clamp(0.002, 0.1).to_bits()));
 
         let thread_playback = Arc::clone(&playback);
+        let thread_out_gain = Arc::clone(&output_gain);
         let audio_thread = std::thread::Builder::new()
             .name("skypeline-audio".to_string())
-            .spawn(move || audio_thread_main(control_rx, thread_playback))
+            .spawn(move || {
+                audio_thread_main(control_rx, thread_playback, output_device, thread_out_gain)
+            })
             .map_err(|e| tracing::warn!("cannot start audio thread: {e}"))
             .ok();
 
@@ -142,12 +189,34 @@ impl AudioEngine {
             playback,
             muted: Arc::new(AtomicBool::new(false)),
             deafened: Arc::new(AtomicBool::new(false)),
+            input_gain,
+            output_gain,
+            vad_threshold: vad,
             capture_stop: Arc::new(AtomicBool::new(true)),
             capture_notify: None,
             capture_ws: None,
             capture_rt: None,
             capture_task: None,
         }
+    }
+
+    pub fn set_input_volume(&self, gain: f32) {
+        self.input_gain
+            .store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn set_output_volume(&self, gain: f32) {
+        self.output_gain
+            .store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn set_vad_threshold(&self, threshold: f32) {
+        self.vad_threshold
+            .store(threshold.clamp(0.002, 0.1).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn set_output_device(&self, device_name: Option<String>) {
+        let _ = send_control(&self.control_tx, AudioCommand::SetOutputDevice(device_name));
     }
 
     /// Enqueue decoded 48 kHz mono PCM from a remote participant.
@@ -180,6 +249,7 @@ impl AudioEngine {
         &mut self,
         room: String,
         ws: tmpsc::UnboundedSender<WsClientMsg>,
+        input_device: Option<String>,
     ) -> Result<(), String> {
         // Never leave two input streams (or two encoders) running at once.
         self.stop_capture();
@@ -192,6 +262,7 @@ impl AudioEngine {
         send_control(
             &self.control_tx,
             AudioCommand::StartCapture {
+                device_name: input_device,
                 pcm_tx,
                 stop: Arc::clone(&stop),
                 reply: reply_tx,
@@ -222,6 +293,8 @@ impl AudioEngine {
         let task_notify = Arc::clone(&notify);
         let muted = Arc::clone(&self.muted);
         let deafened = Arc::clone(&self.deafened);
+        let input_gain = Arc::clone(&self.input_gain);
+        let vad_threshold = Arc::clone(&self.vad_threshold);
         let task_ws = ws.clone();
 
         let capture_task = rt.spawn(async move {
@@ -276,8 +349,17 @@ impl AudioEngine {
                     continue;
                 }
 
+                let gain = f32::from_bits(input_gain.load(Ordering::Relaxed)).clamp(0.0, 2.0);
+                let mut frame = frame;
+                if (gain - 1.0).abs() > 0.005 {
+                    for s in &mut frame {
+                        *s = (*s * gain).clamp(-1.0, 1.0);
+                    }
+                }
+
                 let silent = muted.load(Ordering::Relaxed) || deafened.load(Ordering::Relaxed);
-                let active = !silent && crate::native::audio_peak(&frame) > 0.012;
+                let thresh = f32::from_bits(vad_threshold.load(Ordering::Relaxed));
+                let active = !silent && crate::native::audio_peak(&frame) > thresh;
                 if active != speaking {
                     speaking = active;
                     let _ = task_ws.send(WsClientMsg::SetVoiceState {
@@ -388,32 +470,41 @@ impl Drop for AudioEngine {
 fn audio_thread_main(
     control_rx: smpsc::Receiver<AudioCommand>,
     playback: Arc<Mutex<PlaybackState>>,
+    initial_output: Option<String>,
+    output_gain: Arc<AtomicU32>,
 ) {
     let host = cpal::default_host();
 
-    // No output device is not fatal: voice capture still works.
-    if let Some((device, config)) = select_output(&host) {
-        match build_output(&device, &config, &playback) {
+    let mut _output_stream: Option<cpal::Stream> = None;
+    let start_output = |preferred: Option<&str>| -> Option<cpal::Stream> {
+        let (device, config) = select_output(&host, preferred)?;
+        match build_output(&device, &config, &playback, &output_gain) {
             Ok(stream) => match stream.play() {
-                Ok(()) => {}
-                Err(e) => tracing::warn!("cannot start playback stream: {e}"),
+                Ok(()) => Some(stream),
+                Err(e) => {
+                    tracing::warn!("cannot start playback stream: {e}");
+                    None
+                }
             },
-            Err(e) => tracing::warn!("playback disabled: {e}"),
+            Err(e) => {
+                tracing::warn!("playback disabled: {e}");
+                None
+            }
         }
-    } else {
-        tracing::warn!("playback disabled: no output device available");
-    }
+    };
+    _output_stream = start_output(initial_output.as_deref());
 
     let mut input: Option<cpal::Stream> = None;
     while let Ok(command) = control_rx.recv() {
         match command {
             AudioCommand::StartCapture {
+                device_name,
                 pcm_tx,
                 stop,
                 reply,
             } => {
                 input.take();
-                let result = select_input(&host).and_then(|(device, config)| {
+                let result = select_input(&host, device_name.as_deref()).and_then(|(device, config)| {
                     let buffer = Arc::new(Mutex::new(Vec::<f32>::new()));
                     build_input(&device, &config, pcm_tx, stop, buffer)
                 });
@@ -436,6 +527,10 @@ fn audio_thread_main(
                     .map_err(|e| e);
                 let _ = reply.send(ok);
             }
+            AudioCommand::SetOutputDevice(name) => {
+                _output_stream = None;
+                _output_stream = start_output(name.as_deref());
+            }
             AudioCommand::StopCapture => {
                 input.take();
             }
@@ -446,7 +541,21 @@ fn audio_thread_main(
     // Output stream is dropped here as well, on its owning thread.
 }
 
-fn select_input(host: &cpal::Host) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
+fn select_input(
+    host: &cpal::Host,
+    preferred: Option<&str>,
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
+    if let Some(target) = preferred.filter(|s| !s.trim().is_empty()) {
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if device_display_name(&device).as_deref() == Some(target) {
+                    if let Ok(config) = device.default_input_config() {
+                        return Ok((device, config));
+                    }
+                }
+            }
+        }
+    }
     if let Some(device) = host.default_input_device() {
         if let Ok(config) = device.default_input_config() {
             return Ok((device, config));
@@ -464,7 +573,21 @@ fn select_input(host: &cpal::Host) -> Result<(cpal::Device, cpal::SupportedStrea
     Err("no microphone detected (no usable input device)".to_string())
 }
 
-fn select_output(host: &cpal::Host) -> Option<(cpal::Device, cpal::SupportedStreamConfig)> {
+fn select_output(
+    host: &cpal::Host,
+    preferred: Option<&str>,
+) -> Option<(cpal::Device, cpal::SupportedStreamConfig)> {
+    if let Some(target) = preferred.filter(|s| !s.trim().is_empty()) {
+        if let Ok(devices) = host.output_devices() {
+            for device in devices {
+                if device_display_name(&device).as_deref() == Some(target) {
+                    if let Ok(config) = device.default_output_config() {
+                        return Some((device, config));
+                    }
+                }
+            }
+        }
+    }
     if let Some(device) = host.default_output_device() {
         if let Ok(config) = device.default_output_config() {
             return Some((device, config));
@@ -547,6 +670,7 @@ fn build_output(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
     playback: &Arc<Mutex<PlaybackState>>,
+    output_gain: &Arc<AtomicU32>,
 ) -> Result<cpal::Stream, String> {
     let channels = config.channels().max(1) as usize;
     let rate = config.sample_rate().max(1);
@@ -559,12 +683,13 @@ fn build_output(
     let stream_config = config.config();
     // The callbacks outlive this function, so they need owned Arcs.
     let stream_playback = Arc::clone(playback);
+    let stream_gain = Arc::clone(output_gain);
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_output_stream(
             stream_config,
             move |data: &mut [f32], _| {
-                render_output(data, channels, &stream_playback);
+                render_output(data, channels, &stream_playback, &stream_gain);
             },
             audio_error,
             None,
@@ -572,7 +697,7 @@ fn build_output(
         cpal::SampleFormat::I16 => device.build_output_stream(
             stream_config,
             move |data: &mut [i16], _| {
-                render_output(data, channels, &stream_playback);
+                render_output(data, channels, &stream_playback, &stream_gain);
             },
             audio_error,
             None,
@@ -580,7 +705,7 @@ fn build_output(
         cpal::SampleFormat::U16 => device.build_output_stream(
             stream_config,
             move |data: &mut [u16], _| {
-                render_output(data, channels, &stream_playback);
+                render_output(data, channels, &stream_playback, &stream_gain);
             },
             audio_error,
             None,
@@ -592,12 +717,17 @@ fn build_output(
 
 /// Fill an output buffer, resampling 48 kHz mono to the device rate and
 /// duplicating the mono sample into every requested channel.
-fn render_output<T>(data: &mut [T], channels: usize, playback: &Arc<Mutex<PlaybackState>>)
+fn render_output<T>(
+    data: &mut [T],
+    channels: usize,
+    playback: &Arc<Mutex<PlaybackState>>,
+    output_gain: &Arc<AtomicU32>,
+)
 where
     T: OutputSample,
 {
     let frames = data.len() / channels.max(1);
-    let gain = 1.0f32;
+    let gain = f32::from_bits(output_gain.load(Ordering::Relaxed)).clamp(0.0, 2.0);
 
     OUTPUT_SCRATCH.with(|cell| {
         let mut scratch = cell.borrow_mut();

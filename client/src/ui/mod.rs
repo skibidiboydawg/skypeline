@@ -169,6 +169,9 @@ pub struct SkyApp {
     pub(crate) deafened: bool,
     pub(crate) sharing: bool,
     pub(crate) audio: Option<AudioEngine>,
+    pub(crate) input_devices: Vec<String>,
+    pub(crate) output_devices: Vec<String>,
+    pub(crate) devices_loaded: bool,
     pub(crate) screen_share: Option<ScreenShare>,
     pub(crate) screen_fps: Arc<AtomicU32>,
     pub(crate) screen_max_height: Arc<AtomicU32>,
@@ -282,6 +285,9 @@ impl SkyApp {
             deafened: false,
             sharing: false,
             audio: None,
+            input_devices: Vec::new(),
+            output_devices: Vec::new(),
+            devices_loaded: false,
             screen_share: None,
             screen_fps: Arc::new(AtomicU32::new(init_fps)),
             screen_max_height: Arc::new(AtomicU32::new(init_max_h)),
@@ -319,13 +325,73 @@ impl SkyApp {
         });
     }
 
+    pub(crate) fn ensure_audio(&mut self) -> &mut AudioEngine {
+        let out_dev = self.config.output_device.clone();
+        let in_vol = self.config.input_volume;
+        let out_vol = self.config.output_volume;
+        let vad = self.config.vad_threshold;
+        self.audio
+            .get_or_insert_with(|| AudioEngine::start(out_dev, in_vol, out_vol, vad))
+    }
+
+    pub(crate) fn refresh_audio_devices(&mut self) {
+        let (ins, outs) = crate::audio::list_audio_devices();
+        self.input_devices = ins;
+        self.output_devices = outs;
+        self.devices_loaded = true;
+    }
+
+    pub(crate) fn set_input_device(&mut self, device: Option<String>) {
+        self.config.input_device = device.clone();
+        self.config.save();
+        if self.in_voice {
+            if let (Some(room), Some(ws)) = (self.voice_room.clone(), self.ws_tx.clone()) {
+                let _ = self.ensure_audio().start_capture(room, ws, device);
+            }
+        }
+    }
+
+    pub(crate) fn set_output_device(&mut self, device: Option<String>) {
+        self.config.output_device = device.clone();
+        self.config.save();
+        if let Some(audio) = &self.audio {
+            audio.set_output_device(device);
+        }
+    }
+
+    pub(crate) fn set_input_volume(&mut self, vol: f32) {
+        let v = vol.clamp(0.0, 2.0);
+        self.config.input_volume = v;
+        if let Some(audio) = &self.audio {
+            audio.set_input_volume(v);
+        }
+        self.config.save();
+    }
+
+    pub(crate) fn set_output_volume(&mut self, vol: f32) {
+        let v = vol.clamp(0.0, 2.0);
+        self.config.output_volume = v;
+        if let Some(audio) = &self.audio {
+            audio.set_output_volume(v);
+        }
+        self.config.save();
+    }
+
+    pub(crate) fn set_vad_threshold(&mut self, threshold: f32) {
+        let t = threshold.clamp(0.004, 0.060);
+        self.config.vad_threshold = t;
+        if let Some(audio) = &self.audio {
+            audio.set_vad_threshold(t);
+        }
+        self.config.save();
+    }
+
     pub(crate) fn play_sound(&mut self, effect: SoundEffect) {
         if !self.config.ui_sounds || self.deafened {
             return;
         }
-        let audio = self.audio.get_or_insert_with(AudioEngine::start);
         let clip = sounds::synthesize(effect);
-        audio.play_sfx(&clip);
+        self.ensure_audio().play_sfx(&clip);
     }
 
     #[cfg(target_os = "windows")]
@@ -449,7 +515,7 @@ impl SkyApp {
             task.abort();
         }
         let (tx, rx) = tmpsc::unbounded_channel();
-        let (screen_tx, screen_rx) = tmpsc::channel::<WsClientMsg>(4);
+        let (screen_tx, screen_rx) = tmpsc::channel::<WsClientMsg>(2);
         self.ws_tx = Some(tx);
         self.screen_frame_tx = Some(screen_tx.clone());
         let base = self.config.base_url();
@@ -789,10 +855,16 @@ impl SkyApp {
             return;
         };
         let _ = ws.send(WsClientMsg::JoinVoice { room: room.clone() });
-        let audio = self.audio.get_or_insert_with(AudioEngine::start);
-        audio.set_muted(self.muted);
-        audio.set_deafened(self.deafened);
-        match audio.start_capture(room.clone(), ws.clone()) {
+        let muted = self.muted;
+        let deafened = self.deafened;
+        let input_dev = self.config.input_device.clone();
+        let cap_res = {
+            let audio = self.ensure_audio();
+            audio.set_muted(muted);
+            audio.set_deafened(deafened);
+            audio.start_capture(room.clone(), ws.clone(), input_dev)
+        };
+        match cap_res {
             Ok(()) => {
                 self.in_voice = true;
                 self.call_expanded = true;
@@ -859,13 +931,12 @@ impl SkyApp {
         }
         self.send_voice_state();
         if self.config.ui_sounds {
-            let audio = self.audio.get_or_insert_with(AudioEngine::start);
             let clip = sounds::synthesize(if self.deafened {
                 SoundEffect::Deafen
             } else {
                 SoundEffect::Undeafen
             });
-            audio.play_sfx(&clip);
+            self.ensure_audio().play_sfx(&clip);
         }
     }
 
@@ -1290,8 +1361,7 @@ impl SkyApp {
                     }
                 }
                 UiEvent::VoicePcm { pcm, .. } => {
-                    let audio = self.audio.get_or_insert_with(AudioEngine::start);
-                    audio.push_pcm(&pcm);
+                    self.ensure_audio().push_pcm(&pcm);
                 }
                 UiEvent::ScreenFrame {
                     from,
