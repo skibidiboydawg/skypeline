@@ -604,7 +604,38 @@ impl SkyApp {
             );
         }
 
-        if unread > 0 {
+        let active_callers = self
+            .active_room_calls
+            .get(&ch.id)
+            .map(|v| v.len())
+            .unwrap_or(0);
+        if active_callers > 0 {
+            let pill = Rect::from_min_size(
+                egui::pos2(rect.right() - 62.0, rect.bottom() - 25.0),
+                egui::vec2(52.0, 18.0),
+            );
+            ui.painter()
+                .rect_filled(pill, 9.0, p.success.gamma_multiply(0.2));
+            ui.painter().rect_stroke(
+                pill,
+                9.0,
+                Stroke::new(1.0_f32, p.success.gamma_multiply(0.65)),
+                egui::StrokeKind::Inside,
+            );
+            icons::paint_phone(
+                ui.painter(),
+                pill.left_center() + egui::vec2(10.0, 0.0),
+                10.5,
+                p.success,
+            );
+            ui.painter().text(
+                pill.left_center() + egui::vec2(18.0, 0.0),
+                Align2::LEFT_CENTER,
+                "Call",
+                FontId::new(10.5, theme::semibold_family()),
+                p.success,
+            );
+        } else if unread > 0 {
             let badge_c = egui::pos2(rect.right() - 18.0, rect.bottom() - 16.0);
             let pill = Rect::from_center_size(badge_c, egui::vec2(19.0, 17.0));
             ui.painter()

@@ -47,6 +47,8 @@ pub struct RelayHub {
     pub voice_rooms: DashMap<String, DashMap<i64, VoiceParticipant>>,
     /// user_id -> voice room they are currently in
     pub user_rooms: DashMap<i64, String>,
+    /// room name -> authorized channel member IDs so peers see when someone is alone in a call
+    pub room_watchers: DashMap<String, Vec<i64>>,
     /// room name -> metadata for posting DM call started / ended / missed notifications
     pub call_meta: DashMap<String, CallMeta>,
     /// user_id -> accepted friend ids whose presence may be shown to them
@@ -63,6 +65,7 @@ impl RelayHub {
             online_users: DashMap::new(),
             voice_rooms: rooms,
             user_rooms: DashMap::new(),
+            room_watchers: DashMap::new(),
             call_meta: DashMap::new(),
             friend_cache: DashMap::new(),
         }
@@ -144,11 +147,13 @@ impl RelayHub {
     }
 
     pub fn broadcast_voice_room(&self, room: &str) {
-        self.send(
-            Scope::Room(room.to_string()),
-            None,
-            &self.voice_room_msg(room),
-        );
+        let watchers = self.room_watchers.get(room).map(|w| w.clone());
+        let msg = self.voice_room_msg(room);
+        if let Some(ids) = watchers.filter(|v| !v.is_empty()) {
+            self.send(Scope::Users(ids), None, &msg);
+        } else {
+            self.send(Scope::Room(room.to_string()), None, &msg);
+        }
     }
 
     /// Removes `user_id` from their active voice room. If the room becomes empty,
@@ -175,6 +180,7 @@ impl RelayHub {
         }
         self.broadcast_voice_room(&room);
         if remaining == 0 {
+            self.room_watchers.remove(&room);
             self.call_meta.remove(&room).map(|(_, meta)| meta)
         } else {
             None
@@ -250,10 +256,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
     }
 
     let mut initial = vec![hub.presence_msg(user_id)];
-    // Only rooms this user actually occupies; a fresh socket normally has none.
+    // Send active call states for any of this user's DMs/groups so they see friends already in a call.
+    let mut sent_rooms: Vec<String> = Vec::new();
     if let Some(room) = hub.user_rooms.get(&user_id).map(|entry| entry.clone()) {
         if hub.voice_rooms.contains_key(room.as_str()) {
             initial.push(hub.voice_room_msg(&room));
+            sent_rooms.push(room);
+        }
+    }
+    if let Ok(channels) = db::list_channels_for_user(&state.db, user_id).await {
+        for ch in channels {
+            let room = format!("channel:{}", ch.id);
+            if sent_rooms.contains(&room) {
+                continue;
+            }
+            let active = hub
+                .voice_rooms
+                .get(&room)
+                .is_some_and(|m| !m.is_empty());
+            if active {
+                initial.push(hub.voice_room_msg(&room));
+                sent_rooms.push(room);
+            }
         }
     }
     for msg in initial {
@@ -418,6 +442,7 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                         .and_then(|value| value.parse::<i64>().ok())
                 });
             let mut notify_peer: Option<i64> = None;
+            let mut watcher_ids: Vec<i64> = vec![user_id];
             let room = if let Some(channel_id) = channel_id {
                 let channel = match db::get_channel(&state.db, channel_id).await {
                     Ok(Some(channel)) => channel,
@@ -434,12 +459,17 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                         match db::are_friends(&state.db, a, b).await {
                             Ok(true) => {
                                 notify_peer = Some(if a == user_id { b } else { a });
+                                watcher_ids = vec![a, b];
                             }
                             _ => return,
                         }
                     }
                     "group" => match db::is_channel_member(&state.db, channel_id, user_id).await {
-                        Ok(true) => {}
+                        Ok(true) => {
+                            if let Ok(mids) = db::channel_member_ids(&state.db, channel_id).await {
+                                watcher_ids = mids;
+                            }
+                        }
                         _ => return,
                     },
                     _ => return,
@@ -454,6 +484,7 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             if let Some(ended) = hub.leave_voice(user_id) {
                 post_call_ended_log(state, ended).await;
             }
+            hub.room_watchers.insert(room.clone(), watcher_ids);
             let (was_empty, new_count) = if let Some(members) = hub.voice_rooms.get(&room) {
                 let empty = members.is_empty();
                 members.insert(

@@ -123,10 +123,10 @@ impl SkyApp {
             self.play_sound(SoundEffect::UiClick);
         }
 
-        // Fullscreen button when screen stream active
+        // Fullscreen + Hide/Show Stream toggle buttons when screen stream active
         if has_screen {
-            rx -= 76.0 + 6.0;
-            let fs_r = Rect::from_min_size(egui::pos2(rx, top_y), egui::vec2(76.0, 24.0));
+            rx -= 70.0 + 6.0;
+            let fs_r = Rect::from_min_size(egui::pos2(rx, top_y), egui::vec2(70.0, 24.0));
             let fs_resp = ui.interact(fs_r, ui.id().with("fs_btn"), Sense::click());
             painter.rect_filled(
                 fs_r,
@@ -139,12 +139,12 @@ impl SkyApp {
             );
             icons::paint_fullscreen(
                 &painter,
-                fs_r.left_center() + egui::vec2(13.0, 0.0),
+                fs_r.left_center() + egui::vec2(12.0, 0.0),
                 12.5,
                 Color32::WHITE,
             );
             painter.text(
-                fs_r.left_center() + egui::vec2(24.0, 0.0),
+                fs_r.left_center() + egui::vec2(23.0, 0.0),
                 Align2::LEFT_CENTER,
                 "Full",
                 FontId::new(11.5, theme::semibold_family()),
@@ -152,6 +152,45 @@ impl SkyApp {
             );
             if fs_resp.clicked() {
                 self.screen_fullscreen = true;
+                self.play_sound(SoundEffect::UiClick);
+            }
+
+            // Hide Stream / Show Stream pill so you can minimize stream & see all call users!
+            let toggle_w = if self.stream_minimized { 92.0 } else { 88.0 };
+            rx -= toggle_w + 5.0;
+            let min_r = Rect::from_min_size(egui::pos2(rx, top_y), egui::vec2(toggle_w, 24.0));
+            let min_resp = ui.interact(min_r, ui.id().with("stream_min_btn"), Sense::click());
+            painter.rect_filled(
+                min_r,
+                6.0,
+                if self.stream_minimized {
+                    p.accent
+                } else if min_resp.hovered() {
+                    dark_btn_hov
+                } else {
+                    dark_btn
+                },
+            );
+            painter.text(
+                min_r.center(),
+                Align2::CENTER_CENTER,
+                if self.stream_minimized {
+                    "Show Stream"
+                } else {
+                    "Hide Stream"
+                },
+                FontId::new(11.0, theme::semibold_family()),
+                Color32::WHITE,
+            );
+            if min_resp
+                .on_hover_text(if self.stream_minimized {
+                    "Expand stream preview"
+                } else {
+                    "Minimize stream preview and show call users"
+                })
+                .clicked()
+            {
+                self.stream_minimized = !self.stream_minimized;
                 self.play_sound(SoundEffect::UiClick);
             }
         }
@@ -263,12 +302,39 @@ impl SkyApp {
             self.play_sound(SoundEffect::UiClick);
         }
 
-        // Main stage content: Screen Share viewport OR Participant cards (scales with height!)
-        if let Some(texture) = self.screen_texture.clone() {
+        // Build participant list once (used in both full cards AND compact strip while streaming!)
+        let mut shown: Vec<(String, Option<String>, i64, bool, bool)> = Vec::new();
+        if let Some(me) = &self.me {
+            let speaking = self
+                .participants
+                .iter()
+                .any(|pt| pt.user_id == me.user_id && pt.speaking);
+            shown.push((
+                me.username.clone(),
+                me.avatar_hash.clone(),
+                me.user_id,
+                speaking,
+                self.muted,
+            ));
+        }
+        for pt in &self.participants {
+            if self.me.as_ref().is_some_and(|m| m.user_id == pt.user_id) {
+                continue;
+            }
+            let hash = self
+                .friends
+                .iter()
+                .find(|f| f.user_id == pt.user_id)
+                .and_then(|f| f.avatar_hash.clone());
+            shown.push((pt.username.clone(), hash, pt.user_id, pt.speaking, pt.muted));
+        }
+
+        // Main stage content: Expanded Stream (+ compact caller chips) OR Participant Cards (+ clickable Mini PiP stream!)
+        if let (Some(texture), false) = (self.screen_texture.clone(), self.stream_minimized) {
             let (sw, sh) = self.screen_size;
             if sw > 0 && sh > 0 {
                 let pad_top = 56.0;
-                let pad_bottom = 68.0;
+                let pad_bottom = 96.0; // Room for compact participant strip + circular controls
                 let avail_w = (stage_rect.width() - 32.0).max(80.0);
                 let avail_h = (stage_rect.height() - pad_top - pad_bottom).max(60.0);
                 let aspect = sw as f32 / sh as f32;
@@ -288,46 +354,83 @@ impl SkyApp {
                     Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     Color32::WHITE,
                 );
+
+                // Compact call-users chip strip right below the stream so you always see who's in the call!
+                let strip_y = stage_rect.bottom() - 72.0;
+                let chip_h = 24.0;
+                let chip_w = 104.0;
+                let chip_gap = 8.0;
+                let n = shown.len().max(1);
+                let total_cw = n as f32 * chip_w + (n.saturating_sub(1) as f32) * chip_gap;
+                let mut cx = stage_rect.center().x - total_cw * 0.5;
+                for (name, _hash, user_id, speaking, is_muted) in &shown {
+                    let chip_r = Rect::from_min_size(egui::pos2(cx, strip_y - chip_h * 0.5), egui::vec2(chip_w, chip_h));
+                    painter.rect_filled(chip_r, 12.0, p.call_tile);
+                    if *speaking {
+                        painter.rect_stroke(
+                            chip_r,
+                            12.0,
+                            Stroke::new(1.5_f32, p.success),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    let dot_c = chip_r.left_center() + egui::vec2(12.0, 0.0);
+                    painter.circle_filled(
+                        dot_c,
+                        7.0,
+                        avatar_color(
+                            name,
+                            self.me.as_ref().is_some_and(|m| m.user_id == *user_id),
+                        ),
+                    );
+                    let init = name.chars().next().unwrap_or('?').to_ascii_uppercase().to_string();
+                    painter.text(
+                        dot_c,
+                        Align2::CENTER_CENTER,
+                        init,
+                        FontId::new(9.0, theme::semibold_family()),
+                        Color32::WHITE,
+                    );
+                    let short: String = if name.chars().count() > 9 {
+                        format!("{}..", name.chars().take(8).collect::<String>())
+                    } else {
+                        name.clone()
+                    };
+                    painter.text(
+                        chip_r.left_center() + egui::vec2(24.0, 0.0),
+                        Align2::LEFT_CENTER,
+                        short,
+                        FontId::new(11.0, theme::semibold_family()),
+                        Color32::from_rgb(0xE8, 0xEC, 0xF5),
+                    );
+                    if *is_muted {
+                        icons::paint_mic(
+                            &painter,
+                            chip_r.right_center() - egui::vec2(12.0, 0.0),
+                            11.0,
+                            p.danger,
+                            true,
+                        );
+                    }
+                    cx += chip_w + chip_gap;
+                }
             }
         } else {
-            let pad_top = 46.0;
+            let pad_top = 48.0;
             let pad_bottom = 68.0;
             let mid_y = stage_rect.top() + pad_top + (stage_rect.height() - pad_top - pad_bottom) * 0.5;
             let scale_f = ((stage_rect.height() - 114.0) / 140.0).clamp(0.75, 1.55);
 
-            let mut shown: Vec<(String, Option<String>, i64, bool, bool)> = Vec::new();
-            if let Some(me) = &self.me {
-                let speaking = self
-                    .participants
-                    .iter()
-                    .any(|pt| pt.user_id == me.user_id && pt.speaking);
-                shown.push((
-                    me.username.clone(),
-                    me.avatar_hash.clone(),
-                    me.user_id,
-                    speaking,
-                    self.muted,
-                ));
-            }
-            for pt in &self.participants {
-                if self.me.as_ref().is_some_and(|m| m.user_id == pt.user_id) {
-                    continue;
-                }
-                let hash = self
-                    .friends
-                    .iter()
-                    .find(|f| f.user_id == pt.user_id)
-                    .and_then(|f| f.avatar_hash.clone());
-                shown.push((pt.username.clone(), hash, pt.user_id, pt.speaking, pt.muted));
-            }
             let n = shown.len().max(1);
-            let tile_w = (168.0 * scale_f).min((stage_rect.width() - 48.0) / n as f32 - 12.0);
+            let pip_reserve = if self.stream_minimized && has_screen { 150.0 } else { 0.0 };
+            let tile_w = (168.0 * scale_f).min((stage_rect.width() - 48.0 - pip_reserve) / n as f32 - 12.0);
             let tile_h = (104.0 * scale_f).min((stage_rect.height() - pad_top - pad_bottom).max(70.0));
             let gap = 14.0;
             let av_d = (54.0 * scale_f).clamp(38.0, 82.0);
 
             for (idx, (name, hash, user_id, speaking, is_muted)) in shown.into_iter().enumerate() {
-                let x = stage_rect.center().x + (idx as f32 - (n as f32 - 1.0) / 2.0) * (tile_w + gap);
+                let x = stage_rect.center().x - pip_reserve * 0.35
+                    + (idx as f32 - (n as f32 - 1.0) / 2.0) * (tile_w + gap);
                 let tile = Rect::from_center_size(egui::pos2(x, mid_y), egui::vec2(tile_w, tile_h));
                 painter.rect_filled(tile, 12.0, p.call_tile);
                 if speaking {
@@ -351,6 +454,7 @@ impl SkyApp {
                         &self.events_tx,
                     );
                     if let Some(t) = tex {
+                        painter.circle_filled(av_c, av_d * 0.5, p.surface_alt);
                         painter.image(
                             t.id(),
                             Rect::from_center_size(av_c, egui::vec2(av_d, av_d)),
@@ -394,6 +498,48 @@ impl SkyApp {
                     let badge_c = tile.right_bottom() - egui::vec2(16.0, 14.0);
                     painter.circle_filled(badge_c, 10.0, p.call_canvas);
                     icons::paint_mic(&painter, badge_c, 13.0, p.danger, true);
+                }
+            }
+
+            // Clickable Mini Picture-in-Picture preview in bottom-right corner when stream is hidden!
+            if self.stream_minimized {
+                if let Some(texture) = self.screen_texture.clone() {
+                    let pip_w = 132.0;
+                    let pip_h = 74.0;
+                    let pip_r = Rect::from_min_size(
+                        egui::pos2(stage_rect.right() - pip_w - 14.0, stage_rect.bottom() - pip_h - 60.0),
+                        egui::vec2(pip_w, pip_h),
+                    );
+                    let pip_resp = ui.interact(pip_r, ui.id().with("stream_pip_card"), Sense::click());
+                    painter.rect_filled(pip_r.expand(2.0), 8.0, p.call_tile);
+                    painter.image(
+                        texture.id(),
+                        pip_r,
+                        Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                    painter.rect_stroke(
+                        pip_r,
+                        6.0,
+                        Stroke::new(
+                            1.5_f32,
+                            if pip_resp.hovered() { p.accent } else { Color32::from_white_alpha(60) },
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                    let pill = Rect::from_min_size(pip_r.min + egui::vec2(5.0, 5.0), egui::vec2(34.0, 14.0));
+                    painter.rect_filled(pill, 7.0, p.danger);
+                    painter.text(
+                        pill.center(),
+                        Align2::CENTER_CENTER,
+                        "LIVE",
+                        FontId::new(8.5, theme::semibold_family()),
+                        Color32::WHITE,
+                    );
+                    if pip_resp.on_hover_text("Click to expand stream").clicked() {
+                        self.stream_minimized = false;
+                        self.play_sound(SoundEffect::UiClick);
+                    }
                 }
             }
         }

@@ -164,10 +164,12 @@ pub struct SkyApp {
     pub(crate) voice_hint: String,
     pub(crate) voice_room: Option<String>,
     pub(crate) participants: Vec<VoiceParticipant>,
+    pub(crate) active_room_calls: HashMap<i64, Vec<VoiceParticipant>>,
     pub(crate) in_voice: bool,
     pub(crate) muted: bool,
     pub(crate) deafened: bool,
     pub(crate) sharing: bool,
+    pub(crate) stream_minimized: bool,
     pub(crate) audio: Option<AudioEngine>,
     pub(crate) input_devices: Vec<String>,
     pub(crate) output_devices: Vec<String>,
@@ -280,10 +282,12 @@ impl SkyApp {
             voice_hint: String::new(),
             voice_room: None,
             participants: Vec::new(),
+            active_room_calls: HashMap::new(),
             in_voice: false,
             muted: false,
             deafened: false,
             sharing: false,
+            stream_minimized: false,
             audio: None,
             input_devices: Vec::new(),
             output_devices: Vec::new(),
@@ -938,6 +942,7 @@ impl SkyApp {
             share.stop();
         }
         self.sharing = false;
+        self.stream_minimized = false;
         self.in_voice = false;
         self.participants.clear();
         self.screen_texture = None;
@@ -1355,6 +1360,16 @@ impl SkyApp {
                 }
                 UiEvent::VoiceState { room, participants } => {
                     let me_id = self.me.as_ref().map(|m| m.user_id).unwrap_or(-1);
+                    if let Some(ch_id) = room
+                        .strip_prefix("channel:")
+                        .and_then(|s| s.parse::<i64>().ok())
+                    {
+                        if participants.is_empty() {
+                            self.active_room_calls.remove(&ch_id);
+                        } else {
+                            self.active_room_calls.insert(ch_id, participants.clone());
+                        }
+                    }
                     let in_this_room =
                         self.in_voice && self.voice_room.as_deref() == Some(room.as_str());
                     if !in_this_room {
@@ -1469,6 +1484,7 @@ impl SkyApp {
                 UiEvent::Disconnected => {
                     self.connected = false;
                     self.participants.clear();
+                    self.active_room_calls.clear();
                     self.screen_texture = None;
                     self.screen_owner = None;
                     self.screen_fullscreen = false;

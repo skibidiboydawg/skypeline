@@ -29,13 +29,19 @@ impl SkyApp {
             p.hairline_stroke(),
         );
 
-        let hdr_inner = hdr_rect.shrink2(egui::vec2(20.0, 8.0));
+        let hdr_inner = hdr_rect.shrink2(egui::vec2(24.0, 8.0));
         let peer_status = channel
             .peer_user_id
             .map(|id| self.online_status_for(id))
             .unwrap_or(PresenceStatus::Offline);
         let in_this_call = self.in_voice
             && self.voice_room.as_deref() == Some(Self::channel_room(channel.id).as_str());
+        let active_callers = self
+            .active_room_calls
+            .get(&channel.id)
+            .cloned()
+            .unwrap_or_default();
+        let peer_waiting_in_call = !in_this_call && !active_callers.is_empty();
         let pulse = self.pulse_time(ui.ctx());
 
         ui.allocate_new_ui(
@@ -170,23 +176,29 @@ impl SkyApp {
 
                         ui.add_space(6.0);
 
-                        // Polished Voice Call pill with hover glow & crisp stroke
-                        let call_w = if in_this_call { 96.0 } else { 84.0 };
+                        // Polished Voice Call pill (green "Join Call" when friend is already in the call!)
+                        let call_w = if in_this_call {
+                            96.0
+                        } else if peer_waiting_in_call {
+                            108.0
+                        } else {
+                            84.0
+                        };
                         let (cr, cresp) =
                             ui.allocate_exact_size(egui::vec2(call_w, 36.0), Sense::click());
-                        let c_bg = if in_this_call {
+                        let c_bg = if in_this_call || peer_waiting_in_call {
                             p.success
                         } else if cresp.hovered() {
                             p.accent
                         } else {
                             p.surface
                         };
-                        let c_fg = if in_this_call || cresp.hovered() {
+                        let c_fg = if in_this_call || peer_waiting_in_call || cresp.hovered() {
                             Color32::WHITE
                         } else {
                             p.text_primary
                         };
-                        if cresp.hovered() && !in_this_call {
+                        if cresp.hovered() && !in_this_call && !peer_waiting_in_call {
                             ui.painter().rect_stroke(
                                 cr.expand(2.0),
                                 12.0,
@@ -195,7 +207,7 @@ impl SkyApp {
                             );
                         }
                         ui.painter().rect_filled(cr, 10.0, c_bg);
-                        if !in_this_call && !cresp.hovered() {
+                        if !in_this_call && !peer_waiting_in_call && !cresp.hovered() {
                             ui.painter().rect_stroke(
                                 cr,
                                 10.0,
@@ -212,7 +224,13 @@ impl SkyApp {
                         ui.painter().text(
                             cr.left_center() + egui::vec2(33.0, 0.0),
                             Align2::LEFT_CENTER,
-                            if in_this_call { "In Call" } else { "Call" },
+                            if in_this_call {
+                                "In Call"
+                            } else if peer_waiting_in_call {
+                                "Join Call"
+                            } else {
+                                "Call"
+                            },
                             FontId::new(13.5, theme::semibold_family()),
                             c_fg,
                         );
@@ -258,6 +276,48 @@ impl SkyApp {
             );
         }
 
+        // 2b. Live "Friend is in a call" banner when peer is waiting in the call without you
+        if peer_waiting_in_call {
+            let names: Vec<String> = active_callers.iter().map(|c| c.username.clone()).collect();
+            let who = if names.len() == 1 {
+                format!("{} is in a call right now", names[0])
+            } else {
+                format!("{} are in a call right now", names.join(", "))
+            };
+            let mut join_now = false;
+            egui::Frame::new()
+                .fill(p.success.gamma_multiply(if p.dark { 0.14 } else { 0.12 }))
+                .stroke(Stroke::new(1.0_f32, p.success.gamma_multiply(0.45)))
+                .inner_margin(egui::Margin::symmetric(24, 9))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        let (ir, _) =
+                            ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::hover());
+                        icons::paint_phone(ui.painter(), ir.center(), 16.0, p.success);
+                        ui.label(theme::semibold(&who, 13.5).color(p.text_primary));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        theme::semibold("Join Call", 13.0).color(Color32::WHITE),
+                                    )
+                                    .fill(p.success)
+                                    .corner_radius(8.0)
+                                    .min_size(egui::vec2(92.0, 30.0)),
+                                )
+                                .clicked()
+                            {
+                                join_now = true;
+                            }
+                        });
+                    });
+                });
+            if join_now {
+                self.start_call(channel.id);
+            }
+        }
+
         // 3. Scalable / Resizable Voice & Screen Call Stage
         if in_this_call && self.call_expanded {
             self.ui_call_stage(ui, &channel);
@@ -281,19 +341,16 @@ impl SkyApp {
             })
             .unwrap_or_default();
 
-        // Pinned Floating Pill Composer Dock with subtle 1px top hairline & 980px centered column
-        let composer_pad = ((ui.available_width() - 980.0) * 0.5).max(20.0).round() as i8;
-        let composer_pad = composer_pad.clamp(20, 120);
-        let composer_extra_pad = ((ui.available_width() - 980.0) * 0.5 - composer_pad as f32).max(0.0);
+        // Pinned Full-Width Floating Pill Composer Dock (24px horizontal padding aligned with messages)
         egui::TopBottomPanel::bottom("chat_composer_dock")
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
                     .fill(p.canvas)
                     .inner_margin(egui::Margin {
-                        left: 0,
-                        right: 0,
-                        top: 0,
+                        left: 24,
+                        right: 24,
+                        top: 4,
                         bottom: 14,
                     }),
             )
@@ -301,20 +358,15 @@ impl SkyApp {
                 // Crisp 1px subtle separator between chat feed and composer bar
                 let sep_r = ui.max_rect();
                 ui.painter().line_segment(
-                    [sep_r.left_top(), sep_r.right_top()],
+                    [
+                        egui::pos2(sep_r.left() - 24.0, sep_r.top() - 4.0),
+                        egui::pos2(sep_r.right() + 24.0, sep_r.top() - 4.0),
+                    ],
                     p.hairline_stroke(),
                 );
-                let side_margin = ((ui.available_width() - 980.0) * 0.5).max(20.0);
-                let _ = (composer_pad, composer_extra_pad);
-                ui.horizontal(|ui| {
-                    ui.add_space(side_margin);
-                    let col_w = (ui.available_width() - side_margin).max(240.0);
-                    ui.vertical(|ui| {
-                        ui.set_width(col_w);
-                        ui.add_space(4.0);
-                        // Typing indicator sits cleanly ABOVE the pill composer
-                        let (typ_r, _) =
-                            ui.allocate_exact_size(egui::vec2(col_w, 18.0), Sense::hover());
+                // Typing indicator sits cleanly ABOVE the pill composer
+                let (typ_r, _) =
+                    ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), Sense::hover());
                 let is_typing = !active_typers.is_empty();
                 if is_typing {
                     self.last_typing_text = if active_typers.len() == 1 {
@@ -598,8 +650,6 @@ impl SkyApp {
                             egui::StrokeKind::Outside,
                         );
                     }
-                    });
-                });
             });
 
         // Message Stream
@@ -747,7 +797,7 @@ impl SkyApp {
                                 });
 
                             if !grouped && !compact && vis_pos > 0 && !show_date_sep {
-                                ui.add_space(14.0);
+                                ui.add_space(8.0);
                             }
 
                             let is_editing = self
@@ -772,11 +822,8 @@ impl SkyApp {
                                     (1.0, 0.0)
                                 };
 
-                            let avail_w = ui.available_width();
-                            let col_w = avail_w.min(980.0);
-                            let side_pad = ((avail_w - col_w) * 0.5).max(0.0);
-                            let row_start = ui.cursor().min + egui::vec2(side_pad, 0.0);
-                            let row_w = col_w;
+                            let row_start = ui.cursor().min;
+                            let row_w = ui.available_width();
 
                             let row_resp = ui
                                 .allocate_new_ui(
@@ -792,9 +839,9 @@ impl SkyApp {
                                         }
                                         egui::Frame::new()
                                             .inner_margin(egui::Margin {
-                                                left: 20,
-                                                right: 20,
-                                                top: if grouped || compact { 1 } else { 3 },
+                                                left: 24,
+                                                right: 24,
+                                                top: if grouped || compact { 1 } else { 2 },
                                                 bottom: 1,
                                             })
                                             .show(ui, |ui| {
