@@ -1091,8 +1091,8 @@ button { cursor: pointer; border: none; background: transparent; }
             <h1>${state.authTab === 'login' ? 'Sign in to Wireline' : 'Create your account'}</h1>
             <div class="auth-sub">Private chats, voice calls & screen sharing — works everywhere.</div>
             <label class="field-label">EMAIL</label>
-            <input class="text-input" id="auth-email" type="email" required placeholder="you@example.com" />
-            ${state.authTab === 'register' ? `<label class="field-label">USERNAME</label><input class="text-input" id="auth-user" required placeholder="Username" />` : ''}
+            <input class="text-input" id="auth-email" type="email" required placeholder="you@example.com" value="${esc(state.authEmail || '')}" />
+            ${state.authTab === 'register' ? `<label class="field-label">USERNAME</label><input class="text-input" id="auth-user" required placeholder="Username" value="${esc(state.authUser || '')}" />` : ''}
             <label class="field-label">PASSWORD</label>
             <input class="text-input" id="auth-pass" type="password" required placeholder="${state.authTab === 'register' ? '8+ characters' : ''}" />
             <button class="btn-primary" type="submit" ${state.busy ? 'disabled' : ''}>${state.authTab === 'login' ? 'Sign In' : 'Create Account'}</button>
@@ -1108,15 +1108,18 @@ button { cursor: pointer; border: none; background: transparent; }
       document.getElementById('auth-form').onsubmit = async (e) => {
         e.preventDefault();
         const email = document.getElementById('auth-email').value.trim();
+        const username = state.authTab === 'register' ? (document.getElementById('auth-user')?.value.trim() || '') : '';
         const password = document.getElementById('auth-pass').value;
+        state.authEmail = email;
+        state.authUser = username;
         state.busy = true; state.notice = 'Working...'; state.noticeErr = false; render();
         try {
           if (state.authTab === 'register') {
-            const username = document.getElementById('auth-user').value.trim();
             await api('/api/register', { method: 'POST', body: JSON.stringify({ email, username, password }) });
           }
           const resp = await api('/api/login', { method: 'POST', body: JSON.stringify({ email, password }) });
           state.session = resp; localStorage.setItem('wl_session', JSON.stringify(resp));
+          state.authEmail = ''; state.authUser = '';
           state.busy = false; state.notice = ''; connectWs(); render();
         } catch (err) {
           state.busy = false; state.notice = err.message; state.noticeErr = true; render();
