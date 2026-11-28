@@ -1144,7 +1144,18 @@ button { cursor: pointer; border: none; background: transparent; }
     }
   }
 
+  const prevOverlays = { settings: false, profilePop: false, emoji: false, attach: false };
+
   function render() {
+    const animSettings = state.showSettings && !prevOverlays.settings;
+    const animProfilePop = state.showProfilePop && !prevOverlays.profilePop;
+    const animEmoji = (state.emojiTarget !== undefined) && !prevOverlays.emoji;
+    const animAttach = state.showAttachMenu && !prevOverlays.attach;
+    prevOverlays.settings = !!state.showSettings;
+    prevOverlays.profilePop = !!state.showProfilePop;
+    prevOverlays.emoji = state.emojiTarget !== undefined;
+    prevOverlays.attach = !!state.showAttachMenu;
+
     // Preserve active text input focus, cursor selection, and draft text across live re-renders!
     const activeEl = document.activeElement;
     const prevFocus = activeEl && activeEl.id ? {
@@ -1281,12 +1292,12 @@ button { cursor: pointer; border: none; background: transparent; }
         </aside>
 
         <main class="main">
-          ${activeCh ? renderChat(activeCh, inThisCall, me) : renderPeople(pendingAll)}
+          ${activeCh ? renderChat(activeCh, inThisCall, me, animAttach) : renderPeople(pendingAll)}
         </main>
       </div>
-      ${state.showProfilePop ? renderProfilePop(me) : ''}
-      ${state.emojiTarget !== undefined ? renderEmojiPicker() : ''}
-      ${state.showSettings ? renderSettings() : ''}
+      ${state.showProfilePop ? renderProfilePop(me, animProfilePop) : ''}
+      ${state.emojiTarget !== undefined ? renderEmojiPicker(animEmoji) : ''}
+      ${state.showSettings ? renderSettings(animSettings) : ''}
     `;
 
     bindEvents(activeCh);
@@ -1309,7 +1320,7 @@ button { cursor: pointer; border: none; background: transparent; }
     }
   }
 
-  function renderChat(ch, inThisCall, me) {
+  function renderChat(ch, inThisCall, me, animAttach = false) {
     const peerSt = state.online[ch.peer_user_id] || 'offline';
     const q = state.msgSearchOpen ? state.msgSearch.trim().toLowerCase() : '';
     const msgs = state.messages.filter(m => !q || m.content.toLowerCase().includes(q) || m.username.toLowerCase().includes(q));
@@ -1472,7 +1483,7 @@ button { cursor: pointer; border: none; background: transparent; }
           <div class="composer-pill ${state.replyTo ? 'has-reply' : ''}" style="position:relative">
             <button class="icon-btn" id="btn-composer-plus" style="width:32px;height:32px;border-radius:50%" title="Insert formatting / code block">${SVG.plus}</button>
             ${state.showAttachMenu ? `
-              <div class="popover modal-enter" style="position:absolute;left:0;bottom:48px;width:190px;padding:6px" onclick="event.stopPropagation()">
+              <div class="popover ${animAttach ? 'modal-enter' : ''}" style="position:absolute;left:0;bottom:48px;width:190px;padding:6px" onclick="event.stopPropagation()">
                 <button class="opt-btn" data-insert-fmt="code" style="width:100%;text-align:left;border:none;background:transparent">Insert Code Block</button>
                 <button class="opt-btn" data-insert-fmt="spoiler" style="width:100%;text-align:left;border:none;background:transparent">Insert Spoiler ||...||</button>
                 <button class="opt-btn" data-insert-fmt="bold" style="width:100%;text-align:left;border:none;background:transparent">Insert Bold **...**</button>
@@ -1547,8 +1558,8 @@ button { cursor: pointer; border: none; background: transparent; }
       </div>`;
   }
 
-  function renderProfilePop(me) {
-    return `<div class="popover modal-enter" style="top:66px;left:12px;width:236px" onclick="event.stopPropagation()">
+  function renderProfilePop(me, animate = false) {
+    return `<div class="popover ${animate ? 'modal-enter' : ''}" style="top:66px;left:12px;width:236px" onclick="event.stopPropagation()">
       <div style="font-weight:600;font-size:15px">${esc(me.username)}</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${esc(me.email)}</div>
       ${['online','away','dnd'].map(s => `<button class="opt-btn ${state.prefs.status===s?'active':''}" data-set-st="${s}" style="width:100%;text-align:left;margin-bottom:4px;text-transform:capitalize">${s === 'dnd' ? 'Do Not Disturb' : s}</button>`).join('')}
@@ -1560,17 +1571,17 @@ button { cursor: pointer; border: none; background: transparent; }
     </div>`;
   }
 
-  function renderEmojiPicker() {
-    return `<div class="popover modal-enter" style="bottom:74px;right:20px;width:320px">
+  function renderEmojiPicker(animate = false) {
+    return `<div class="popover ${animate ? 'modal-enter' : ''}" style="bottom:74px;right:20px;width:320px">
       <div class="sec-label">PICK EMOJI</div>
       <div class="emoji-grid">${EMOJIS.map(e => `<button data-pick-em="${e}">${e}</button>`).join('')}</div>
     </div>`;
   }
 
-  function renderSettings() {
+  function renderSettings(animate = false) {
     const me = state.session;
     return `<div class="backdrop" id="settings-backdrop">
-      <div class="settings-modal modal-enter" onclick="event.stopPropagation()">
+      <div class="settings-modal ${animate ? 'modal-enter' : ''}" onclick="event.stopPropagation()">
         <div class="settings-nav">
           <div class="sec-label" style="padding:4px 10px 8px">SETTINGS</div>
           <button class="${state.settingsTab==='account'?'active':''}" data-stab="account">My Account</button>
@@ -1601,7 +1612,7 @@ button { cursor: pointer; border: none; background: transparent; }
               <button class="opt-btn ${state.prefs.theme==='dark'?'active':''}" data-set-theme="dark">Midnight Dark</button>
               <button class="opt-btn ${state.prefs.theme==='light'?'active':''}" data-set-theme="light">Daylight Light</button>
             </div>
-            <div class="sec-label" style="margin-top:18px">FONT SIZE (${state.prefs.fontSize}px)</div>
+            <div class="sec-label" id="font-size-label" style="margin-top:18px">FONT SIZE (${state.prefs.fontSize}px)</div>
             <input type="range" min="12" max="20" value="${state.prefs.fontSize}" id="font-slider" style="margin-top:8px;width:220px" />
           ` : `
             <h2 style="font-size:20px;margin-bottom:16px">Audio & Devices</h2>
@@ -1637,7 +1648,7 @@ button { cursor: pointer; border: none; background: transparent; }
         navigator.mediaDevices.enumerateDevices().then(devs => {
           state.mics = devs.filter(d => d.kind === 'audioinput');
           state.speakers = devs.filter(d => d.kind === 'audiooutput');
-          if (state.showSettings) render();
+          if (state.showSettings && state.settingsTab === 'voice') render();
         }).catch(() => {});
       }
     };
@@ -1797,7 +1808,12 @@ button { cursor: pointer; border: none; background: transparent; }
     document.querySelectorAll('[data-set-sfx]').forEach(b => b.onclick = () => { state.prefs.sounds = b.dataset.setSfx === '1'; savePrefs(); if (state.prefs.sounds) SFX.react(); render(); });
     document.querySelectorAll('[data-res]').forEach(b => b.onclick = () => { state.prefs.screenRes = Number(b.dataset.res); savePrefs(); SFX.click(); render(); });
     document.querySelectorAll('[data-fps]').forEach(b => b.onclick = () => { state.prefs.screenFps = Number(b.dataset.fps); savePrefs(); SFX.click(); render(); });
-    if (q('font-slider')) q('font-slider').oninput = e => { state.prefs.fontSize = Number(e.target.value); savePrefs(); render(); };
+    if (q('font-slider')) q('font-slider').oninput = e => {
+      state.prefs.fontSize = Number(e.target.value);
+      savePrefs();
+      const lbl = q('font-size-label');
+      if (lbl) lbl.textContent = `FONT SIZE (${state.prefs.fontSize}px)`;
+    };
     if (q('sel-mic')) q('sel-mic').onchange = e => { state.prefs.micId = e.target.value; savePrefs(); SFX.click(); };
     if (q('sel-spk')) q('sel-spk').onchange = e => { state.prefs.spkId = e.target.value; savePrefs(); SFX.click(); };
     if (q('btn-test-sfx')) q('btn-test-sfx').onclick = () => SFX.callJoin();
