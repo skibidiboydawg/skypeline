@@ -1,20 +1,21 @@
 use crate::auth::{bearer, internal, ApiError};
-use crate::AppState;
+use crate::{db, hub, AppState};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
-use image::{ImageEncoder, ImageFormat};
-use skypeline_shared::{AvatarInfo, AvatarUpload};
+use image::codecs::png::{CompressionType, FilterType as PngFilter, PngEncoder};
+use image::{DynamicImage, ExtendedColorType, ImageEncoder, ImageFormat};
+use skypeline_shared::{AvatarInfo, AvatarUpload, WsServerMsg};
 use sqlx::Row;
 use std::sync::Arc;
 
 const MAX_DECODED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ENCODED_BYTES: usize = (MAX_DECODED_BYTES / 3 + 1) * 4;
 const AVATAR_PIXELS: u32 = 128;
-const MAX_AVATAR_BYTES: usize = 12 * 1024;
+const MAX_AVATAR_BYTES: usize = 96 * 1024;
 
 fn bad_request(message: &str) -> ApiError {
     (StatusCode::BAD_REQUEST, message.to_string())
@@ -92,45 +93,86 @@ pub async fn upload(
 
     let image = image::load_from_memory_with_format(&bytes, format)
         .map_err(|_| bad_request("invalid image data"))?;
-    let resized = image.resize_exact(
-        AVATAR_PIXELS,
-        AVATAR_PIXELS,
-        image::imageops::FilterType::Lanczos3,
-    );
+    // Center-crop to square so avatars never stretch or distort.
+    let side = image.width().min(image.height()).max(1);
+    let cropped = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side);
+    let rgba = cropped
+        .resize_exact(AVATAR_PIXELS, AVATAR_PIXELS, image::imageops::FilterType::Lanczos3)
+        .to_rgba8();
+    let has_transparency = rgba.pixels().any(|px| px[3] < 255);
 
-    let mut encoded = None;
-    for quality in [75u8, 65, 55, 45, 35] {
-        let mut out = Vec::new();
-        JpegEncoder::new_with_quality(&mut out, quality)
-            .write_image(
-                resized.as_bytes(),
-                resized.width(),
-                resized.height(),
-                resized.color().into(),
-            )
-            .map_err(|e| bad_request(&format!("failed to encode avatar: {e}")))?;
-        if out.len() < MAX_AVATAR_BYTES {
-            encoded = Some(out);
-            break;
+    let (encoded, out_mime): (Vec<u8>, &'static str) = if has_transparency {
+        // Preserve full alpha transparency using compressed PNG!
+        let mut png_bytes = Vec::new();
+        for dim in [AVATAR_PIXELS, 96, 64] {
+            let candidate = if dim == AVATAR_PIXELS {
+                rgba.clone()
+            } else {
+                DynamicImage::ImageRgba8(rgba.clone())
+                    .resize_exact(dim, dim, image::imageops::FilterType::Lanczos3)
+                    .to_rgba8()
+            };
+            png_bytes.clear();
+            PngEncoder::new_with_quality(&mut png_bytes, CompressionType::Best, PngFilter::Adaptive)
+                .write_image(
+                    candidate.as_raw(),
+                    candidate.width(),
+                    candidate.height(),
+                    ExtendedColorType::Rgba8,
+                )
+                .map_err(|e| bad_request(&format!("failed to encode PNG avatar: {e}")))?;
+            if png_bytes.len() <= MAX_AVATAR_BYTES {
+                break;
+            }
         }
-    }
-    let encoded = encoded.ok_or_else(|| bad_request("avatar is too large after compression"))?;
+        if png_bytes.is_empty() || png_bytes.len() > MAX_AVATAR_BYTES {
+            return Err(bad_request("avatar is too large after PNG compression"));
+        }
+        (png_bytes, "image/png")
+    } else {
+        let rgb = DynamicImage::ImageRgba8(rgba).to_rgb8();
+        let mut out_opt = None;
+        for quality in [82u8, 72, 62, 52, 42] {
+            let mut out = Vec::new();
+            JpegEncoder::new_with_quality(&mut out, quality)
+                .write_image(rgb.as_raw(), rgb.width(), rgb.height(), ExtendedColorType::Rgb8)
+                .map_err(|e| bad_request(&format!("failed to encode avatar: {e}")))?;
+            if out.len() <= MAX_AVATAR_BYTES {
+                out_opt = Some(out);
+                break;
+            }
+        }
+        let out = out_opt.ok_or_else(|| bad_request("avatar is too large after compression"))?;
+        (out, "image/jpeg")
+    };
 
     sqlx::query(
-        "UPDATE users SET avatar_data = $1, avatar_mime = 'image/jpeg', avatar_hash = $2
-         WHERE id = $3",
+        "UPDATE users SET avatar_data = $1, avatar_mime = $2, avatar_hash = $3
+         WHERE id = $4",
     )
     .bind(&encoded)
+    .bind(out_mime)
     .bind(&req.hash)
     .bind(claims.sub)
     .execute(&state.db)
     .await
     .map_err(internal)?;
 
+    // Notify friends so their cached avatar hash refreshes right away.
+    if let Ok(friends) = db::accepted_friend_ids(&state.db, claims.sub).await {
+        if !friends.is_empty() {
+            state.hub.send(
+                hub::Scope::Users(friends),
+                None,
+                &WsServerMsg::FriendsUpdated,
+            );
+        }
+    }
+
     Ok(Json(AvatarInfo {
         user_id: claims.sub,
         hash: req.hash,
-        mime: "image/jpeg".to_string(),
+        mime: out_mime.to_string(),
         data_base64: STANDARD.encode(&encoded),
     }))
 }

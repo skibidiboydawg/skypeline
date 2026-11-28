@@ -41,24 +41,24 @@ pub struct Palette {
 pub const DARK: Palette = Palette {
     dark: true,
     canvas: Color32::from_rgb(0x0E, 0x10, 0x16),
-    sidebar: Color32::from_rgb(0x14, 0x17, 0x20),
-    surface: Color32::from_rgb(0x1B, 0x1F, 0x2C),
-    surface_alt: Color32::from_rgb(0x23, 0x28, 0x38),
-    floating: Color32::from_rgb(0x14, 0x17, 0x22),
-    hover: Color32::from_rgb(0x1F, 0x24, 0x34),
-    active: Color32::from_rgb(0x27, 0x2D, 0x42),
-    input_bg: Color32::from_rgb(0x19, 0x1D, 0x29),
-    border: Color32::from_rgb(0x26, 0x2C, 0x3E),
-    hairline: Color32::from_rgb(0x1E, 0x23, 0x31),
-    text_primary: Color32::from_rgb(0xF3, 0xF5, 0xFA),
-    text_secondary: Color32::from_rgb(0xA6, 0xB0, 0xC6),
-    text_muted: Color32::from_rgb(0x6E, 0x78, 0x91),
+    sidebar: Color32::from_rgb(0x13, 0x16, 0x20),
+    surface: Color32::from_rgb(0x1B, 0x1F, 0x2D),
+    surface_alt: Color32::from_rgb(0x23, 0x29, 0x3B),
+    floating: Color32::from_rgb(0x15, 0x19, 0x25),
+    hover: Color32::from_rgb(0x20, 0x26, 0x37),
+    active: Color32::from_rgb(0x28, 0x2F, 0x46),
+    input_bg: Color32::from_rgb(0x18, 0x1C, 0x28),
+    border: Color32::from_rgb(0x2B, 0x33, 0x48),
+    hairline: Color32::from_rgb(0x22, 0x28, 0x39),
+    text_primary: Color32::from_rgb(0xF5, 0xF7, 0xFC),
+    text_secondary: Color32::from_rgb(0xC5, 0xCE, 0xE0), // High readability ~11.8:1
+    text_muted: Color32::from_rgb(0x94, 0xA0, 0xB8),     // WCAG AA > 6.5:1 on dark navy
     text_link: Color32::from_rgb(0x60, 0xA5, 0xFA),
     accent: Color32::from_rgb(0x63, 0x66, 0xF1), // Electric Indigo
-    accent_soft: Color32::from_rgb(0x24, 0x28, 0x52),
+    accent_soft: Color32::from_rgb(0x25, 0x2A, 0x56),
     own_bubble: Color32::from_rgb(0x4F, 0x46, 0xE5),
     own_bubble_text: Color32::WHITE,
-    peer_bubble: Color32::from_rgb(0x1B, 0x1F, 0x2C),
+    peer_bubble: Color32::from_rgb(0x1B, 0x1F, 0x2D),
     success: Color32::from_rgb(0x22, 0xC5, 0x5E),
     warning: Color32::from_rgb(0xF5, 0x9E, 0x0B),
     danger: Color32::from_rgb(0xEF, 0x44, 0x44),
@@ -232,7 +232,7 @@ pub fn setup_fonts(ctx: &Context) {
 }
 
 pub fn apply(ctx: &Context, dark_mode: bool, font_size: f32) {
-    let base_font = font_size.clamp(12.0, 20.0);
+    let base_font = font_size.clamp(13.0, 20.0);
     let p = if dark_mode { DARK } else { LIGHT };
     let mut visuals = if dark_mode {
         Visuals::dark()

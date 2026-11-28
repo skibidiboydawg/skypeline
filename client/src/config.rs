@@ -110,7 +110,7 @@ fn default_screen_max_height() -> u32 {
 }
 
 fn default_font_size() -> f32 {
-    15.0
+    15.5
 }
 
 impl Default for Config {

@@ -1,7 +1,8 @@
 use crate::{db, hub, AppState};
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use dashmap::DashMap;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -10,12 +11,112 @@ use skypeline_shared::{
     LoginRequest, MessageDto, RegisterRequest, RegisterResponse, ResendCodeRequest, StatusResponse,
     VerifyCodeRequest, WsServerMsg,
 };
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(crate) type ApiError = (StatusCode, String);
 
 const DEFAULT_NEON_AUTH_ORIGIN: &str = "https://skypeline-co.onrender.com";
+
+/// Per-IP and per-(IP, email) sliding-window brute-force protector.
+pub struct IpGuard {
+    attempts: DashMap<String, Vec<Instant>>,
+}
+
+impl IpGuard {
+    pub fn new() -> Self {
+        Self {
+            attempts: DashMap::new(),
+        }
+    }
+
+    pub fn check(&self, key: &str, max_attempts: usize, window_secs: u64) -> Result<(), ApiError> {
+        let now = Instant::now();
+        let window = Duration::from_secs(window_secs);
+        if let Some(mut entry) = self.attempts.get_mut(key) {
+            entry.retain(|t| now.duration_since(*t) < window);
+            if entry.len() >= max_attempts {
+                let oldest = entry.first().copied().unwrap_or(now);
+                let retry_secs = window
+                    .saturating_sub(now.duration_since(oldest))
+                    .as_secs()
+                    .max(1);
+                let mins = (retry_secs + 59) / 60;
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "too many attempts from this IP — try again in {mins} minute{}",
+                        if mins == 1 { "" } else { "s" }
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn record(&self, key: &str, window_secs: u64) {
+        let now = Instant::now();
+        let window = Duration::from_secs(window_secs);
+        let mut entry = self.attempts.entry(key.to_string()).or_default();
+        entry.retain(|t| now.duration_since(*t) < window);
+        entry.push(now);
+        // Cap map size defensively against memory exhaustion.
+        if self.attempts.len() > 20_000 {
+            self.attempts.clear();
+        }
+    }
+
+    pub fn clear(&self, key: &str) {
+        self.attempts.remove(key);
+    }
+}
+
+/// Extracts the client IP from reverse-proxy headers (Cloudflare / Render / Nginx),
+/// falling back to the TCP peer address when present.
+pub fn extract_forwarded_ip(headers: &HeaderMap) -> Option<String> {
+    for header in ["cf-connecting-ip", "x-real-ip", "x-forwarded-for"] {
+        if let Some(val) = headers.get(header).and_then(|v| v.to_str().ok()) {
+            if let Some(first) = val.split(',').next().map(str::trim) {
+                if first.parse::<IpAddr>().is_ok() {
+                    return Some(first.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn extract_client_ip(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
+    extract_forwarded_ip(headers)
+        .or_else(|| peer.map(|p| p.ip().to_string()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Computes a privacy-preserving keyed IP subnet fingerprint (IPv4 /24, IPv6 /48)
+/// so stolen JWTs cannot be replayed from another network while tolerating minor ISP hops.
+pub fn ip_fingerprint(secret: &str, ip: &str) -> String {
+    let prefix = match ip.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => {
+            let [a, b, c, _] = v4.octets();
+            format!("v4:{a}.{b}.{c}")
+        }
+        Ok(IpAddr::V6(v6)) => {
+            let seg = v6.segments();
+            format!("v6:{:x}:{:x}:{:x}", seg[0], seg[1], seg[2])
+        }
+        Err(_) => format!("raw:{ip}"),
+    };
+    let mut h1: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut h2: u64 = 0x8422_2325_cbf2_9ce4;
+    for &b in secret.as_bytes().iter().chain(b":ip:").chain(prefix.as_bytes()) {
+        h1 ^= u64::from(b);
+        h1 = h1.wrapping_mul(0x0100_0000_01b3);
+        h2 = h2.rotate_left(7) ^ u64::from(b);
+        h2 = h2.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+    format!("{h1:016x}{h2:016x}")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -23,6 +124,8 @@ pub struct Claims {
     pub username: String,
     pub email: String,
     pub exp: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_fp: Option<String>,
 }
 
 #[derive(Debug)]
@@ -37,12 +140,26 @@ pub fn issue_jwt(
     username: &str,
     email: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
+    issue_jwt_with_ip(secret, user_id, username, email, None)
+}
+
+pub fn issue_jwt_with_ip(
+    secret: &str,
+    user_id: i64,
+    username: &str,
+    email: &str,
+    client_ip: Option<&str>,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let exp = unix_now() as usize + 60 * 60 * 24 * 14; // 14 days
+    let ip_fp = client_ip
+        .filter(|ip| *ip != "unknown" && !ip.is_empty())
+        .map(|ip| ip_fingerprint(secret, ip));
     let claims = Claims {
         sub: user_id,
         username: username.to_string(),
         email: email.to_string(),
         exp,
+        ip_fp,
     };
     encode(
         &Header::default(),
@@ -60,18 +177,35 @@ pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims, jsonwebtoken::err
     .map(|d| d.claims)
 }
 
+/// Validates that an IP-bound JWT matches the incoming request's client IP subnet.
+pub fn verify_ip_binding(claims: &Claims, headers: &HeaderMap, secret: &str) -> Result<(), ApiError> {
+    if let Some(expected_fp) = claims.ip_fp.as_deref() {
+        if let Some(req_ip) = extract_forwarded_ip(headers) {
+            if ip_fingerprint(secret, &req_ip) != expected_fp {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    "session bound to a different IP address — please sign in again".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn bearer(headers: &HeaderMap, secret: &str) -> Result<Claims, ApiError> {
     let raw = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .ok_or((StatusCode::UNAUTHORIZED, "missing bearer token".to_string()))?;
-    verify_jwt(secret, raw).map_err(|_| {
+    let claims = verify_jwt(secret, raw).map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
             "invalid or expired token".to_string(),
         )
-    })
+    })?;
+    verify_ip_binding(&claims, headers, secret)?;
+    Ok(claims)
 }
 
 pub(crate) fn internal<E: std::fmt::Display>(e: E) -> ApiError {
@@ -221,16 +355,22 @@ fn db_error(e: sqlx::Error) -> ApiError {
     }
 }
 
-/// `POST /api/register` — Neon Auth creates the account and sends an email OTP.
-/// No Skypeline session is issued until that code is verified.
+/// `POST /api/register` — IP rate-limited account registration via Neon Auth.
 pub async fn register(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, ApiError> {
+    let client_ip = extract_client_ip(&headers, Some(peer));
+    let reg_key = format!("reg:{client_ip}");
+    state.ip_guard.check(&reg_key, 6, 3600)?;
+
     let email = req.email.trim().to_ascii_lowercase();
     let username = req.username.trim().to_string();
     validate_identity(&email, &username, &req.password)?;
 
+    state.ip_guard.record(&reg_key, 3600);
     let response = neon_post(
         &state,
         "/sign-up/email",
@@ -243,9 +383,11 @@ pub async fn register(
     .await?;
     let user = parse_neon_user(&response)?;
 
-    db::create_neon_user(&state.db, &user.id, &email, &username)
+    let created = db::create_neon_user(&state.db, &user.id, &email, &username)
         .await
         .map_err(db_error)?;
+    let fp = ip_fingerprint(&state.jwt_secret, &client_ip);
+    let _ = db::record_trusted_ip(&state.db, created.id, &fp).await;
 
     Ok(Json(RegisterResponse {
         email,
@@ -254,11 +396,17 @@ pub async fn register(
     }))
 }
 
-/// `POST /api/verify-code` — verifies Neon Auth's emailed code and signs in.
+/// `POST /api/verify-code` — verifies Neon Auth's emailed code and signs in with IP-bound JWT.
 pub async fn verify_code(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(req): Json<VerifyCodeRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
+    let client_ip = extract_client_ip(&headers, Some(peer));
+    let ver_key = format!("ver:{client_ip}");
+    state.ip_guard.check(&ver_key, 10, 900)?;
+
     let email = req.email.trim().to_ascii_lowercase();
     let code = req.code.trim();
     if email.len() < 3 || !email.contains('@') {
@@ -271,12 +419,16 @@ pub async fn verify_code(
         ));
     }
 
-    neon_post(
+    if let Err(err) = neon_post(
         &state,
         "/email-otp/verify-email",
         json!({ "email": email, "otp": code }),
     )
-    .await?;
+    .await
+    {
+        state.ip_guard.record(&ver_key, 900);
+        return Err(err);
+    }
 
     let user = db::find_user_by_email(&state.db, &email)
         .await
@@ -285,8 +437,18 @@ pub async fn verify_code(
             StatusCode::FORBIDDEN,
             "no Wireline account exists for this email".to_string(),
         ))?;
-    let token =
-        issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email).map_err(internal)?;
+    state.ip_guard.clear(&ver_key);
+    let fp = ip_fingerprint(&state.jwt_secret, &client_ip);
+    let _ = db::record_trusted_ip(&state.db, user.id, &fp).await;
+
+    let token = issue_jwt_with_ip(
+        &state.jwt_secret,
+        user.id,
+        &user.username,
+        &user.email,
+        Some(&client_ip),
+    )
+    .map_err(internal)?;
     let avatar_hash = db::avatar_hash_for_user(&state.db, user.id)
         .await
         .map_err(internal)?;
@@ -302,8 +464,15 @@ pub async fn verify_code(
 /// `POST /api/resend-code` — asks Neon Auth to email a fresh confirmation code.
 pub async fn resend_code(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(req): Json<ResendCodeRequest>,
 ) -> Result<Json<StatusResponse>, ApiError> {
+    let client_ip = extract_client_ip(&headers, Some(peer));
+    let resend_key = format!("resend:{client_ip}");
+    state.ip_guard.check(&resend_key, 6, 1800)?;
+    state.ip_guard.record(&resend_key, 1800);
+
     let email = req.email.trim().to_ascii_lowercase();
     if email.len() < 3 || !email.contains('@') {
         return Err((StatusCode::BAD_REQUEST, "valid email required".to_string()));
@@ -320,23 +489,39 @@ pub async fn resend_code(
     }))
 }
 
-/// `POST /api/login` — validates credentials against Neon Auth and issues the
-/// Skypeline relay token only for verified accounts.
+/// `POST /api/login` — IP rate-limited login with IP-bound JWT sessions and new-IP alerts.
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
+    let client_ip = extract_client_ip(&headers, Some(peer));
+    let ip_key = format!("login-ip:{client_ip}");
+    state.ip_guard.check(&ip_key, 10, 900)?;
+
     let email = req.email.trim().to_ascii_lowercase();
     if email.len() < 3 || !email.contains('@') {
+        state.ip_guard.record(&ip_key, 900);
         return Err((StatusCode::UNAUTHORIZED, "invalid credentials".to_string()));
     }
+    let pair_key = format!("login-pair:{client_ip}:{email}");
+    state.ip_guard.check(&pair_key, 5, 900)?;
 
-    let response = neon_post(
+    let response = match neon_post(
         &state,
         "/sign-in/email",
         json!({ "email": email, "password": req.password }),
     )
-    .await?;
+    .await
+    {
+        Ok(res) => res,
+        Err(err) => {
+            state.ip_guard.record(&ip_key, 900);
+            state.ip_guard.record(&pair_key, 900);
+            return Err(err);
+        }
+    };
     let neon_user = parse_neon_user(&response)?;
 
     let user = match db::find_user_by_neon_id(&state.db, &neon_user.id)
@@ -370,8 +555,30 @@ pub async fn login(
         },
     };
 
-    let token =
-        issue_jwt(&state.jwt_secret, user.id, &user.username, &user.email).map_err(internal)?;
+    state.ip_guard.clear(&pair_key);
+    let fp = ip_fingerprint(&state.jwt_secret, &client_ip);
+    if let Ok(is_new_ip) = db::record_trusted_ip(&state.db, user.id, &fp).await {
+        if is_new_ip {
+            tracing::info!("new IP login recorded for user_id={}", user.id);
+            state.hub.send(
+                hub::Scope::Users(vec![user.id]),
+                None,
+                &WsServerMsg::Error {
+                    message: "Security alert: your account was just signed into from a new IP address."
+                        .to_string(),
+                },
+            );
+        }
+    }
+
+    let token = issue_jwt_with_ip(
+        &state.jwt_secret,
+        user.id,
+        &user.username,
+        &user.email,
+        Some(&client_ip),
+    )
+    .map_err(internal)?;
     let avatar_hash = db::avatar_hash_for_user(&state.db, user.id)
         .await
         .map_err(internal)?;

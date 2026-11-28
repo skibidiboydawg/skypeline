@@ -17,6 +17,7 @@ pub struct AppState {
     pub db: PgPool,
     pub jwt_secret: String,
     pub hub: hub::RelayHub,
+    pub ip_guard: auth::IpGuard,
     pub auth_http: reqwest::Client,
     pub neon_auth_base_url: String,
     pub neon_auth_origin: String,
@@ -71,6 +72,7 @@ async fn main() {
         db: pool,
         jwt_secret,
         hub: hub::RelayHub::new(),
+        ip_guard: auth::IpGuard::new(),
         auth_http,
         neon_auth_base_url,
         neon_auth_origin,
@@ -138,7 +140,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("failed to bind port");
-    axum::serve(listener, app)
-        .await
-        .expect("server exited unexpectedly");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("server exited unexpectedly");
 }

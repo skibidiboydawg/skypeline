@@ -20,16 +20,16 @@ impl SkyApp {
         };
         let p = theme::of(ui.ctx());
 
-        // 1. Minimal 56px Workspace Header (Avatar + Name + Live Status | Call + Search)
+        // 1. Crisp 60px Workspace Header (38px Avatar + Name + Live Status | Call + Search)
         let (hdr_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), Sense::hover());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 60.0), Sense::hover());
         ui.painter().rect_filled(hdr_rect, 0.0, p.canvas);
         ui.painter().line_segment(
             [hdr_rect.left_bottom(), hdr_rect.right_bottom()],
             p.hairline_stroke(),
         );
 
-        let hdr_inner = hdr_rect.shrink2(egui::vec2(18.0, 8.0));
+        let hdr_inner = hdr_rect.shrink2(egui::vec2(20.0, 8.0));
         let peer_status = channel
             .peer_user_id
             .map(|id| self.online_status_for(id))
@@ -43,9 +43,9 @@ impl SkyApp {
                 .max_rect(hdr_inner)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
             |ui| {
-                // Clickable peer avatar + status dot
+                // Clickable 38px circular peer avatar + status dot
                 let (av_r, av_resp) =
-                    ui.allocate_exact_size(egui::vec2(34.0, 34.0), Sense::click());
+                    ui.allocate_exact_size(egui::vec2(38.0, 38.0), Sense::click());
                 self.paint_user_avatar(
                     ui,
                     av_r,
@@ -55,7 +55,7 @@ impl SkyApp {
                 );
                 icons::paint_status_dot_pulse(
                     ui.painter(),
-                    av_r.right_bottom() - egui::vec2(3.0, 3.0),
+                    av_r.right_bottom() - egui::vec2(3.5, 3.5),
                     peer_status,
                     p.canvas,
                     pulse,
@@ -70,12 +70,12 @@ impl SkyApp {
                     }
                 }
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     let name_resp = ui.add(
                         egui::Label::new(
-                            theme::semibold(&channel.name, 15.0).color(p.text_primary),
+                            theme::semibold(&channel.name, 16.0).color(p.text_primary),
                         )
                         .sense(Sense::click()),
                     );
@@ -95,7 +95,7 @@ impl SkyApp {
                             PresenceStatus::Dnd => "Do Not Disturb",
                             PresenceStatus::Offline => "Offline",
                         })
-                        .size(11.5)
+                        .size(12.5)
                         .color(if peer_status == PresenceStatus::Online {
                             p.success
                         } else {
@@ -104,15 +104,15 @@ impl SkyApp {
                     );
                 });
 
-                // Right side: Inline Search OR clean Voice Call pill + Search icon (NO Screen Share here!)
+                // Right side: Inline Search OR polished Voice Call pill + 36px Search icon
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.chat_search_open {
                         let (xr, xresp) =
-                            ui.allocate_exact_size(egui::vec2(28.0, 28.0), Sense::click());
+                            ui.allocate_exact_size(egui::vec2(32.0, 32.0), Sense::click());
                         if xresp.hovered() {
                             ui.painter().rect_filled(xr, 8.0, p.hover);
                         }
-                        icons::paint_x(ui.painter(), xr.center(), 14.0, p.text_secondary);
+                        icons::paint_x(ui.painter(), xr.center(), 15.0, p.text_secondary);
                         if xresp.clicked() {
                             self.chat_search_open = false;
                             self.chat_msg_search.clear();
@@ -120,11 +120,11 @@ impl SkyApp {
 
                         egui::Frame::new()
                             .fill(p.input_bg)
-                            .stroke(p.border_stroke())
+                            .stroke(p.focus_stroke())
                             .corner_radius(10.0)
-                            .inner_margin(egui::Margin::symmetric(10, 5))
+                            .inner_margin(egui::Margin::symmetric(11, 6))
                             .show(ui, |ui| {
-                                let w = (ui.available_width().min(240.0)).max(120.0);
+                                let w = (ui.available_width().min(250.0)).max(120.0);
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.chat_msg_search)
                                         .frame(false)
@@ -133,22 +133,30 @@ impl SkyApp {
                                 );
                             });
                     } else {
-                        // Search button
+                        // 36px Search button with hover border
                         let (sr, sresp) =
-                            ui.allocate_exact_size(egui::vec2(34.0, 34.0), Sense::click());
+                            ui.allocate_exact_size(egui::vec2(36.0, 36.0), Sense::click());
                         ui.painter().rect_filled(
                             sr,
-                            9.0,
+                            10.0,
                             if sresp.hovered() {
                                 p.hover
                             } else {
                                 Color32::TRANSPARENT
                             },
                         );
+                        if sresp.hovered() {
+                            ui.painter().rect_stroke(
+                                sr,
+                                10.0,
+                                p.border_stroke(),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
                         icons::paint_search(
                             ui.painter(),
                             sr.center(),
-                            17.0,
+                            18.0,
                             if sresp.hovered() {
                                 p.text_primary
                             } else {
@@ -160,12 +168,12 @@ impl SkyApp {
                             self.play_sound(SoundEffect::UiClick);
                         }
 
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
 
-                        // Single clean Voice Call button (call first, then share screen inside call!)
-                        let call_w = if in_this_call { 92.0 } else { 78.0 };
+                        // Polished Voice Call pill with hover glow & crisp stroke
+                        let call_w = if in_this_call { 96.0 } else { 84.0 };
                         let (cr, cresp) =
-                            ui.allocate_exact_size(egui::vec2(call_w, 34.0), Sense::click());
+                            ui.allocate_exact_size(egui::vec2(call_w, 36.0), Sense::click());
                         let c_bg = if in_this_call {
                             p.success
                         } else if cresp.hovered() {
@@ -178,6 +186,14 @@ impl SkyApp {
                         } else {
                             p.text_primary
                         };
+                        if cresp.hovered() && !in_this_call {
+                            ui.painter().rect_stroke(
+                                cr.expand(2.0),
+                                12.0,
+                                Stroke::new(2.0_f32, p.accent.gamma_multiply(0.32)),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
                         ui.painter().rect_filled(cr, 10.0, c_bg);
                         if !in_this_call && !cresp.hovered() {
                             ui.painter().rect_stroke(
@@ -189,15 +205,15 @@ impl SkyApp {
                         }
                         icons::paint_phone(
                             ui.painter(),
-                            cr.left_center() + egui::vec2(17.0, 0.0),
-                            16.0,
+                            cr.left_center() + egui::vec2(18.0, 0.0),
+                            17.0,
                             c_fg,
                         );
                         ui.painter().text(
-                            cr.left_center() + egui::vec2(31.0, 0.0),
+                            cr.left_center() + egui::vec2(33.0, 0.0),
                             Align2::LEFT_CENTER,
                             if in_this_call { "In Call" } else { "Call" },
-                            FontId::new(13.0, theme::semibold_family()),
+                            FontId::new(13.5, theme::semibold_family()),
                             c_fg,
                         );
                         if cresp
@@ -265,23 +281,40 @@ impl SkyApp {
             })
             .unwrap_or_default();
 
-        // Pinned Floating Pill Composer Dock
+        // Pinned Floating Pill Composer Dock with subtle 1px top hairline & 980px centered column
+        let composer_pad = ((ui.available_width() - 980.0) * 0.5).max(20.0).round() as i8;
+        let composer_pad = composer_pad.clamp(20, 120);
+        let composer_extra_pad = ((ui.available_width() - 980.0) * 0.5 - composer_pad as f32).max(0.0);
         egui::TopBottomPanel::bottom("chat_composer_dock")
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
                     .fill(p.canvas)
                     .inner_margin(egui::Margin {
-                        left: 18,
-                        right: 18,
-                        top: 4,
+                        left: 0,
+                        right: 0,
+                        top: 0,
                         bottom: 14,
                     }),
             )
             .show_inside(ui, |ui| {
-                // Typing indicator sits cleanly ABOVE the pill composer
-                let (typ_r, _) =
-                    ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), Sense::hover());
+                // Crisp 1px subtle separator between chat feed and composer bar
+                let sep_r = ui.max_rect();
+                ui.painter().line_segment(
+                    [sep_r.left_top(), sep_r.right_top()],
+                    p.hairline_stroke(),
+                );
+                let side_margin = ((ui.available_width() - 980.0) * 0.5).max(20.0);
+                let _ = (composer_pad, composer_extra_pad);
+                ui.horizontal(|ui| {
+                    ui.add_space(side_margin);
+                    let col_w = (ui.available_width() - side_margin).max(240.0);
+                    ui.vertical(|ui| {
+                        ui.set_width(col_w);
+                        ui.add_space(4.0);
+                        // Typing indicator sits cleanly ABOVE the pill composer
+                        let (typ_r, _) =
+                            ui.allocate_exact_size(egui::vec2(col_w, 18.0), Sense::hover());
                 let is_typing = !active_typers.is_empty();
                 if is_typing {
                     self.last_typing_text = if active_typers.len() == 1 {
@@ -379,11 +412,11 @@ impl SkyApp {
                         });
                 }
 
-                // Floating Pill Composer (20px radius, integrated Send button)
+                // Floating Pill Composer (20px radius, subtle focus glow + integrated Send button)
                 let top_radius = if self.reply_to.is_some() { 0 } else { 20 };
                 let draft_id = egui::Id::new(("chat_draft_input", channel.id));
                 let has_focus = ui.memory(|m| m.has_focus(draft_id));
-                egui::Frame::new()
+                let composer_resp = egui::Frame::new()
                     .fill(p.input_bg)
                     .stroke(if has_focus {
                         p.focus_stroke()
@@ -396,7 +429,7 @@ impl SkyApp {
                         sw: 20,
                         se: 20,
                     })
-                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .inner_margin(egui::Margin::symmetric(12, 7))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
@@ -552,6 +585,21 @@ impl SkyApp {
                             }
                         });
                     });
+                    if has_focus {
+                        ui.painter().rect_stroke(
+                            composer_resp.response.rect.expand(2.0),
+                            egui::CornerRadius {
+                                nw: top_radius.saturating_add(2),
+                                ne: top_radius.saturating_add(2),
+                                sw: 22,
+                                se: 22,
+                            },
+                            Stroke::new(2.0_f32, p.accent.gamma_multiply(0.28)),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+                    });
+                });
             });
 
         // Message Stream
@@ -612,25 +660,13 @@ impl SkyApp {
                             ui.add_space(28.0);
                             ui.vertical_centered(|ui| {
                                 let (av_r, av_resp) =
-                                    ui.allocate_exact_size(egui::vec2(64.0, 64.0), Sense::click());
-                                ui.painter().circle_filled(
-                                    av_r.center(),
-                                    32.0,
-                                    avatar_color(&channel.name, false),
-                                );
-                                let initial = channel
-                                    .name
-                                    .chars()
-                                    .next()
-                                    .unwrap_or('?')
-                                    .to_ascii_uppercase()
-                                    .to_string();
-                                ui.painter().text(
-                                    av_r.center(),
-                                    Align2::CENTER_CENTER,
-                                    initial,
-                                    FontId::new(26.0, theme::semibold_family()),
-                                    Color32::WHITE,
+                                    ui.allocate_exact_size(egui::vec2(68.0, 68.0), Sense::click());
+                                self.paint_user_avatar(
+                                    ui,
+                                    av_r,
+                                    channel.peer_user_id.unwrap_or(-1),
+                                    &channel.name,
+                                    false,
                                 );
                                 if av_resp.clicked() {
                                     if let Some(peer_id) = channel.peer_user_id {
@@ -689,9 +725,21 @@ impl SkyApp {
                             }
 
                             let mine = message.user_id == me_id;
+                            let is_call_event = message.content.starts_with("[[call:")
+                                && message.content.ends_with("]]");
+                            if is_call_event {
+                                ui.add_space(8.0);
+                                Self::ui_call_event_card(ui, p, message);
+                                ui.add_space(8.0);
+                                continue;
+                            }
+                            let prev_was_call = prev_msg.is_some_and(|prev| {
+                                prev.content.starts_with("[[call:") && prev.content.ends_with("]]")
+                            });
                             let has_reply = message.reply_to_id.is_some();
                             let grouped = !compact
                                 && !show_date_sep
+                                && !prev_was_call
                                 && !has_reply
                                 && prev_msg.is_some_and(|prev| {
                                     prev.user_id == message.user_id
@@ -699,7 +747,7 @@ impl SkyApp {
                                 });
 
                             if !grouped && !compact && vis_pos > 0 && !show_date_sep {
-                                ui.add_space(8.0);
+                                ui.add_space(14.0);
                             }
 
                             let is_editing = self
@@ -724,8 +772,11 @@ impl SkyApp {
                                     (1.0, 0.0)
                                 };
 
-                            let row_start = ui.cursor().min;
-                            let row_w = ui.available_width();
+                            let avail_w = ui.available_width();
+                            let col_w = avail_w.min(980.0);
+                            let side_pad = ((avail_w - col_w) * 0.5).max(0.0);
+                            let row_start = ui.cursor().min + egui::vec2(side_pad, 0.0);
+                            let row_w = col_w;
 
                             let row_resp = ui
                                 .allocate_new_ui(
@@ -743,8 +794,8 @@ impl SkyApp {
                                             .inner_margin(egui::Margin {
                                                 left: 20,
                                                 right: 20,
-                                                top: if grouped || compact { 2 } else { 4 },
-                                                bottom: 2,
+                                                top: if grouped || compact { 1 } else { 3 },
+                                                bottom: 1,
                                             })
                                             .show(ui, |ui| {
                                                 ui.set_width((ui.available_width()).max(120.0));
@@ -877,7 +928,7 @@ impl SkyApp {
                                                                         if message.edited_at.is_some() {
                                                                             ui.label(
                                                                                 RichText::new("(edited)")
-                                                                                    .size(10.5)
+                                                                                    .size(11.5)
                                                                                     .color(p.text_muted),
                                                                             );
                                                                         }
@@ -885,7 +936,7 @@ impl SkyApp {
                                                                             RichText::new(format_hhmm(
                                                                                 message.created_at,
                                                                             ))
-                                                                            .size(10.5)
+                                                                            .size(11.5)
                                                                             .color(p.text_muted),
                                                                         );
                                                                     });
@@ -901,14 +952,14 @@ impl SkyApp {
                                                             },
                                                         );
                                                     } else {
-                                                        // Left-aligned peer bubble with 34px avatar
+                                                        // Left-aligned peer bubble with 38px circular avatar
                                                         ui.horizontal_top(|ui| {
                                                             if grouped {
-                                                                ui.add_space(42.0);
+                                                                ui.add_space(48.0);
                                                             } else {
                                                                 let (av_r, av_resp) =
                                                                     ui.allocate_exact_size(
-                                                                        egui::vec2(34.0, 34.0),
+                                                                        egui::vec2(38.0, 38.0),
                                                                         Sense::click(),
                                                                     );
                                                                 self.paint_user_avatar(
@@ -925,7 +976,7 @@ impl SkyApp {
                                                                         av_r.right_top(),
                                                                     ));
                                                                 }
-                                                                ui.add_space(8.0);
+                                                                ui.add_space(10.0);
                                                             }
 
                                                             ui.vertical(|ui| {
@@ -935,7 +986,7 @@ impl SkyApp {
                                                                             egui::Label::new(
                                                                                 theme::semibold(
                                                                                     &message.username,
-                                                                                    13.0,
+                                                                                    14.0,
                                                                                 )
                                                                                 .color(p.text_primary),
                                                                             )
@@ -955,7 +1006,7 @@ impl SkyApp {
                                                                                     now_i64,
                                                                                 ),
                                                                             )
-                                                                            .size(11.0)
+                                                                            .size(12.0)
                                                                             .color(p.text_muted),
                                                                         );
                                                                     });
@@ -1216,18 +1267,83 @@ impl SkyApp {
         }
     }
 
-    fn ui_date_pill(ui: &mut Ui, label: &str, p: Palette) {
-        ui.add_space(10.0);
+    fn ui_call_event_card(ui: &mut Ui, p: Palette, message: &MessageDto) {
+        let content = message.content.as_str();
+        let (icon_col, text) = if content == "[[call:started]]" {
+            (
+                p.success,
+                format!(
+                    "{} started a call · {}",
+                    message.username,
+                    format_hhmm(message.created_at)
+                ),
+            )
+        } else if content == "[[call:missed]]" {
+            (
+                p.danger,
+                format!(
+                    "Missed call from {} · {}",
+                    message.username,
+                    format_hhmm(message.created_at)
+                ),
+            )
+        } else if let Some(dur) = content
+            .strip_prefix("[[call:ended:")
+            .and_then(|s| s.strip_suffix("]]"))
+        {
+            (
+                p.text_secondary,
+                format!(
+                    "Call ended · {} · {}",
+                    dur,
+                    format_hhmm(message.created_at)
+                ),
+            )
+        } else {
+            (p.text_secondary, content.to_string())
+        };
+        let is_missed = content == "[[call:missed]]";
         ui.vertical_centered(|ui| {
             egui::Frame::new()
                 .fill(p.surface)
-                .corner_radius(10.0)
-                .inner_margin(egui::Margin::symmetric(10, 3))
+                .stroke(Stroke::new(
+                    1.0_f32,
+                    if is_missed {
+                        p.danger.gamma_multiply(0.4)
+                    } else {
+                        p.border
+                    },
+                ))
+                .corner_radius(14.0)
+                .inner_margin(egui::Margin::symmetric(14, 7))
                 .show(ui, |ui| {
-                    ui.label(theme::semibold(label, 11.0).color(p.text_muted));
+                    ui.horizontal(|ui| {
+                        let (ir, _) =
+                            ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+                        if is_missed {
+                            icons::paint_phone_off(ui.painter(), ir.center(), 15.0, icon_col);
+                        } else {
+                            icons::paint_phone(ui.painter(), ir.center(), 15.0, icon_col);
+                        }
+                        ui.label(theme::semibold(text, 13.0).color(p.text_primary));
+                    });
                 });
         });
-        ui.add_space(8.0);
+    }
+
+    fn ui_date_pill(ui: &mut Ui, label: &str, p: Palette) {
+        ui.add_space(12.0);
+        ui.vertical_centered(|ui| {
+            egui::Frame::new()
+                .fill(p.surface)
+                .stroke(p.border_stroke())
+                .corner_radius(12.0)
+                .inner_margin(egui::Margin::symmetric(12, 4))
+                .show(ui, |ui| {
+                    ui.label(theme::semibold(label, 12.0).color(p.text_secondary));
+                });
+        });
+        ui.add_space(10.0);
     }
 
     fn ui_reply_quote(ui: &mut Ui, p: Palette, all_messages: &[MessageDto], reply_id: i64) {
@@ -1387,6 +1503,9 @@ impl SkyApp {
                 &self.events_tx,
             );
             if let Some(t) = tex {
+                let p = theme::of(ui.ctx());
+                ui.painter()
+                    .circle_filled(rect.center(), rect.width() * 0.5, p.surface_alt);
                 ui.painter().image(
                     t.id(),
                     rect,

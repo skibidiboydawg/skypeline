@@ -1,15 +1,13 @@
-//! Avatar image processing and a two-level (memory + disk) avatar cache.
-//!
-//! Downloaded avatars are stored under `skypeline-cache/avatars/<hash>.jpg`.
-//! Network fetches run on a short-lived background thread with its own tiny
-//! Tokio runtime; only the egui thread touches `egui::TextureHandle`s.
+//! Avatar image processing (circular anti-aliased rendering + full PNG alpha
+//! transparency preservation) and a two-level (memory + disk) avatar cache.
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use egui::TextureHandle;
 use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::{CompressionType, FilterType as PngFilter, PngEncoder};
 use image::imageops::FilterType;
-use image::{ExtendedColorType, ImageFormat};
+use image::{DynamicImage, ExtendedColorType, ImageEncoder, ImageFormat};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
@@ -20,8 +18,8 @@ use crate::events::UiEvent;
 const CACHE_DIR: &str = "skypeline-cache/avatars";
 const MAX_CACHED_FILES: usize = 100;
 const AVATAR_SIZE: u32 = 128;
-const MAX_AVATAR_BYTES: usize = 12 * 1024;
-const QUALITIES: [u8; 5] = [75, 65, 55, 45, 35];
+const MAX_AVATAR_BYTES: usize = 96 * 1024;
+const QUALITIES: [u8; 5] = [82, 72, 62, 52, 42];
 /// Request key used when the caller does not know the avatar hash yet.
 const UNKNOWN_HASH_KEY: &str = "*";
 
@@ -45,9 +43,6 @@ impl AvatarCache {
         }
     }
 
-    /// Returns a cached texture if available. If `hash` is Some and differs from
-    /// the cached version, reload. If no cache exists, spawn ONE async fetch via
-    /// api.get_avatar(token,user_id) and send UiEvent::AvatarLoaded to `tx`.
     pub fn texture(
         &mut self,
         ctx: &egui::Context,
@@ -61,17 +56,14 @@ impl AvatarCache {
 
         if let Some(cached) = self.textures.get(&user_id) {
             match hash {
-                // The caller does not know the hash: any texture will do.
                 None => return Some(cached.texture.clone()),
                 Some(h) if cached.hash.as_deref() == Some(h) => {
                     return Some(cached.texture.clone())
                 }
-                // Hash changed: fall through and load the new version.
                 Some(_) => {}
             }
         }
 
-        // Disk is the second level cache. Nothing to look up without a hash.
         if let Some(h) = hash {
             if let Some(texture) = load_disk_texture(ctx, user_id, h) {
                 self.textures.insert(
@@ -85,7 +77,6 @@ impl AvatarCache {
             }
         }
 
-        // Only one in-flight/failed request per (user, hash) for this process.
         if let Some(token) = token {
             let key = hash.unwrap_or(UNKNOWN_HASH_KEY).to_string();
             if self.requested.insert((user_id, key)) {
@@ -96,8 +87,6 @@ impl AvatarCache {
         None
     }
 
-    /// Called when UiEvent::AvatarLoaded arrives. Decode base64, write to disk
-    /// cache keyed by hash (one fetch per hash), upload to egui, store in memory.
     pub fn on_loaded(
         &mut self,
         ctx: &egui::Context,
@@ -106,9 +95,7 @@ impl AvatarCache {
         mime: String,
         data_base64: String,
     ) -> Option<TextureHandle> {
-        if mime != "image/jpeg" {
-            // The decoder sniffs the real format, so a wrong/legacy MIME does
-            // not prevent a valid image from being displayed.
+        if mime != "image/jpeg" && mime != "image/png" {
             tracing::debug!("avatar {user_id} has mime '{mime}', sniffing contents");
         }
 
@@ -119,7 +106,7 @@ impl AvatarCache {
                 return None;
             }
         };
-        if bytes.len() >= MAX_AVATAR_BYTES {
+        if bytes.len() > MAX_AVATAR_BYTES {
             tracing::warn!(
                 "oversized avatar {user_id}: {} bytes (limit {MAX_AVATAR_BYTES})",
                 bytes.len()
@@ -139,18 +126,14 @@ impl AvatarCache {
         Some(texture)
     }
 
-    /// Remove memory textures (e.g. on sign out). Request tracking is reset too
-    /// so the next sign-in can fetch again if the disk cache was cleared.
     pub fn clear(&mut self) {
         self.textures.clear();
         self.requested.clear();
     }
 }
 
-/// Decode a picked image, reject GIF/animated WebP, resize to exactly 128x128,
-/// encode as JPEG quality 75 (reduce quality if needed) and require strictly
-/// < 15*1024 bytes. Returns (jpeg_bytes, "image/jpeg", hash).
-#[allow(dead_code)]
+/// Center-crops to square, resizes to 128x128, and preserves full alpha
+/// transparency as PNG when present (or crisp JPEG for opaque photos).
 pub fn process_avatar_bytes(
     bytes: &[u8],
     filename_hint: &str,
@@ -171,10 +154,47 @@ pub fn process_avatar_bytes(
 
     let decoded = image::load_from_memory(bytes)
         .map_err(|err| format!("could not decode '{filename_hint}': {err}"))?;
-    let resized = decoded.resize_exact(AVATAR_SIZE, AVATAR_SIZE, FilterType::Lanczos3);
-    let rgb = resized.to_rgb8();
+    let side = decoded.width().min(decoded.height()).max(1);
+    let cropped = decoded.crop_imm(
+        (decoded.width() - side) / 2,
+        (decoded.height() - side) / 2,
+        side,
+        side,
+    );
+    let rgba = cropped
+        .resize_exact(AVATAR_SIZE, AVATAR_SIZE, FilterType::Lanczos3)
+        .to_rgba8();
+    let has_transparency = rgba.pixels().any(|px| px[3] < 255);
 
-    let mut out = Vec::with_capacity(MAX_AVATAR_BYTES);
+    if has_transparency {
+        let mut out = Vec::with_capacity(32 * 1024);
+        for dim in [AVATAR_SIZE, 96, 64] {
+            let candidate = if dim == AVATAR_SIZE {
+                rgba.clone()
+            } else {
+                DynamicImage::ImageRgba8(rgba.clone())
+                    .resize_exact(dim, dim, FilterType::Lanczos3)
+                    .to_rgba8()
+            };
+            out.clear();
+            PngEncoder::new_with_quality(&mut out, CompressionType::Best, PngFilter::Adaptive)
+                .write_image(
+                    candidate.as_raw(),
+                    candidate.width(),
+                    candidate.height(),
+                    ExtendedColorType::Rgba8,
+                )
+                .map_err(|err| format!("could not encode avatar as PNG: {err}"))?;
+            if out.len() <= MAX_AVATAR_BYTES {
+                let hash = avatar_hash(&out);
+                return Ok((out, "image/png".to_string(), hash));
+            }
+        }
+        return Err("transparent avatar is too large after compression; try a simpler image".into());
+    }
+
+    let rgb = DynamicImage::ImageRgba8(rgba).to_rgb8();
+    let mut out = Vec::with_capacity(32 * 1024);
     let mut accepted = false;
     for quality in QUALITIES {
         out.clear();
@@ -187,7 +207,7 @@ pub fn process_avatar_bytes(
                 ExtendedColorType::Rgb8,
             )
             .map_err(|err| format!("could not encode avatar as JPEG: {err}"))?;
-        if out.len() < MAX_AVATAR_BYTES {
+        if out.len() <= MAX_AVATAR_BYTES {
             accepted = true;
             break;
         }
@@ -200,9 +220,7 @@ pub fn process_avatar_bytes(
     Ok((out, "image/jpeg".to_string(), hash))
 }
 
-/// Opens a native file picker filtered to PNG/JPG/WebP. Returns (bytes, filename).
-/// On Linux this may use rfd; if rfd fails, return None.
-#[allow(dead_code)]
+/// Opens a native file picker filtered to PNG/JPG/WebP. Returns `(bytes, filename)`.
 pub fn pick_avatar_file() -> Option<(Vec<u8>, String)> {
     let path = rfd::FileDialog::new()
         .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
@@ -212,7 +230,6 @@ pub fn pick_avatar_file() -> Option<(Vec<u8>, String)> {
     Some((bytes, filename))
 }
 
-/// Stable short hash of bytes (FNV-1a 64-bit hex is fine), sanitized for filenames.
 pub fn avatar_hash(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -221,8 +238,6 @@ pub fn avatar_hash(bytes: &[u8]) -> String {
     }
     format!("{hash:016x}")
 }
-
-// --- helpers ---------------------------------------------------------------
 
 fn cache_dir() -> Option<PathBuf> {
     let dir = PathBuf::from(CACHE_DIR);
@@ -233,8 +248,6 @@ fn cache_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Only accept plain hex strings of at most 64 characters as file names;
-/// anything else (including malicious path components) becomes a derived hash.
 fn sanitize_hash(hash: &str) -> String {
     if !hash.is_empty() && hash.len() <= 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         hash.to_string()
@@ -244,7 +257,7 @@ fn sanitize_hash(hash: &str) -> String {
 }
 
 fn disk_path(hash: &str) -> Option<PathBuf> {
-    Some(cache_dir()?.join(format!("{}.jpg", sanitize_hash(hash))))
+    Some(cache_dir()?.join(format!("{}.img", sanitize_hash(hash))))
 }
 
 fn load_disk_texture(ctx: &egui::Context, user_id: i64, hash: &str) -> Option<TextureHandle> {
@@ -260,15 +273,27 @@ fn write_disk_texture(hash: &str, bytes: &[u8]) {
     }
 }
 
+/// Decodes any supported avatar (PNG with transparency, JPEG, WebP) and applies a
+/// smooth sub-pixel anti-aliased circular mask while preserving original PNG alpha.
 fn decode_texture(
     ctx: &egui::Context,
     user_id: i64,
     hash: Option<&str>,
     bytes: &[u8],
 ) -> Option<TextureHandle> {
-    let image = image::load_from_memory(bytes).ok()?.to_rgba8();
-    let [width, height] = [image.width() as usize, image.height() as usize];
-    let color = egui::ColorImage::from_rgba_unmultiplied([width, height], image.as_raw());
+    let mut image = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (w, h) = (image.width(), image.height());
+    let cx = (w as f32 - 1.0) * 0.5;
+    let cy = (h as f32 - 1.0) * 0.5;
+    let radius = (w.min(h) as f32) * 0.5 - 0.5;
+    for (x, y, px) in image.enumerate_pixels_mut() {
+        let dx = x as f32 - cx;
+        let dy = y as f32 - cy;
+        let dist = (dx * dx + dy * dy).sqrt();
+        let edge = (radius - dist + 0.5).clamp(0.0, 1.0);
+        px[3] = ((px[3] as f32) * edge).round() as u8;
+    }
+    let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], image.as_raw());
     let name = match hash {
         Some(hash) => format!("avatar-{user_id}-{hash}"),
         None => format!("avatar-{user_id}"),
@@ -280,8 +305,6 @@ fn spawn_fetch(api: crate::api::ApiClient, token: String, user_id: i64, tx: mpsc
     let _ = std::thread::Builder::new()
         .name(format!("avatar-fetch-{user_id}"))
         .spawn(move || {
-            // A fresh current-thread runtime keeps this fetch independent of
-            // the app's runtime and off the egui thread.
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -308,9 +331,6 @@ fn spawn_fetch(api: crate::api::ApiClient, token: String, user_id: i64, tx: mpsc
         });
 }
 
-/// A WebP file is a RIFF container with four-byte chunk ids; `ANIM`/`ANMF`
-/// mark an animated image which we cannot display as a still texture.
-#[allow(dead_code)]
 fn is_animated_webp(bytes: &[u8]) -> bool {
     if bytes.len() < 16 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
         return false;
@@ -332,11 +352,9 @@ fn is_animated_webp(bytes: &[u8]) -> bool {
             _ => break,
         }
     }
-    // Tolerate odd/malformed chunk lengths while still catching animation.
     bytes.windows(4).any(|window| window == b"ANIM")
 }
 
-/// Evicts oldest avatar cache files when the disk cache exceeds `max_files`.
 fn prune_disk_cache(max_files: usize) {
     let Ok(entries) = fs::read_dir(CACHE_DIR) else {
         return;

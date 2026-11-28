@@ -166,6 +166,23 @@ impl SkyApp {
                         if ui
                             .add(
                                 egui::Button::new(
+                                    theme::semibold("Upload Profile Picture", 13.0)
+                                        .color(Color32::WHITE),
+                                )
+                                .fill(p.accent)
+                                .corner_radius(8.0)
+                                .min_size(egui::vec2(ui.available_width(), 32.0)),
+                            )
+                            .clicked()
+                        {
+                            self.show_profile_popover = false;
+                            self.upload_my_avatar();
+                            self.play_sound(SoundEffect::UiClick);
+                        }
+                        ui.add_space(5.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
                                     theme::semibold("Settings", 13.0).color(p.text_primary),
                                 )
                                 .fill(p.surface)
@@ -890,6 +907,8 @@ impl SkyApp {
             .map(|m| m.email.clone())
             .unwrap_or_default();
         let uid = self.me.as_ref().map(|m| m.user_id).unwrap_or(0);
+        let my_hash = self.me.as_ref().and_then(|m| m.avatar_hash.clone());
+        let mut want_upload = false;
 
         egui::Frame::new()
             .fill(p.surface)
@@ -899,37 +918,99 @@ impl SkyApp {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    let (av_r, _) =
-                        ui.allocate_exact_size(egui::vec2(56.0, 56.0), Sense::hover());
-                    ui.painter().circle_filled(av_r.center(), 28.0, p.accent);
-                    let init = name
-                        .chars()
-                        .next()
-                        .unwrap_or('?')
-                        .to_ascii_uppercase()
-                        .to_string();
-                    ui.painter().text(
+                    let (av_r, av_resp) =
+                        ui.allocate_exact_size(egui::vec2(64.0, 64.0), Sense::click());
+                    // Crisp circular backing so transparent PNG avatars look clean.
+                    ui.painter().circle_filled(av_r.center(), 32.0, p.surface_alt);
+                    let mut drew = false;
+                    if let Some(h) = my_hash.as_deref() {
+                        let tex = self.avatars.texture(
+                            &ui.ctx().clone(),
+                            &self.api(),
+                            self.token.as_deref(),
+                            uid,
+                            Some(h),
+                            &self.events_tx,
+                        );
+                        if let Some(t) = tex {
+                            ui.painter().image(
+                                t.id(),
+                                av_r,
+                                Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                                Color32::WHITE,
+                            );
+                            drew = true;
+                        }
+                    }
+                    if !drew {
+                        ui.painter().circle_filled(av_r.center(), 32.0, p.accent);
+                        let init = name
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_ascii_uppercase()
+                            .to_string();
+                        ui.painter().text(
+                            av_r.center(),
+                            Align2::CENTER_CENTER,
+                            init,
+                            FontId::new(24.0, theme::semibold_family()),
+                            Color32::WHITE,
+                        );
+                    }
+                    ui.painter().circle_stroke(
                         av_r.center(),
-                        Align2::CENTER_CENTER,
-                        init,
-                        FontId::new(22.0, theme::semibold_family()),
-                        Color32::WHITE,
+                        32.0,
+                        if av_resp.hovered() {
+                            p.focus_stroke()
+                        } else {
+                            p.border_stroke()
+                        },
                     );
                     icons::paint_status_dot_pulse(
                         ui.painter(),
-                        av_r.right_bottom() - egui::vec2(4.0, 4.0),
+                        av_r.right_bottom() - egui::vec2(5.0, 5.0),
                         self.presence,
                         p.surface,
                         self.pulse_time(ui.ctx()),
                     );
-                    ui.add_space(10.0);
+                    if av_resp.on_hover_text("Click to upload profile picture").clicked() {
+                        want_upload = true;
+                    }
+                    ui.add_space(12.0);
                     ui.vertical(|ui| {
-                        ui.label(theme::semibold(&name, 17.0).color(p.text_primary));
-                        ui.label(RichText::new(&email).size(13.0).color(p.text_secondary));
-                        ui.label(RichText::new(format!("User ID #{uid}")).small().color(p.text_muted));
+                        ui.label(theme::semibold(&name, 17.5).color(p.text_primary));
+                        ui.label(RichText::new(&email).size(13.5).color(p.text_secondary));
+                        ui.add_space(6.0);
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    theme::semibold("Upload Profile Picture", 13.0)
+                                        .color(Color32::WHITE),
+                                )
+                                .fill(p.accent)
+                                .corner_radius(8.0)
+                                .min_size(egui::vec2(170.0, 32.0)),
+                            )
+                            .clicked()
+                        {
+                            want_upload = true;
+                        }
+                        ui.add_space(2.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "PNG, JPG or WebP (transparency supported) · ID #{uid}"
+                            ))
+                            .size(11.5)
+                            .color(p.text_muted),
+                        );
                     });
                 });
             });
+        if want_upload {
+            self.upload_my_avatar();
+            self.play_sound(SoundEffect::UiClick);
+        }
 
         ui.add_space(16.0);
         ui.label(theme::semibold("ABOUT ME", 11.0).color(p.text_muted));

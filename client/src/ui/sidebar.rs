@@ -19,7 +19,7 @@ impl SkyApp {
         }
 
         egui::SidePanel::left("left_sidebar")
-            .exact_width(268.0)
+            .exact_width(278.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
@@ -336,7 +336,7 @@ impl SkyApp {
         let me_hash = self.me.as_ref().and_then(|m| m.avatar_hash.clone());
 
         let (bar_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 60.0), Sense::hover());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 64.0), Sense::hover());
         ui.painter().line_segment(
             [bar_rect.left_bottom(), bar_rect.right_bottom()],
             p.hairline_stroke(),
@@ -344,19 +344,25 @@ impl SkyApp {
         let cy = bar_rect.center().y;
 
         // Clickable profile chip on left
-        let chip_w = (bar_rect.width() - 88.0).max(110.0);
+        let chip_w = (bar_rect.width() - 94.0).max(116.0);
         let chip_r = Rect::from_min_size(
-            egui::pos2(bar_rect.left() + 10.0, cy - 20.0),
-            egui::vec2(chip_w, 40.0),
+            egui::pos2(bar_rect.left() + 10.0, cy - 22.0),
+            egui::vec2(chip_w, 44.0),
         );
         let chip_resp = ui.interact(chip_r, ui.id().with("top_profile_chip"), Sense::click());
         if chip_resp.hovered() {
             ui.painter().rect_filled(chip_r, 10.0, p.hover);
+            ui.painter().rect_stroke(
+                chip_r,
+                10.0,
+                p.border_stroke(),
+                egui::StrokeKind::Inside,
+            );
         }
 
         let av_r = Rect::from_center_size(
-            egui::pos2(chip_r.left() + 22.0, cy),
-            egui::vec2(34.0, 34.0),
+            egui::pos2(chip_r.left() + 24.0, cy),
+            egui::vec2(38.0, 38.0),
         );
         let mut drew = false;
         if let Some(h) = me_hash.as_deref() {
@@ -369,6 +375,8 @@ impl SkyApp {
                 &self.events_tx,
             );
             if let Some(t) = tex {
+                // Backing circle keeps transparent PNG avatars crisp.
+                ui.painter().circle_filled(av_r.center(), 19.0, p.surface_alt);
                 ui.painter().image(
                     t.id(),
                     av_r,
@@ -380,7 +388,7 @@ impl SkyApp {
         }
         if !drew {
             ui.painter()
-                .circle_filled(av_r.center(), 17.0, avatar_color(&me_name, true));
+                .circle_filled(av_r.center(), 19.0, avatar_color(&me_name, true));
             let init = me_name
                 .chars()
                 .next()
@@ -391,7 +399,7 @@ impl SkyApp {
                 av_r.center(),
                 Align2::CENTER_CENTER,
                 init,
-                FontId::new(14.0, theme::semibold_family()),
+                FontId::new(15.5, theme::semibold_family()),
                 Color32::WHITE,
             );
         }
@@ -399,12 +407,12 @@ impl SkyApp {
         let pulse = self.pulse_time(ctx);
         icons::paint_status_dot_pulse(ui.painter(), dot, self.presence, p.sidebar, pulse);
 
-        let tx = av_r.right() + 9.0;
+        let tx = av_r.right() + 10.0;
         ui.painter().text(
             egui::pos2(tx, cy - 1.0),
             Align2::LEFT_BOTTOM,
             &me_name,
-            FontId::new(14.0, theme::semibold_family()),
+            FontId::new(14.5, theme::semibold_family()),
             p.text_primary,
         );
         let sub = if !self.config.custom_status.trim().is_empty() {
@@ -416,27 +424,27 @@ impl SkyApp {
             egui::pos2(tx, cy + 1.0),
             Align2::LEFT_TOP,
             sub,
-            FontId::proportional(11.5),
+            FontId::proportional(12.0),
             p.text_muted,
         );
-        if chip_resp.on_hover_text("Status & Account").clicked() {
+        if chip_resp.on_hover_text("Status, Avatar & Account").clicked() {
             self.show_profile_popover = !self.show_profile_popover;
             self.play_sound(SoundEffect::UiClick);
         }
 
-        // Right: Instant Dark/Light Theme Toggle + Settings button
+        // Right: Instant Dark/Light Theme Toggle + Settings button (36px targets)
         let set_r = Rect::from_center_size(
             egui::pos2(bar_rect.right() - 24.0, cy),
-            egui::vec2(32.0, 32.0),
+            egui::vec2(35.0, 35.0),
         );
         let set_resp = ui.interact(set_r, ui.id().with("top_settings_btn"), Sense::click());
         if set_resp.hovered() {
-            ui.painter().rect_filled(set_r, 8.0, p.hover);
+            ui.painter().rect_filled(set_r, 9.0, p.hover);
         }
         icons::paint_settings(
             ui.painter(),
             set_r.center(),
-            17.5,
+            18.5,
             if set_resp.hovered() {
                 p.text_primary
             } else {
@@ -449,8 +457,8 @@ impl SkyApp {
         }
 
         let th_r = Rect::from_center_size(
-            egui::pos2(set_r.left() - 20.0, cy),
-            egui::vec2(32.0, 32.0),
+            egui::pos2(set_r.left() - 22.0, cy),
+            egui::vec2(35.0, 35.0),
         );
         let th_resp = ui.interact(th_r, ui.id().with("top_theme_toggle"), Sense::click());
         if th_resp.hovered() {
@@ -493,7 +501,7 @@ impl SkyApp {
             .unwrap_or(PresenceStatus::Offline);
 
         let (rect, resp) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 54.0), Sense::click());
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 58.0), Sense::click());
         let bg = if selected {
             p.active
         } else if resp.hovered() {
@@ -501,11 +509,23 @@ impl SkyApp {
         } else {
             Color32::TRANSPARENT
         };
-        ui.painter().rect_filled(rect, 10.0, bg);
+        ui.painter().rect_filled(rect, 11.0, bg);
+        if selected || resp.hovered() {
+            ui.painter().rect_stroke(
+                rect,
+                11.0,
+                if selected {
+                    Stroke::new(1.0_f32, p.accent.gamma_multiply(0.45))
+                } else {
+                    p.border_stroke()
+                },
+                egui::StrokeKind::Inside,
+            );
+        }
 
         let ar = Rect::from_center_size(
-            egui::pos2(rect.left() + 26.0, rect.center().y),
-            egui::vec2(36.0, 36.0),
+            egui::pos2(rect.left() + 28.0, rect.center().y),
+            egui::vec2(38.0, 38.0),
         );
         let ring_bg = if selected {
             p.active
@@ -525,21 +545,33 @@ impl SkyApp {
         };
 
         let last_info = self.last_messages.get(&ch.id).cloned();
-        let tx = ar.right() + 10.0;
+        let tx = ar.right() + 11.0;
         let name_y = if last_info.is_some() {
             rect.top() + 10.0
         } else {
-            rect.center().y - 8.0
+            rect.center().y - 9.0
         };
         ui.painter().text(
             egui::pos2(tx, name_y),
             Align2::LEFT_TOP,
             &ch.name,
-            FontId::new(14.0, theme::semibold_family()),
+            FontId::new(14.5, theme::semibold_family()),
             name_color,
         );
 
-        if let Some((ref preview, ts)) = last_info {
+        if let Some((ref raw_preview, ts)) = last_info {
+            let preview_clean = if raw_preview == "[[call:started]]" {
+                "Started a call".to_string()
+            } else if raw_preview == "[[call:missed]]" {
+                "Missed call".to_string()
+            } else if let Some(dur) = raw_preview
+                .strip_prefix("[[call:ended:")
+                .and_then(|s| s.strip_suffix("]]"))
+            {
+                format!("Call ended · {dur}")
+            } else {
+                raw_preview.clone()
+            };
             let now = Self::now_secs() as i64;
             let day = format_day_label(ts, now);
             let ts_str = if day == "Today" {
@@ -548,22 +580,22 @@ impl SkyApp {
                 day
             };
             ui.painter().text(
-                egui::pos2(rect.right() - 10.0, rect.top() + 11.0),
+                egui::pos2(rect.right() - 10.0, rect.top() + 12.0),
                 Align2::RIGHT_TOP,
                 ts_str,
-                FontId::proportional(10.5),
+                FontId::proportional(11.5),
                 p.text_muted,
             );
-            let clipped: String = if preview.chars().count() > 22 {
-                format!("{}...", preview.chars().take(22).collect::<String>())
+            let clipped: String = if preview_clean.chars().count() > 22 {
+                format!("{}...", preview_clean.chars().take(22).collect::<String>())
             } else {
-                preview.clone()
+                preview_clean
             };
             ui.painter().text(
-                egui::pos2(tx, rect.top() + 29.0),
+                egui::pos2(tx, rect.top() + 31.0),
                 Align2::LEFT_TOP,
                 clipped,
-                FontId::proportional(12.0),
+                FontId::proportional(12.5),
                 if unread > 0 {
                     p.text_primary
                 } else {
@@ -831,6 +863,9 @@ impl SkyApp {
                 &self.events_tx,
             );
             if let Some(t) = tex {
+                let p = theme::of(ui.ctx());
+                ui.painter()
+                    .circle_filled(rect.center(), rect.width() * 0.5, p.surface_alt);
                 ui.painter().image(
                     t.id(),
                     rect,

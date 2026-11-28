@@ -180,7 +180,54 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     )
     .execute(pool)
     .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS user_trusted_ips (
+            user_id    BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            ip_hash    VARCHAR(64) NOT NULL,
+            first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, ip_hash)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
+}
+
+/// Records a keyed IP hash for `user_id`. Returns `Ok(true)` if this is a brand-new
+/// IP address for an account that already had at least one previously trusted IP.
+pub async fn record_trusted_ip(
+    pool: &PgPool,
+    user_id: i64,
+    ip_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let existing_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_trusted_ips WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+    let already_known: Option<i64> = sqlx::query_scalar(
+        "SELECT 1::bigint FROM user_trusted_ips WHERE user_id = $1 AND ip_hash = $2",
+    )
+    .bind(user_id)
+    .bind(ip_hash)
+    .fetch_optional(pool)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO user_trusted_ips (user_id, ip_hash)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, ip_hash) DO UPDATE SET last_seen = NOW()",
+    )
+    .bind(user_id)
+    .bind(ip_hash)
+    .execute(pool)
+    .await?;
+
+    Ok(existing_count > 0 && already_known.is_none())
 }
 
 pub struct UserRow {

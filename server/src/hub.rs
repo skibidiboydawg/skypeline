@@ -1,7 +1,7 @@
 use crate::{auth, db, AppState};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
@@ -28,6 +28,15 @@ pub struct Relay {
     pub json: String,
 }
 
+#[derive(Clone)]
+pub struct CallMeta {
+    pub channel_id: i64,
+    pub starter_user_id: i64,
+    pub starter_username: String,
+    pub started_at: i64,
+    pub peak_participants: usize,
+}
+
 /// Centralized, strictly NON-P2P relay hub.
 /// Every chat message, presence event, Opus voice packet, and screen frame is
 /// relayed exclusively through this server; peer IP addresses are never shared.
@@ -38,6 +47,8 @@ pub struct RelayHub {
     pub voice_rooms: DashMap<String, DashMap<i64, VoiceParticipant>>,
     /// user_id -> voice room they are currently in
     pub user_rooms: DashMap<i64, String>,
+    /// room name -> metadata for posting DM call started / ended / missed notifications
+    pub call_meta: DashMap<String, CallMeta>,
     /// user_id -> accepted friend ids whose presence may be shown to them
     pub friend_cache: DashMap<i64, Vec<i64>>,
 }
@@ -52,6 +63,7 @@ impl RelayHub {
             online_users: DashMap::new(),
             voice_rooms: rooms,
             user_rooms: DashMap::new(),
+            call_meta: DashMap::new(),
             friend_cache: DashMap::new(),
         }
     }
@@ -139,15 +151,18 @@ impl RelayHub {
         );
     }
 
-    pub fn leave_voice(&self, user_id: i64) {
-        let Some((_, room)) = self.user_rooms.remove(&user_id) else {
-            return;
-        };
-        let was_sharing = self
+    /// Removes `user_id` from their active voice room. If the room becomes empty,
+    /// returns the completed `CallMeta` so a summary notification can be posted in the DM.
+    pub fn leave_voice(&self, user_id: i64) -> Option<CallMeta> {
+        let (_, room) = self.user_rooms.remove(&user_id)?;
+        let (was_sharing, remaining) = self
             .voice_rooms
             .get(&room)
-            .and_then(|m| m.remove(&user_id))
-            .is_some_and(|(_, p)| p.sharing_screen);
+            .map(|m| {
+                let sharing = m.remove(&user_id).is_some_and(|(_, p)| p.sharing_screen);
+                (sharing, m.len())
+            })
+            .unwrap_or((false, 0));
         if was_sharing {
             self.send(
                 Scope::Room(room.clone()),
@@ -159,6 +174,37 @@ impl RelayHub {
             );
         }
         self.broadcast_voice_room(&room);
+        if remaining == 0 {
+            self.call_meta.remove(&room).map(|(_, meta)| meta)
+        } else {
+            None
+        }
+    }
+}
+
+async fn post_call_ended_log(state: &AppState, meta: CallMeta) {
+    let Some(scope) = channel_scope(state, meta.starter_user_id, meta.channel_id).await else {
+        return;
+    };
+    let content = if meta.peak_participants >= 2 {
+        let secs = (auth::unix_now() - meta.started_at).max(1);
+        format!("[[call:ended:{:02}:{:02}]]", secs / 60, secs % 60)
+    } else {
+        "[[call:missed]]".to_string()
+    };
+    if let Ok(saved) = db::insert_message(
+        &state.db,
+        meta.channel_id,
+        meta.starter_user_id,
+        &meta.starter_username,
+        &content,
+        None,
+    )
+    .await
+    {
+        state
+            .hub
+            .send(scope, None, &WsServerMsg::NewMessage { message: saved });
     }
 }
 
@@ -169,11 +215,13 @@ pub struct WsQuery {
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     Query(query): Query<WsQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let claims = auth::verify_jwt(&state.jwt_secret, &query.token)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid ws token".to_string()))?;
+    auth::verify_ip_binding(&claims, &headers, &state.jwt_secret)?;
     Ok(ws
         .max_message_size(4 * 1024 * 1024)
         .on_upgrade(move |socket| handle_socket(socket, state, claims)))
@@ -254,7 +302,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: auth::Cl
     }
 
     send_task.abort();
-    hub.leave_voice(user_id);
+    if let Some(ended) = hub.leave_voice(user_id) {
+        post_call_ended_log(&state, ended).await;
+    }
     hub.online_users.remove(&user_id);
     hub.broadcast_presence();
 }
@@ -401,8 +451,11 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
             if !hub.voice_rooms.contains_key(&room) {
                 hub.voice_rooms.insert(room.clone(), DashMap::new());
             }
-            hub.leave_voice(user_id);
-            if let Some(members) = hub.voice_rooms.get(&room) {
+            if let Some(ended) = hub.leave_voice(user_id) {
+                post_call_ended_log(state, ended).await;
+            }
+            let (was_empty, new_count) = if let Some(members) = hub.voice_rooms.get(&room) {
+                let empty = members.is_empty();
                 members.insert(
                     user_id,
                     VoiceParticipant {
@@ -414,8 +467,41 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                         sharing_screen: false,
                     },
                 );
-            }
+                (empty, members.len())
+            } else {
+                (false, 0)
+            };
             hub.user_rooms.insert(user_id, room.clone());
+            if let Some(ch_id) = channel_id {
+                if was_empty {
+                    hub.call_meta.insert(
+                        room.clone(),
+                        CallMeta {
+                            channel_id: ch_id,
+                            starter_user_id: user_id,
+                            starter_username: username.to_string(),
+                            started_at: auth::unix_now(),
+                            peak_participants: new_count.max(1),
+                        },
+                    );
+                    if let Some(scope) = channel_scope(state, user_id, ch_id).await {
+                        if let Ok(saved) = db::insert_message(
+                            &state.db,
+                            ch_id,
+                            user_id,
+                            username,
+                            "[[call:started]]",
+                            None,
+                        )
+                        .await
+                        {
+                            hub.send(scope, None, &WsServerMsg::NewMessage { message: saved });
+                        }
+                    }
+                } else if let Some(mut meta) = hub.call_meta.get_mut(&room) {
+                    meta.peak_participants = meta.peak_participants.max(new_count);
+                }
+            }
             hub.broadcast_voice_room(&room);
             // Ring the DM peer if they aren't in the call yet so they get an incoming call alert.
             if let Some(peer_id) = notify_peer {
@@ -432,7 +518,11 @@ async fn handle_client_msg(state: &Arc<AppState>, user_id: i64, username: &str, 
                 }
             }
         }
-        WsClientMsg::LeaveVoice => hub.leave_voice(user_id),
+        WsClientMsg::LeaveVoice => {
+            if let Some(ended) = hub.leave_voice(user_id) {
+                post_call_ended_log(state, ended).await;
+            }
+        }
         WsClientMsg::SetVoiceState {
             muted,
             deafened,

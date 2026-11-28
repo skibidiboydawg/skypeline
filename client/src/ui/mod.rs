@@ -824,6 +824,48 @@ impl SkyApp {
         self.config.blocked_users.contains(&user_id)
     }
 
+    pub(crate) fn upload_my_avatar(&mut self) {
+        let Some(token) = self.token.clone() else {
+            return;
+        };
+        let Some((raw_bytes, filename)) = crate::avatar::pick_avatar_file() else {
+            return;
+        };
+        let (encoded, mime, hash) = match crate::avatar::process_avatar_bytes(&raw_bytes, &filename)
+        {
+            Ok(res) => res,
+            Err(err) => {
+                self.notice = err;
+                return;
+            }
+        };
+        use base64::Engine as _;
+        let upload = skypeline_shared::AvatarUpload {
+            mime,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(&encoded),
+            hash,
+        };
+        let api = self.api();
+        let tx = self.events_tx.clone();
+        self.notice = "Uploading profile picture...".into();
+        self.rt.spawn(async move {
+            match api.upload_avatar(&token, &upload).await {
+                Ok(info) => {
+                    let _ = tx.send(UiEvent::AvatarLoaded {
+                        user_id: info.user_id,
+                        hash: info.hash,
+                        mime: info.mime,
+                        data_base64: info.data_base64,
+                    });
+                    let _ = tx.send(UiEvent::Status("Profile picture updated".into()));
+                }
+                Err(e) => {
+                    let _ = tx.send(UiEvent::Error(format!("Avatar upload failed: {e}")));
+                }
+            }
+        });
+    }
+
     pub(crate) fn toggle_block(&mut self, user_id: i64) {
         if let Some(pos) = self
             .config
@@ -1298,6 +1340,15 @@ impl SkyApp {
                     mime,
                     data_base64,
                 } => {
+                    if let Some(me) = self.me.as_mut() {
+                        if me.user_id == user_id {
+                            me.avatar_hash = Some(hash.clone());
+                            if let Some(sess) = self.config.session.as_mut() {
+                                sess.avatar_hash = Some(hash.clone());
+                                self.config.save();
+                            }
+                        }
+                    }
                     let _ = self
                         .avatars
                         .on_loaded(ctx, user_id, hash, mime, data_base64);
