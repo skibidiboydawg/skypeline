@@ -58,10 +58,12 @@ impl IpGuard {
     pub fn record(&self, key: &str, window_secs: u64) {
         let now = Instant::now();
         let window = Duration::from_secs(window_secs);
-        let mut entry = self.attempts.entry(key.to_string()).or_default();
-        entry.retain(|t| now.duration_since(*t) < window);
-        entry.push(now);
-        // Cap map size defensively against memory exhaustion.
+        {
+            let mut entry = self.attempts.entry(key.to_string()).or_default();
+            entry.retain(|t| now.duration_since(*t) < window);
+            entry.push(now);
+        }
+        // Cap map size defensively against memory exhaustion (after releasing shard lock).
         if self.attempts.len() > 20_000 {
             self.attempts.clear();
         }
@@ -134,6 +136,7 @@ struct NeonAuthUser {
     name: String,
 }
 
+#[allow(dead_code)]
 pub fn issue_jwt(
     secret: &str,
     user_id: i64,
@@ -886,5 +889,17 @@ mod tests {
         assert_eq!(claims.username, "lukas");
         assert_eq!(claims.email, "lukas@example.com");
         assert!(verify_jwt("wrong_secret_1234567890", &token).is_err());
+    }
+
+    #[test]
+    fn ip_guard_record_and_rate_limit_never_deadlocks() {
+        let guard = IpGuard::new();
+        assert!(guard.check("login:1.2.3.4", 2, 900).is_ok());
+        guard.record("login:1.2.3.4", 900);
+        assert!(guard.check("login:1.2.3.4", 2, 900).is_ok());
+        guard.record("login:1.2.3.4", 900);
+        assert!(guard.check("login:1.2.3.4", 2, 900).is_err());
+        guard.clear("login:1.2.3.4");
+        assert!(guard.check("login:1.2.3.4", 2, 900).is_ok());
     }
 }
